@@ -65,7 +65,7 @@ ID) — визуально сравнить два токена подряд с�
 
 ```bash
 # засеять Evaluation + RecruiterDecision напрямую в БД для одного из созданных интервью —
-# см. data-model.md за схемой; это временный шаг, пока [[002-batch-evaluation-contour]]
+# см. data-model.md за схемой; это временный шаг, пока [[005-batch-evaluation-contour]]
 # не пишет Evaluation сам
 
 curl -s http://localhost:8000/api/v1/vacancies/$VACANCY_ID/interviews \

@@ -38,7 +38,7 @@
 - **Alternatives considered**: LangChain/аналогичный фреймворк — отклонено, один
   провайдер и один тип вызова (structured generation) не оправдывают зависимость;
   OpenAI GPT — не выбрано, `live-agent/` и `evaluation-agent/` уже завязаны на Anthropic
-  (см. [[001-live-interview-contour]], [[002-batch-evaluation-contour]]) — единый
+  (см. [[001-live-interview-contour]], [[005-batch-evaluation-contour]]) — единый
   провайдер по проекту снижает число интеграций, которые нужно поддерживать.
 
 ## Backend: извлечение текста резюме

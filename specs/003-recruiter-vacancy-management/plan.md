@@ -14,7 +14,7 @@
 вызовом Anthropic Messages API для генерации вопросов вакансии; расширить пустой
 `frontend/` четырьмя экранами поверх уже существующего `Next.js`/`shadcn/ui` каркаса.
 `Evaluation`/`RecruiterDecision` — реальная схема данных, но реальные значения в неё пишет
-[[002-batch-evaluation-contour]] (сейчас нет) — до его готовности отчёт демонстрируется на
+[[005-batch-evaluation-contour]] (сейчас нет) — до его готовности отчёт демонстрируется на
 данных, засеянных напрямую в БД (см. quickstart.md).
 
 ## Technical Context
@@ -25,7 +25,7 @@
 - Backend (новые, добавляются к существующим `fastapi`, `pydantic-settings`, `uvicorn`): `sqlalchemy[asyncio]>=2.0`, `asyncpg`, `alembic`, `boto3` (клиент MinIO/S3, синхронный — см. Complexity Tracking), `anthropic` (прямой вызов Messages API для генерации вопросов), `pypdf`/`python-docx` (извлечение текста резюме, без структурного парсинга — раздел 8 архитектурного документа)
 - Frontend (новые, добавляются к существующим `next`, `react`, shadcn-компонентам): нативный `fetch` к backend API — отдельный HTTP-клиент не нужен на этом масштабе
 
-**Storage**: PostgreSQL (уже поднят в `infra/docker-compose.yml`, порт 5432) для `Vacancy`/`Question`/`Interview`/`Evaluation`/`RecruiterDecision`; MinIO (S3-совместимое, порт 9000) для `resume_file_url` — отдельный префикс/бакет от видео/аудио (те принадлежат [[001-live-interview-contour]]/[[002-batch-evaluation-contour]], не этой фиче)
+**Storage**: PostgreSQL (уже поднят в `infra/docker-compose.yml`, порт 5432) для `Vacancy`/`Question`/`Interview`/`Evaluation`/`RecruiterDecision`; MinIO (S3-совместимое, порт 9000) для `resume_file_url` — отдельный префикс/бакет от видео/аудио (те принадлежат [[001-live-interview-contour]]/[[005-batch-evaluation-contour]], не этой фиче)
 
 **Testing**: `pytest` + `httpx.AsyncClient` (уже используется в `backend/tests/test_health.py`, паттерн сохраняется); `pytest-asyncio`/`anyio` для БД-фикстур с тестовой транзакцией/схемой
 
@@ -45,7 +45,7 @@
 
 - **I. Spec-First Delivery** — PASS. `spec.md` существует и предшествует этому плану; `tasks.md` будет сгенерирован `speckit-tasks` до начала реализации.
 - **II. Single SDD Source Of Truth** — PASS. Работа привязана к `specs/003-recruiter-vacancy-management/`, единственному источнику для recruiter-facing `backend/`+`frontend/` по [[constitution]].
-- **III. Vertical Slices Over Horizontal Layers** — PASS. `tasks.md` будет организован по User Story 1/2/3 из `spec.md` (вакансия+вопросы / создание интервью / таблица+отчёт), каждая демонстрируема независимо (US1 не требует наличия интервью; US3 демонстрируется на засеянных данных, не дожидаясь [[002-batch-evaluation-contour]]).
+- **III. Vertical Slices Over Horizontal Layers** — PASS. `tasks.md` будет организован по User Story 1/2/3 из `spec.md` (вакансия+вопросы / создание интервью / таблица+отчёт), каждая демонстрируема независимо (US1 не требует наличия интервью; US3 демонстрируется на засеянных данных, не дожидаясь [[005-batch-evaluation-contour]]).
 - **IV. Contract-First Frontend/Backend Boundaries** — PASS, с обязательством: `contracts/` (Phase 1) фиксирует все эндпоинты до того, как `frontend/` начнёт их вызывать; фронтенд-таски в `tasks.md` MUST ссылаться на конкретный контракт.
 - **V. Minimalism And Verifiable Change** — PASS, с одним отклонением, обоснованным ниже (Complexity Tracking): синхронный `boto3` вместо async S3-клиента — меньше нового кода, не нарушает бюджет производительности этой фичи (не в live-пути).
 

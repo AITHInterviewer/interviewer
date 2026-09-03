@@ -1,18 +1,18 @@
 <!--
 Sync Impact Report
-Version change: 1.0.1 -> 1.1.0
+Version change: 1.1.0 -> 1.1.1
 Modified principles:
-- II. Single SDD Source Of Truth -> II. Single SDD Source Of Truth (now names the four
-  active feature directories under specs/ explicitly)
+- II. Single SDD Source Of Truth -> II. Single SDD Source Of Truth (feature directory list
+  corrected: specs/002-docker-dev-baseline/ was created independently of this constitution
+  amendment and now takes the 002 prefix; the batch-evaluation-contour feature that
+  previously held 002 was renumbered to specs/005-batch-evaluation-contour/ to resolve the
+  collision, and is added to the list)
 Added sections:
-- Technology Constraints: baseline stacks for live-agent/ and evaluation-agent/ (closes
-  the 1.0.1 follow-up TODO); infra/ documented as deployment/local-stack config, not an
-  independently spec-governed area.
+- None
 Removed sections:
 - None
 Follow-up TODOs:
-- None outstanding. Re-open a TODO here if live_coding, contradiction_check, or
-  resume_inspired implementation work starts and needs its own feature directory.
+- None outstanding.
 -->
 
 # AInterviewer Constitution
@@ -41,9 +41,10 @@ active `frontend/`, `backend/`, `live-agent/`, and `evaluation-agent/` work is
 `specs/`:
 
 - `specs/001-live-interview-contour/` — `live-agent/`
-- `specs/002-batch-evaluation-contour/` — `evaluation-agent/`
+- `specs/002-docker-dev-baseline/` — local Docker dev startup for `backend/` + `frontend/` (env-driven config, core happy path)
 - `specs/003-recruiter-vacancy-management/` — recruiter-facing `backend/` + `frontend/`
 - `specs/004-candidate-interview-flow/` — candidate-facing `frontend/` (+ integration with `live-agent/`)
+- `specs/005-batch-evaluation-contour/` — `evaluation-agent/`
 
 Each feature directory's `spec.md` MUST stay current with what the corresponding code
 actually does, including a plain statement of what is implemented versus still open.
@@ -162,4 +163,4 @@ migration in team workflow. The scope of this constitution is `frontend/`, `back
 `live-agent/`, and `evaluation-agent/`; extending it to further areas requires a further
 amendment.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-03 | **Last Amended**: 2026-09-03
+**Version**: 1.1.1 | **Ratified**: 2026-09-03 | **Last Amended**: 2026-09-03

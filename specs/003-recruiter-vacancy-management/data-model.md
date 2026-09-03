@@ -2,7 +2,7 @@
 
 Источник истины по семантике полей — `docs/Архитектура и дизайн MVP.md`, раздел 4;
 здесь — те же сущности, переложенные под SQLAlchemy-таблицы и явные ограничения для этой
-фичи. Поля, принадлежащие [[001-live-interview-contour]]/[[002-batch-evaluation-contour]]
+фичи. Поля, принадлежащие [[001-live-interview-contour]]/[[005-batch-evaluation-contour]]
 (генерация adaptive-вопросов в рантайме, заполнение `Evaluation` из батч-пайплайна) здесь
 только объявляются как схема — их заполняет не эта фича.
 
@@ -79,7 +79,7 @@ skill_tag <> '{}'` (раздел 5, п.1).
 | `completed_at` | timestamptz | nullable |
 
 `status` переходы `in_progress`/`completed`/`processing_failed` управляются
-[[001-live-interview-contour]]/[[002-batch-evaluation-contour]], не этой фичей — 003
+[[001-live-interview-contour]]/[[005-batch-evaluation-contour]], не этой фичей — 003
 только читает статус для таблицы (US3).
 
 ## Evaluation
@@ -102,7 +102,7 @@ skill_tag <> '{}'` (раздел 5, п.1).
 | `prompt_version` | text | nullable |
 | `generated_at` | timestamptz | nullable |
 
-Пишет [[002-batch-evaluation-contour]] целиком; 003 определяет схему и читает для US3.
+Пишет [[005-batch-evaluation-contour]] целиком; 003 определяет схему и читает для US3.
 До готовности батч-воркера строки засеиваются вручную для демонстрации отчёта (см.
 `quickstart.md`).
 

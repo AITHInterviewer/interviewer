@@ -1,6 +1,6 @@
 # Feature Specification: Batch-контур оценки кандидата
 
-**Feature Branch**: `002-batch-evaluation-contour`
+**Feature Branch**: `005-batch-evaluation-contour`
 
 **Created**: 2026-09-03
 
