@@ -1,15 +1,18 @@
 <!--
 Sync Impact Report
-Version change: 1.0.0 -> 1.0.1
+Version change: 1.1.0 -> 1.1.1
 Modified principles:
-- IV. Contract-First Frontend/Backend Boundaries -> IV. Contract-First Frontend/Backend Boundaries
-- V. Minimalism And Verifiable Change -> V. Minimalism And Verifiable Change
+- II. Single SDD Source Of Truth -> II. Single SDD Source Of Truth (feature directory list
+  corrected: specs/002-docker-dev-baseline/ was created independently of this constitution
+  amendment and now takes the 002 prefix; the batch-evaluation-contour feature that
+  previously held 002 was renumbered to specs/005-batch-evaluation-contour/ to resolve the
+  collision, and is added to the list)
 Added sections:
 - None
 Removed sections:
 - None
 Follow-up TODOs:
-- Extend constitution scope to live-agent, evaluation-agent, and infra in a future amendment.
+- None outstanding.
 -->
 
 # AInterviewer Constitution
@@ -18,7 +21,8 @@ Follow-up TODOs:
 
 ### I. Spec-First Delivery
 
-All non-trivial work in `frontend/` and `backend/` MUST begin with Speckit artifacts,
+All non-trivial work in `frontend/`, `backend/`, `live-agent/`, and `evaluation-agent/`
+MUST begin with Speckit artifacts,
 not direct implementation. The minimum required path is `spec.md` before design or
 coding, followed by `plan.md` and `tasks.md` before implementation starts. The only
 allowed exceptions are narrowly scoped fixes such as typos, broken imports, or
@@ -32,8 +36,20 @@ before code diverges.
 Speckit is the only active spec-driven development process for this repository.
 `openspec/` is legacy and MUST NOT be used for new planning or change tracking. When
 code, chat history, and planning artifacts disagree, the authoritative source for
-active `frontend/` and `backend/` work is `.specify/memory/constitution.md` together
-with the active feature directory under `specs/`.
+active `frontend/`, `backend/`, `live-agent/`, and `evaluation-agent/` work is
+`.specify/memory/constitution.md` together with the relevant feature directory under
+`specs/`:
+
+- `specs/001-live-interview-contour/` — `live-agent/`
+- `specs/002-docker-dev-baseline/` — local Docker dev startup for `backend/` + `frontend/` (env-driven config, core happy path)
+- `specs/003-recruiter-vacancy-management/` — recruiter-facing `backend/` + `frontend/`
+- `specs/004-candidate-interview-flow/` — candidate-facing `frontend/` (+ integration with `live-agent/`)
+- `specs/005-batch-evaluation-contour/` — `evaluation-agent/`
+
+Each feature directory's `spec.md` MUST stay current with what the corresponding code
+actually does, including a plain statement of what is implemented versus still open.
+`docs/Архитектура и дизайн MVP.md` remains the product-level design rationale; `specs/`
+is the executable, per-feature breakdown derived from it.
 
 Rationale: one active governance system avoids duplicated plans, conflicting task
 lists, and silent process drift.
@@ -72,7 +88,7 @@ to create accidental complexity.
 
 ## Technology Constraints
 
-This constitution currently governs only `frontend/` and `backend/`.
+This constitution governs `frontend/`, `backend/`, `live-agent/`, and `evaluation-agent/`.
 
 For `frontend/`, the baseline stack is:
 - `Next.js`
@@ -84,16 +100,32 @@ For `backend/`, the baseline stack is:
 - `FastAPI`
 - `uv`
 
-Changing the baseline stack for either area MUST be approved through a new or amended
-Speckit specification and reflected in the constitution if the change alters ongoing
-project-wide standards.
+For `live-agent/`, the baseline stack and non-negotiable decisions are documented in
+`live-agent/CLAUDE.md` (control flow is plain Python state machine, not LLM tool-calling;
+LLM calls go only through the typed `LiveControlLLM.decide()` contract; model is
+`claude-haiku-4-5` via Claude Agent SDK; STT/TTS are self-hosted via Docker). That file is
+binding for changes inside `live-agent/` in the same way this section is binding for
+`frontend/`/`backend/` — Speckit changes to `specs/001-live-interview-contour/` MUST NOT
+silently contradict it.
 
-`live-agent/`, `evaluation-agent/`, and `infra/` are currently outside the strict scope
-of this constitution and will be added by a later amendment.
+For `evaluation-agent/`, the baseline stack is:
+- `Pydantic` for schemas, kept as an independent copy from `backend/` models (services do
+  not share an ORM layer)
+- `Redis` for the task queue (declared in dependencies; not yet wired up)
+- `httpx` for calls back to the backend API
+
+`infra/` holds deployment and local-stack configuration (Docker Compose, LiveKit egress
+config) shared across services. It is not an independently spec-governed feature area —
+changes to it MUST stay traceable to whichever feature directory under `specs/` they
+support, rather than accumulating undocumented infrastructure drift.
+
+Changing the baseline stack for any governed area MUST be approved through a new or
+amended Speckit specification and reflected in this constitution if the change alters
+ongoing project-wide standards.
 
 ## Development Workflow
 
-For non-trivial `frontend/` and `backend/` work, the required sequence is:
+For non-trivial work in any governed area, the required sequence is:
 
 1. `speckit-specify`
 2. `speckit-clarify` when clarification markers remain or review requires it
@@ -113,7 +145,7 @@ requirements, contracts, and validation steps without relying on undocumented co
 ## Governance
 
 This constitution supersedes ad-hoc process decisions for governed areas of the
-repository. Every substantial `frontend/` or `backend/` review MUST verify that:
+repository. Every substantial review of a governed area MUST verify that:
 
 - the work is backed by Speckit artifacts
 - the active feature has a clear source of truth under `specs/`
@@ -127,7 +159,8 @@ Constitution versioning follows semantic versioning:
 - `PATCH`: clarifications, wording improvements, or non-semantic cleanup
 
 Amendments to this constitution MUST document the reason for change and any required
-migration in team workflow. Until expanded by amendment, the scope of this constitution
-remains limited to `frontend/` and `backend/`.
+migration in team workflow. The scope of this constitution is `frontend/`, `backend/`,
+`live-agent/`, and `evaluation-agent/`; extending it to further areas requires a further
+amendment.
 
-**Version**: 1.0.1 | **Ratified**: 2026-09-03 | **Last Amended**: 2026-09-03
+**Version**: 1.1.1 | **Ratified**: 2026-09-03 | **Last Amended**: 2026-09-03

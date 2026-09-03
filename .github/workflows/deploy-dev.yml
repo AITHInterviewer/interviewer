@@ -1,0 +1,74 @@
+name: deploy dev baseline (self-hosted)
+
+# Поднимает frontend+backend (docker-compose.dev.yml) на self-hosted раннере (Radmin VPN,
+# 26.67.31.6) — тот же baseline, что и для локальной разработки (см. корневой README.md),
+# только постоянно запущенный на выделенной машине и доступный по Radmin-сети.
+#
+# CORS_ORIGINS/NEXT_PUBLIC_BACKEND_URL зашиты явно (не секреты — просто конфиг, IP машины
+# не чувствительная информация) — поменять оба значения здесь, если IP раннера изменится.
+#
+# shell: powershell (Windows PowerShell 5.1) — гарантированно есть на любой Windows-машине,
+# в отличие от bash, который на self-hosted Windows-раннере может быть не в PATH службы.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "docker-compose.dev.yml"
+      - ".github/workflows/deploy-dev.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Write backend/.env
+        run: |
+          Set-Content -Path backend/.env -Encoding utf8 -Value @'
+          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
+          '@
+
+      - name: Write frontend/.env
+        run: |
+          Set-Content -Path frontend/.env -Encoding utf8 -Value @'
+          NEXT_PUBLIC_BACKEND_URL=http://26.67.31.6:8000
+          BACKEND_INTERNAL_URL=http://backend:8000
+          '@
+
+      - name: Build and (re)start dev baseline
+        run: docker compose -f docker-compose.dev.yml up -d --build --remove-orphans
+
+      - name: Wait for backend health
+        run: |
+          $ok = $false
+          for ($i = 0; $i -lt 24; $i++) {
+            try {
+              Invoke-WebRequest -Uri http://localhost:8000/health -UseBasicParsing -TimeoutSec 3 | Out-Null
+              $ok = $true
+              break
+            } catch {
+              Start-Sleep -Seconds 5
+            }
+          }
+          if (-not $ok) {
+            Write-Error "backend did not become healthy in time"
+            docker compose -f docker-compose.dev.yml logs backend --tail 100
+            exit 1
+          }
+          Write-Output "backend healthy"
+
+      - name: Print URLs
+        run: |
+          Write-Output "frontend: http://26.67.31.6:3000"
+          Write-Output "backend health: http://26.67.31.6:8000/health"
