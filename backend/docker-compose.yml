@@ -25,7 +25,7 @@ services:
       - ./app:/app/app
       - ./tests:/app/tests
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -44,7 +44,7 @@ services:
         "run",
         "celery",
         "-A",
-        "app.worker.celery_app",
+        "app.celery.app:celery_app",
         "worker",
         "--loglevel=INFO"
       ]
@@ -53,7 +53,7 @@ services:
     volumes:
       - ./app:/app/app
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -72,7 +72,7 @@ services:
         "run",
         "celery",
         "-A",
-        "app.worker.celery_app",
+        "app.celery.app:celery_app",
         "beat",
         "--loglevel=INFO"
       ]
@@ -81,17 +81,18 @@ services:
     volumes:
       - ./app:/app/app
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
 
 
-  postgres:
+  db:
     image: postgres:17-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_HOST: ${POSTGRES_HOST}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
@@ -156,17 +157,12 @@ services:
         condition: service_healthy
     env_file:
       - .env
-    entrypoint: >
-      /bin/sh -c "
-        mc alias set local http://minio:9000
-        $${MINIO_ROOT_USER}
-        $${MINIO_ROOT_PASSWORD};
-
-        mc mb --ignore-existing
-        local/$${MINIO_BUCKET};
-
-        exit 0;
-      "
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing "local/$${MINIO_BUCKET}"
 
 
 volumes:

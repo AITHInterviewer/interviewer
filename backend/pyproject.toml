@@ -7,6 +7,12 @@ dependencies = [
     "fastapi>=0.115",
     "pydantic-settings>=2.6",
     "uvicorn[standard]>=0.32",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "alembic",
+    "pydantic-settings",
+    "celery[redis]",
+    "boto3",
 ]
 
 [project.optional-dependencies]
