@@ -1,0 +1,803 @@
+{
+  "name": "Product Engineering",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const results = [];\nconst seen = new Set();\n\nfor (const item of items) {\n  const output = item.json.output || [];\n\n  for (const block of output) {\n    if (block.type === 'message' && Array.isArray(block.content)) {\n      for (const content of block.content) {\n        const annotations = content.annotations || [];\n        for (const ann of annotations) {\n          if (ann.type === 'url_citation' && ann.url) {\n            if (!seen.has(ann.url)) {\n              seen.add(ann.url);\n              results.push({\n                json: {\n                  title: ann.title || null,\n                  url: ann.url\n                }\n              });\n            }\n          }\n        }\n      }\n    }\n  }\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        4096
+      ],
+      "id": "f8b9bdf2-c8ad-4303-9753-1c08b93c2d9a",
+      "name": "Code22"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8 Accept-Language: en-US,en;q=0.9"
+            }
+          ]
+        },
+        "options": {
+          "allowUnauthorizedCerts": true,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1232,
+        4096
+      ],
+      "id": "510d0f13-02ed-4fbb-a599-1517316237c0",
+      "name": "HTTP Request31",
+      "retryOnFail": false,
+      "alwaysOutputData": true,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractAll(regex, html) {\n  const res = [];\n  let m;\n  while ((m = regex.exec(html)) !== null) {\n    const text = m[1]\n      .replace(/<[^>]+>/g, ' ')\n      .replace(/\\s+/g, ' ')\n      .trim();\n    if (text) res.push(text);\n  }\n  return res;\n}\n\nreturn items.map(item => {\n  const html = item.json.data || '';\n  if (!html) {\n    return { json: { error: 'empty_html' } };\n  }\n\n  const title =\n    html.match(/<title[^>]*>(.*?)<\\/title>/i)?.[1]?.trim() || null;\n\n  const description =\n    html.match(/<meta\\s+name=[\"']description[\"']\\s+content=[\"'](.*?)[\"']/i)?.[1] || null;\n\n  const lang =\n    html.match(/<html[^>]+lang=[\"'](.*?)[\"']/i)?.[1] || null;\n\n  const h1 =\n    html.match(/<h1[^>]*>(.*?)<\\/h1>/i)?.[1]\n      ?.replace(/<[^>]+>/g, ' ')\n      .trim() || null;\n\n  const h2 = extractAll(/<h2[^>]*>(.*?)<\\/h2>/gi, html);\n  const h3 = extractAll(/<h3[^>]*>(.*?)<\\/h3>/gi, html);\n  const h4 = extractAll(/<h4[^>]*>(.*?)<\\/h4>/gi, html);\n\n  const cta = extractAll(\n    /<(a|button)[^>]*(href=[\"'](.*?)[\"'])?[^>]*>(.*?)<\\/(a|button)>/gi,\n    html\n  );\n\n  const lower = html.toLowerCase();\n\n  return {\n    json: {\n      title,\n      description,\n      lang,\n      h1,\n      h2,\n      h3,\n      h4\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        4096
+      ],
+      "id": "ba2b4a6f-aba0-422d-aaa4-ec1b938fbe6f",
+      "name": "Code24"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.message?.content || \"\";\n\nconst lines = raw\n  .split(\"\\n\")\n  .map(l => l.trim())\n  .filter(l => l && l.includes(\" | \"));\n\n// только строки с РОВНО одним \" | \"\nconst valid = lines.filter(l => (l.match(/ \\| /g) || []).length === 1);\n\n// парсинг\nlet segments = valid.map(l => {\n  const [segment, description] = l.split(\" | \").map(s => s.trim());\n  return { segment, description };\n});\n\n// дедуп по имени сегмента (без регистра)\nconst seen = new Set();\nsegments = segments.filter(x => {\n  const k = (x.segment || \"\").toLowerCase();\n  if (!k || seen.has(k)) return false;\n  seen.add(k);\n  return true;\n});\n\nreturn [{ json: { segments, count: segments.length } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2416,
+        4096
+      ],
+      "id": "2049404f-a6ca-4d6a-82c5-dcb2951546ea",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Берём URL продукта из ноды Code24\nconst product = $(\"Code24\").first().json.clean_url || \"Unknown Product\";\n\n// Массив сегментов из текущего item\nconst segs = $json.segments || [];\n\n// Размножаем на отдельные строки для Google Sheets\nconst rows = segs\n  .filter(s => s.segment && s.description)\n  .map(s => ({\n    json: {\n      Product: product,\n      Segment: s.segment,\n      Description: s.description,\n    }\n  }));\n\n// Если сегментов нет — всё равно вернём одну строку, чтобы не упала цепочка\nif (rows.length === 0) {\n  return [{ json: { Product: product, Segment: null, Description: null } }];\n}\n\nreturn rows;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        4096
+      ],
+      "id": "b65a8fcf-ecab-4841-9fe7-b7e3b311a045",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are acting as a senior product strategist.\nYour task is to create a full Value Proposition Canvas for the product based on the given customer segment and its Jobs-To-Be-Done.\n\nINPUT:\n\nSegment: {{ $('Code2').item.json.Segment }}\nJTBD JSON:\n<<<\n{{ $json.message.content }}\n>>>\nPain Map (if available):\n<<<\n{{ $('Pain map').item.json.message.content }}\n>>>\n\nTASK:\n1. **Customer Profile** — Extract from JTBD and pains:\n   - Customer Jobs: functional, social, emotional jobs\n   - Pains: obstacles, risks, bad outcomes to avoid\n   - Gains: desired benefits, outcomes, aspirations\n\n2. **Value Map** — Propose for the product:\n   - Products & Services: main offerings relevant to this segment\n   - Pain Relievers: how the product addresses each pain\n   - Gain Creators: how the product enables each gain\n\n3. All content must be concise but rich in meaning, based on segment’s JTBD and pain map.\n4. Group items into bullet points under each heading.\n5. Output must be STRICT valid JSON with this structure:\n\n{\n  \"product\": \"<product URL>\",\n  \"segment\": \"<segment>\",\n  \"customer_profile\": {\n    \"customer_jobs\": {\n      \"functional\": [\"...\"],\n      \"social\": [\"...\"],\n      \"emotional\": [\"...\"]\n    },\n    \"pains\": [\"...\"],\n    \"gains\": [\"...\"]\n  },\n  \"value_map\": {\n    \"products_services\": [\"...\"],\n    \"pain_relievers\": [\"...\"],\n    \"gain_creators\": [\"...\"]\n  }\n}\n\nRULES:\n- English only.\n- Avoid generic filler.\n- Infer missing details logically from JTBD and pains.\n- No markdown, no explanation — only JSON."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        4464,
+        4096
+      ],
+      "id": "122da2a5-8fcd-46c9-abda-b66dc2c625b5",
+      "name": "VPC",
+      "credentials": {
+        "openAiApi": {
+          "id": "RaFSmrV7Ll72BonR",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a product strategist using the Jobs-To-Be-Done (JTBD) framework.\n\nINPUT:\nSegment: {{ $('Code2').item.json.Segment }}\nDescription: {{ $('Code2').item.json.Description }}\nInterview (Q&A text, if available):\n<<<\n{{ $('Interviews').item.json.message.content }}\n>>>\nPain Map (JSON, if available):\n<<<\n{{ $json.message.content }}\n>>>\n\nTASK:\nSynthesize 3–6 core Jobs-To-Be-Done from the inputs. For each JTBD, produce:\n- job_statement (in “When [situation], I want to [motivation], so I can [expected outcome]” format)\n- situation (concise trigger/context)\n- struggle (core pain/friction from the interview)\n- desired_outcomes (4–7 outcomes as measurable, solution-agnostic statements; verbs like “reduce time to…”, “increase confidence in…”, “avoid…”)\n- forces (pushes, pulls, anxieties, habits arrays; 2–5 items each)\n- acceptance_criteria (3–6 objective criteria to judge success)\n- moment_of_progress (what event signals progress/relief)\n- related_quotes (2–4 short verbatim quotes from the interview with Q/A refs)\n- priority_score (integer 0–100, weigh severity/frequency/reach from Pain Map)\n\nOUTPUT FORMAT (STRICT):\nReturn ONLY valid JSON:\n{\n  \"segment\": \"<segment>\",\n  \"jtbd\": [\n    {\n      \"job_statement\": \"When ..., I want to ..., so I can ...\",\n      \"situation\": \"...\",\n      \"struggle\": \"...\",\n      \"desired_outcomes\": [\"...\", \"...\"],\n      \"forces\": {\n        \"pushes\": [\"...\", \"...\"],\n        \"pulls\": [\"...\", \"...\"],\n        \"anxieties\": [\"...\", \"...\"],\n        \"habits\": [\"...\", \"...\"]\n      },\n      \"acceptance_criteria\": [\"...\", \"...\"],\n      \"moment_of_progress\": \"...\",\n      \"related_quotes\": [\"Q2/A2: ...\", \"Q5/A5: ...\"],\n      \"priority_score\": 0\n    }\n  ]\n}\n\nRULES:\n- English only.\n- No Markdown, no explanation, only JSON.\n- If Interview is missing, infer carefully from Description and Pain Map.\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        4064,
+        4096
+      ],
+      "id": "cc445ba7-f8e3-42e0-810f-74fac1708517",
+      "name": "JTBD",
+      "credentials": {
+        "openAiApi": {
+          "id": "RaFSmrV7Ll72BonR",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d180ec1b-a407-4dcd-91af-1f9ae9acaacf",
+              "name": "ICP",
+              "value": "={{ $('ICP').item.json.message.content }}",
+              "type": "string"
+            },
+            {
+              "id": "1d851e47-35af-4483-b6b7-a7eee7399b28",
+              "name": "Interview",
+              "value": "={{ $('Interviews').item.json.message.content }}",
+              "type": "string"
+            },
+            {
+              "id": "58eb7a55-27b1-47cf-ae47-6866a65453d2",
+              "name": "Pain map",
+              "value": "={{ $('Pain map').item.json.message.content }}",
+              "type": "string"
+            },
+            {
+              "id": "3b972d88-5944-4e13-9339-cdab5988cc05",
+              "name": "JTBD",
+              "value": "={{ $('JTBD').item.json.message.content }}",
+              "type": "string"
+            },
+            {
+              "id": "56cc5751-fc24-4cab-b42a-0a69d1fba376",
+              "name": "Value proposition",
+              "value": "={{ $json.message.content }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        4864,
+        4096
+      ],
+      "id": "6506a928-4215-4e2f-b3a5-a00d72258ccf",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "content": "## Product Hunt",
+        "height": 528,
+        "width": 1632
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        320,
+        3856
+      ],
+      "typeVersion": 1,
+      "id": "50dec47e-bed1-4e41-bd44-6685c87aff1f",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Product Ideation",
+        "height": 528,
+        "width": 4480,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1952,
+        3856
+      ],
+      "typeVersion": 1,
+      "id": "359677be-9c45-4a0c-8455-55cb11988bf0",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a professional marketer.\n\nTASK:\nCreate a detailed Ideal Customer Profile (ICP) for the following customer segment.\n\nSegment: {{ $json.Segment }}\nDescription: {{ $json.Description }}\n\nOUTPUT FORMAT (STRICT):\n- Customer Type (B2B, B2C, B2G, or mixed):\n- Industry or Market Category:\n- Demographics (age, gender, education, etc. if applicable):\n- Firmographics (company size, revenue, industry if applicable):\n- Geography:\n- Psychographics (values, lifestyle, interests):\n- Behavioral Traits (buying habits, product usage patterns):\n- Needs & Goals:\n- Purchase Triggers:\n- Decision-Making Process:\n- Budget or Spending Capacity:\n- Preferred Channels & Touchpoints:\n- Objections & How to Overcome Them:\n\nImportant rules:\n- English only\n- No extra commentary\n- No numbering or bullets other than the field labels exactly as given above\n- Every field must be filled even if you need to make reasonable assumptions\n- One profile only"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        2864,
+        4096
+      ],
+      "id": "974ec3d2-3922-4d64-95e4-f61b9b1b086b",
+      "name": "ICP",
+      "credentials": {
+        "openAiApi": {
+          "id": "RaFSmrV7Ll72BonR",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a professional marketer.\n\nTASK:\nFrom the text below, extract top-5 DISTINCT customer segments for the product and write a ONE-SENTENCE benefit-focused description for each.\n\nOUTPUT FORMAT (STRICT):\n- Output ONLY lines in the form: Segment | Description\n- No titles, no preface, no summaries, no headers, no markdown tables, no numbering, no bullets, no code fences.\n- English only.\n- Each line must contain EXACTLY one pipe character \" | \" separating the two fields.\n- Do not use additional pipes inside fields. If a pipe would appear, replace it with a slash \"/\".\n- Segment: short noun phrase (max 200 chars), Title Case.\n- Description: one sentence (max 400 chars), no line breaks.\n- Do NOT include any “Summary” or anything after the last segment line.\n\nSOURCE TEXT:\n<<<\n{{ $json.message.content }}\n>>>\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        2016,
+        4096
+      ],
+      "id": "723fa0e6-e943-4fc3-b329-15248a770125",
+      "name": "Segments",
+      "credentials": {
+        "openAiApi": {
+          "id": "RaFSmrV7Ll72BonR",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are acting as a professional market researcher.  \nYour task is to simulate a realistic, in-depth interview with a representative of the following customer segment.\n\nSegment: {{ $('Code2').item.json.Segment }}\nDescription: {{ $('Code2').item.json.Description }}\nCustomer persona: {{ $json.message.content }}\n\nGuidelines:\n1. The interview should be a **Q&A format** with around 8–10 questions and realistic, detailed answers from the simulated customer.\n2. Questions should explore:\n   - Context of their work/life relevant to the segment\n   - Current challenges/pain points\n   - How they currently solve these problems\n   - Experience with similar products/services\n   - Decision-making process for adopting new tools\n   - Desired features and expectations from the product\n   - Concerns, objections, or risks they see\n   - The \"wow\" factors that would make them adopt the product immediately\n3. Make the tone natural, as if speaking to a real person from this segment.\n4. Each answer should provide rich context and nuance.\n5. Avoid generic corporate-speak — answers should sound like an authentic human.\n\nOutput format:\nQ1: [Your question]\nA1: [Customer’s answer]\n\nQ2: [Your question]\nA2: [Customer’s answer]\n\n...continue for all questions...\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        3264,
+        4096
+      ],
+      "id": "69630ffe-f9f9-467f-9c89-0b348a9c5e18",
+      "name": "Interviews",
+      "credentials": {
+        "openAiApi": {
+          "id": "RaFSmrV7Ll72BonR",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a senior product marketer.\n\nINPUT:\nSegment: {{ $('Code2').item.json.Segment }}\nDescription: {{ $('Code2').item.json.Description }}\nInterview (Q&A text):\n<<<\n{{ $json.message.content }}\n>>>\n\nTASK:\nFrom the interview, extract a Pain Map with clear, evidence-backed pains. Each pain must include:\n- pain (short, specific, user-language)\n- evidence_quotes (2–4 short quotes with Q/A ref like \"Q3/A3\")\n- severity (1–5; how painful)\n- frequency (1–5; how often)\n- reach (1–5; how many in the segment likely have it)\n- confidence (1–5; how confident you are based on the interview)\n- priority_score (integer) = round( (severity*0.4 + frequency*0.3 + reach*0.2 + confidence*0.1) * 10 )\n- root_cause (why it happens)\n- current_workarounds (how they cope today)\n- desired_outcome (what “good” looks like)\n- related_jtbd (1–2 Jobs-To-Be-Done, short)\n- opportunity_notes (how the product could solve it)\n\nOUTPUT FORMAT (STRICT):\nReturn ONLY a compact JSON object with this shape:\n{\n  \"segment\": \"<segment>\",\n  \"pains\": [\n    {\n      \"pain\": \"...\",\n      \"evidence_quotes\": [\"Q2/A2: ...\", \"Q5/A5: ...\"],\n      \"severity\": 1,\n      \"frequency\": 1,\n      \"reach\": 1,\n      \"confidence\": 1,\n      \"priority_score\": 10,\n      \"root_cause\": \"...\",\n      \"current_workarounds\": \"...\",\n      \"desired_outcome\": \"...\",\n      \"related_jtbd\": [\"...\"],\n      \"opportunity_notes\": \"...\"\n    }\n  ]\n}\n\nRULES:\n- English only.\n- 4–8 pains.\n- Use real phrasing from the interview for quotes (short, trimmed).\n- No extra prose, no markdown, no code fences, only valid JSON."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        3664,
+        4096
+      ],
+      "id": "786c0828-88ee-4f54-923c-28876d6b6300",
+      "name": "Pain map",
+      "credentials": {
+        "openAiApi": {
+          "id": "RaFSmrV7Ll72BonR",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// n8n Function node\n// Input item fields expected:\n// Reference, Segment, ICP, Interview, Pain map, JTBD, Value proposition\n// Output: wide rows per each JTBD with all columns filled.\n\nfunction safeParse(maybeStr) {\n  if (maybeStr == null) return null;\n  if (typeof maybeStr === 'object') return maybeStr;\n  if (typeof maybeStr !== 'string') return null;\n  let s = maybeStr.trim();\n\n  // strip code fences if any\n  if (s.startsWith(\"```\")) {\n    const i = s.indexOf(\"{\");\n    const j = s.lastIndexOf(\"}\");\n    if (i >= 0 && j >= 0) s = s.slice(i, j + 1);\n  }\n  // try as-is, then trimmed again\n  try { return JSON.parse(s); } catch(e) {}\n  try { return JSON.parse(s.replace(/\\u00A0/g, \" \").trim()); } catch(e2) { return null; }\n}\n\nfunction joinArr(x) {\n  if (!x) return null;\n  if (Array.isArray(x)) return x.map(v => (v == null ? \"\" : String(v))).map(v => v.trim()).filter(Boolean).join(\" | \");\n  // if it is object, stringify stable\n  if (typeof x === \"object\") {\n    try { return JSON.stringify(x); } catch(e) { return String(x); }\n  }\n  return String(x);\n}\n\nfunction get(obj, path, fallback = null) {\n  try {\n    return path.split(\".\").reduce((a, k) => (a && a[k] !== undefined ? a[k] : null), obj) ?? fallback;\n  } catch (e) { return fallback; }\n}\n\nconst out = [];\n\nfor (const item of $input.all()) {\n  const ref = item.json[\"Reference\"] ?? null;\n  const segText = item.json[\"Segment\"] ?? null;        // plain text list (may be multiline)\n  const icp = item.json[\"ICP\"] ?? null;\n  const interview = item.json[\"Interview\"] ?? null;\n\n  const painMapRaw = item.json[\"Pain map\"] ?? null;\n  const jtbdRaw    = item.json[\"JTBD\"] ?? null;\n  const vpcRaw     = item.json[\"Value proposition\"] ?? null;\n\n  const painMap = safeParse(painMapRaw);\n  const jtbd    = safeParse(jtbdRaw);\n  const vpc     = safeParse(vpcRaw);\n\n  // extract VPC bits\n  const vpcProduct = get(vpc, \"product\");\n  const vpcSegment = get(vpc, \"segment\");\n\n  const vpcGains = get(vpc, \"customer_profile.gains\", []);\n  const vpcPains = get(vpc, \"customer_profile.pains\", []);\n  const vpcJobsF = get(vpc, \"customer_profile.customer_jobs.functional\", []);\n  const vpcJobsS = get(vpc, \"customer_profile.customer_jobs.social\", []);\n  const vpcJobsE = get(vpc, \"customer_profile.customer_jobs.emotional\", []);\n  const vpcProducts = get(vpc, \"value_map.products_services\", []);\n  const vpcPainRelievers = get(vpc, \"value_map.pain_relievers\", []);\n  const vpcGainCreators = get(vpc, \"value_map.gain_creators\", []);\n\n  // extract Pain map bits\n  const pmSegment = get(painMap, \"segment\");\n  const pmPains = Array.isArray(get(painMap, \"pains\")) ? painMap.pains : [];\n  const pmPainTexts = pmPains.map(p => p && p.pain).filter(Boolean);\n\n  // JTBD list\n  const jtbdSegment = get(jtbd, \"segment\");\n  const jtbdList = Array.isArray(get(jtbd, \"jtbd\")) ? jtbd.jtbd : [];\n\n  // choose segment resolution priority: jtbd > vpc > painMap > plain Segment\n  const resolvedSegment = jtbdSegment || vpcSegment || pmSegment || (typeof segText === \"string\" ? segText.split(\"\\n\")[0] : segText) || null;\n\n  // if no JTBD at all, still return one diagnostic row so pipeline does not look empty\n  if (jtbdList.length === 0) {\n    out.push({\n      json: {\n        index: null,\n        role: null,\n        finish_reason: null,\n\n        reference: ref,\n        icp,\n        interview,\n        pain_map: painMapRaw,\n        product: vpcProduct ?? null,\n        segment: resolvedSegment,\n\n        jtbd_job_statement: null,\n        jtbd_situation: null,\n        jtbd_struggle: null,\n        jtbd_priority_score: null,\n\n        // atom selection\n        atom_category: \"diagnostic\",\n        atom_index: 0,\n\n        // wide fields fully filled from VPC / Pain map\n        pain: joinArr(pmPainTexts.length ? pmPainTexts : vpcPains),\n        gain: joinArr(vpcGains),\n        customer_job: joinArr([...(vpcJobsF||[]), ...(vpcJobsS||[]), ...(vpcJobsE||[])]),\n        customer_job_type: [\"functional\", \"social\", \"emotional\"].filter(t => (t===\"functional\" && (vpcJobsF||[]).length) || (t===\"social\" && (vpcJobsS||[]).length) || (t===\"emotional\" && (vpcJobsE||[]).length)).join(\" | \") || null,\n        product_service: joinArr(vpcProducts),\n        pain_reliever: joinArr(vpcPainRelievers),\n        gain_creator: joinArr(vpcGainCreators),\n\n        desired_outcome: null,\n        force_push: null,\n        force_pull: null,\n        force_anxiety: null,\n        force_habit: null,\n        acceptance_criteria: null,\n        related_quote: null,\n        moment_of_progress: null,\n      }\n    });\n    continue;\n  }\n\n  // emit wide rows per JTBD, filling all columns\n  jtbdList.forEach((j, jIndex) => {\n    const forces = j && j.forces ? j.forces : {};\n    const row = {\n      index: item.json.index ?? null,\n      role: item.json.role ?? null,\n      finish_reason: item.json.finish_reason ?? null,\n\n      reference: ref,\n      icp,\n      interview,\n      pain_map: painMapRaw,\n      product: vpcProduct ?? null,\n      segment: resolvedSegment,\n\n      jtbd_job_statement: j && j.job_statement != null ? String(j.job_statement) : null,\n      jtbd_situation: j && j.situation != null ? String(j.situation) : null,\n      jtbd_struggle: j && j.struggle != null ? String(j.struggle) : null,\n      jtbd_priority_score: j && j.priority_score != null ? j.priority_score : null,\n\n      atom_category: \"jtbd\",\n      atom_index: jIndex,\n\n      // fill with ALL known VPC/Pain map context (same for each JTBD row)\n      pain: joinArr(pmPainTexts.length ? pmPainTexts : vpcPains),\n      gain: joinArr(vpcGains),\n      customer_job: joinArr([...(vpcJobsF||[]), ...(vpcJobsS||[]), ...(vpcJobsE||[])]),\n      customer_job_type: [\"functional\", \"social\", \"emotional\"].filter(t => (t===\"functional\" && (vpcJobsF||[]).length) || (t===\"social\" && (vpcJobsS||[]).length) || (t===\"emotional\" && (vpcJobsE||[]).length)).join(\" | \") || null,\n      product_service: joinArr(vpcProducts),\n      pain_reliever: joinArr(vpcPainRelievers),\n      gain_creator: joinArr(vpcGainCreators),\n\n      // JTBD atoms (per-row specifics)\n      desired_outcome: joinArr(j && j.desired_outcomes),\n      force_push: joinArr(forces.pushes),\n      force_pull: joinArr(forces.pulls),\n      force_anxiety: joinArr(forces.anxieties),\n      force_habit: joinArr(forces.habits),\n      acceptance_criteria: joinArr(j && j.acceptance_criteria),\n      related_quote: joinArr(j && j.related_quotes),\n      moment_of_progress: j && j.moment_of_progress != null ? String(j.moment_of_progress) : null,\n    };\n\n    out.push({ json: row });\n  });\n}\n\nreturn out;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5088,
+        4096
+      ],
+      "id": "072b55a3-4407-4195-9209-6712fc2830fe",
+      "name": "Code3"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a product manager creating testable product hypotheses.\n\nBelow is research data:\n\n- ICP:{{ $json.icp }}\n- Segment: {{ $json.segment }} \n- Interview: {{ $json.interview }}\n- Pain map: {{ $json.pain_map }}\n- JTBD:\n  - Job statement: {{ $json.jtbd_job_statement }}\n  - Situation: {{ $json.jtbd_situation }}\n  - Struggle: {{ $json.jtbd_struggle }}\n  - Priority score: {{ $json.jtbd_priority_score }}\n- Needs:\n  - Pains: {{ $json.pain }}\n  - Gains: {{ $json.gain }}\n  - Customer jobs:  {{ $json.customer_job }} | {{ $json.customer_job_type }}\n- Product values:\n  - Product/service:  {{ $json.product_service }}\n  - Pain relievers:  {{ $json.pain_reliever }}\n  - Gain creators:  {{ $json.gain_creator }}\n- Desired outcome:  {{ $json.desired_outcome }}\n- Forces:\n  - Push:  {{ $json.force_push }}\n  - Pull:  {{ $json.force_pull }}\n  - Anxiety: {{ $json.force_anxiety }} \n  - Habit:  {{ $json.force_habit }}\n- Acceptance criteria:  {{ $json.acceptance_criteria }}\n- Related quote: {{ $json.related_quote }} \n- Moment of progress:  {{ $json.moment_of_progress }}\n\nTask:\nGenerate a list of **product hypotheses** in the format:\n\n[Number]. [Hypothesis description]  \n- Rationale: (which pain/gain/JTBD or force triggered this idea)  \n- Metric to validate: (how success will be measured)  \n- Expected outcome: (what result you expect if the hypothesis is correct)\n\nRules:\n- Use the provided data in detail, especially connecting pain → gain → job → product.\n- Make each hypothesis specific and testable via A/B test or MVP experiment.\n- Provide at least 5 hypotheses.\n- Keep hypotheses concise but actionable.\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        5312,
+        4096
+      ],
+      "id": "0690a8f2-0c9e-44bb-ad0c-7cb17833e1c7",
+      "name": "Hypotheses",
+      "credentials": {
+        "openAiApi": {
+          "id": "RaFSmrV7Ll72BonR",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a product analyst. Your task is to assign RICE scores to each hypothesis and return a sorted list in JSON.\n\nHypothesis: {{ $json.message.content }}\n\nRICE scoring rules:\n- Reach (R): Number of unique users/teams impacted in 1 month (or specified period). Give a number ≥1. If no explicit scale is mentioned, estimate based on ICP/segment (low=100, medium=500, high=2000, very high=10000).\n- Impact (I): 0.25 (minimal), 0.5 (low), 1 (medium), 2 (high), 3 (massive). Base this on “Expected outcome / Metric to validate”.\n- Confidence (C): 0–1.0 (0.5=medium confidence; 0.7=good; 0.9=high). Base on research evidence (“Interview / Pain map / JTBD / Forces”). If unclear, use 0.5.\n- Effort (E): Effort in person-weeks (or equivalent). Minimum 0.5. Estimate: copy/config=0.5–1; medium complexity feature/UX=2–4; infra/ML/data-heavy=6–10.\nFormula: RICE = (R * I * C) / E.\n\nINPUT:\nYou will receive a list of hypotheses in the format:\n[Number]. [Hypothesis description]\n- Rationale: ...\n- Metric to validate: ...\n- Expected outcome: ...\n\nTASKS:\n1) For each hypothesis, extract key signals from Rationale/Metric/Expected outcome.\n2) Assign R, I, C, E according to the rules above. Briefly justify each score (rationale_*).\n3) Calculate rice_score = (R * I * C) / E.\n4) Return a JSON array sorted in descending order by rice_score. If tied, sort by higher Impact, then higher Reach, then lower Effort.\n\nOUTPUT — strictly this JSON (no extra text):\n[\n  {\n    \"id\": <hypothesis number from input>,\n    \"hypothesis\": \"<short title/rephrased hypothesis>\",\n    \"reach\": <number>,\n    \"impact\": <number>,\n    \"confidence\": <number>,\n    \"effort\": <number>,\n    \"rice_score\": <number>,\n    \"rationale_reach\": \"<why this score>\",\n    \"rationale_impact\": \"<why this score>\",\n    \"rationale_confidence\": \"<why this score>\",\n    \"rationale_effort\": \"<why this score>\"\n  }\n]\n\nSPECIAL RULES:\n- Do not invent metrics; use input data. If metrics are vague, tie Impact to likely business value (revenue/activation/retention/cost savings) and explicitly note assumptions.\n- If the input specifies a Reach period, use it; otherwise, assume 1 month.\n- Round: reach to integer, effort to 0.5, rice_score to 1 decimal place.\n- Keep hypotheses and rationales in the same language as the input.\n\nONLY 1 THE BEST hypothesis IN OUTPUT!"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        5712,
+        4096
+      ],
+      "id": "25089695-09d4-4460-a3c4-e66c7660a61f",
+      "name": "RICE",
+      "credentials": {
+        "openAiApi": {
+          "id": "RaFSmrV7Ll72BonR",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=You are a product strategist. Use the provided customer research data to create a complete Lean Canvas.\n\nHypothesis: {{ $json.message.content }}\n{{ $('Code3').item.json.icp }}\n{{ $('Code3').item.json.interview }}\n{{ $('Code3').item.json.pain_map }}\n{{ $('Code3').item.json.segment }}\n{{ $('Code3').item.json.jtbd_job_statement }}\n{{ $('Code3').item.json.jtbd_situation }}\n{{ $('Code3').item.json.jtbd_struggle }}\n{{ $('Code3').item.json.pain }}\n{{ $('Code3').item.json.gain }}\n{{ $('Code3').item.json.customer_job }}\n{{ $('Code3').item.json.product_service }}\n{{ $('Code3').item.json.pain_reliever }}\n{{ $('Code3').item.json.gain_creator }}\n{{ $('Code3').item.json.desired_outcome }}\n{{ $('Code3').item.json.force_push }}\n{{ $('Code3').item.json.force_pull }}\n{{ $('Code3').item.json.force_habit }}\n{{ $('Code3').item.json.acceptance_criteria }}\n{{ $('Code3').item.json.moment_of_progress }}\n\n\nTask:\nFill in the Lean Canvas with this structure:\n\n1. **Problem** — Top 1–3 problems to solve.\n2. **Existing Alternatives** — How customers solve these problems today.\n3. **Solution** — Proposed solutions to each problem.\n4. **Unique Value Proposition** — A clear statement explaining why this solution is different and worth paying attention to.\n5. **High-Level Concept** — A short analogy or reference (e.g., “Uber for tutors”).\n6. **Unfair Advantage** — Something that cannot be easily copied or bought.\n7. **Customer Segments** — Target customers and users.\n8. **Early Adopters** — Characteristics of the first users most likely to try the solution.\n9. **Key Metrics** — The key numbers to track success.\n10. **Channels** — How you will reach and communicate with customers.\n11. **Cost Structure** — Main fixed and variable costs.\n12. **Revenue Streams** — Main ways to make money.\n\nRules:\n- Base every element strictly on the provided data.\n- Be specific and concise.\n- If multiple problems, solutions, or segments exist, list them in bullet form.\n- Ensure the Lean Canvas can be directly placed into a visual template without further rewriting.\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        6112,
+        4096
+      ],
+      "id": "1886b70d-2995-48e2-a26f-9b141da4f5ff",
+      "name": "Lean Canvas",
+      "credentials": {
+        "openAiApi": {
+          "id": "RaFSmrV7Ll72BonR",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "83cdd640-5109-43ba-81b1-c7696bc65b73",
+              "name": "prompt",
+              "value": "=Проведи глубокое исследование и выдай только продукты, которые продают, по направлению: {{ $json.chatInput }} и обязательно укажи сайты ",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        608,
+        4096
+      ],
+      "id": "57e2847b-4510-4ee6-882d-063ed6147ff3",
+      "name": "Edit Fields5"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/responses",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "=Authorization",
+              "value": "=Bearer {{ \"OPENAI_KEY" }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"gpt-4.1\",\n  \"tools\": [\n    {\n      \"type\": \"web_search_preview\"\n    }\n  ],\n  \"input\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.prompt }}\"\n    }\n  ]\n} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        800,
+        4096
+      ],
+      "id": "84080b0a-465a-47d2-b41a-ec292f1e2dbe",
+      "name": "HTTP Request5"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Create a full product description:\n\n\n<<<\n{{ $json.title }}\n{{ $json.description }}\n{{ $json.h1 }}\n{{ $json.h2 }}\n{{ $json.h3 }}\n{{ $json.h4 }}\n>>>\n"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1680,
+        4096
+      ],
+      "id": "2077d0db-8e7a-4178-b273-d8dac793afb8",
+      "name": "Product",
+      "credentials": {
+        "openAiApi": {
+          "id": "RaFSmrV7Ll72BonR",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        416,
+        4096
+      ],
+      "id": "63a20111-889e-40f2-ab61-a6866b99d621",
+      "name": "When chat message received",
+      "webhookId": "3e824bb8-e980-4127-8d60-7690c1100247"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Code22": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request31",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request31": {
+      "main": [
+        [
+          {
+            "node": "Code24",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code24": {
+      "main": [
+        [
+          {
+            "node": "Product",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "ICP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VPC": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JTBD": {
+      "main": [
+        [
+          {
+            "node": "VPC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ICP": {
+      "main": [
+        [
+          {
+            "node": "Interviews",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Segments": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interviews": {
+      "main": [
+        [
+          {
+            "node": "Pain map",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pain map": {
+      "main": [
+        [
+          {
+            "node": "JTBD",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Code3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code3": {
+      "main": [
+        [
+          {
+            "node": "Hypotheses",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hypotheses": {
+      "main": [
+        [
+          {
+            "node": "RICE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RICE": {
+      "main": [
+        [
+          {
+            "node": "Lean Canvas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lean Canvas": {
+      "main": [
+        []
+      ]
+    },
+    "Edit Fields5": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request5": {
+      "main": [
+        [
+          {
+            "node": "Code22",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Product": {
+      "main": [
+        [
+          {
+            "node": "Segments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "820c905b-3f1a-4dea-88e8-be3aca644dd9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3c5e949c9e74f5228cd482a5f94b01912b69107a77824b66574fad48669f2a6f"
+  },
+  "id": "1oQhGe43EOeIzHpZ",
+  "tags": []
+}

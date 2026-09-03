@@ -1,0 +1,77 @@
+# Общая инфраструктура, разделяемая несколькими сервисами — НЕ дублируется в
+# docker-compose.yml отдельных сервисов. Каждый сервис подключается к этим контейнерам
+# по имени (postgres/redis/minio/livekit-server), см. include: в корневом docker-compose.yml.
+#
+# ВНИМАНИЕ: livekit-server и livekit-egress настроены в dev-режиме с фиксированными
+# ключами (devkey/secret) — годится для локальной разработки и CI, НЕ для прода. Egress
+# ни разу не проверялся вживую (нет реальной WebRTC-комнаты с записью в этом проекте
+# на момент написания) — конфиг собран по документации LiveKit, не протестирован.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=ainterviewer
+      - POSTGRES_PASSWORD=ainterviewer
+      - POSTGRES_DB=ainterviewer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ainterviewer"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=ainterviewer
+      - MINIO_ROOT_PASSWORD=ainterviewer123
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # веб-консоль
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  livekit-server:
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0
+    ports:
+      - "7880:7880" # HTTP/WS сигналинг
+      - "7881:7881" # TCP fallback для ICE/TURN
+      - "50000-50100:50000-50100/udp" # RTC-медиа (диапазон урезан для локали; в проде — шире)
+    environment:
+      - "LIVEKIT_KEYS=devkey: secret" # YAML: без кавычек двоеточие в значении ломает парсинг (нашла на docker compose config)
+
+  livekit-egress:
+    image: livekit/egress:latest
+    environment:
+      - EGRESS_CONFIG_BODY=${EGRESS_CONFIG_BODY:-}
+    volumes:
+      - ./livekit-egress-config.yaml:/etc/egress.yaml:ro
+    command: ["--config", "/etc/egress.yaml"]
+    depends_on:
+      - redis
+      - livekit-server
+
+volumes:
+  postgres-data:
+  minio-data:

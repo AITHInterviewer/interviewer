@@ -1,0 +1,58 @@
+# STT/TTS как self-hosted OpenAI-совместимые сервисы для ЖИВОГО контура — LiveKit-плагин
+# `livekit-plugins-openai` умеет ходить на любой OpenAI-совместимый base_url. LLM сюда
+# не входит — он через Claude Agent SDK на подписке (см. src/ainterviewer/llm_client.py).
+#
+# Проверено вживую (история чата): STT отвечает и держит русский. TTS прошёл через два
+# отказа: openedai-speech — нестабилен (падал на XTTS, UnboundLocalError) и без русских
+# голосов по умолчанию; Silero (dexogen/silero-tts-api) — сервис рабочий, но веса качаются
+# с models.silero.ai, а этот хост ненадёжен независимо у автора и у пользователя (разные
+# сети, одна и та же ConnectionRefused/timeout). Остановились на speaches.ai (Piper) —
+# голоса лежат на HuggingFace (speaches-ai/piper-ru_RU-*), тот же хост, что уже
+# подтверждённо работает для STT. Сравнение альтернатив — README.md, раздел «TTS».
+#
+# ВАЖНО про модель STT здесь: это ЖИВОЙ контур с бюджетом в единицы секунд — измерили
+# вживую, что `large-v3-turbo` на CPU даёт 20–30+ сек/реплику даже прогретым (float16→
+# float32 фолбэк без GPU), это и стало причиной "агент перестал отвечать". Большая точная
+# модель — законное место evaluation-agent (см. ../evaluation-agent/docker-compose.yml), не сюда.
+
+services:
+  live-agent:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Внутри docker-сети — по имени сервиса, не localhost (тот действует только при
+      # локальном запуске .venv-процессом на хосте, см. .env.example).
+      - STT_BASE_URL=http://stt:8000/v1
+      - TTS_BASE_URL=http://tts:8000/v1
+    depends_on:
+      - stt
+      - tts
+    # Реальный деплой — LiveKit-воркер, слушает job'ы по сети (см. Dockerfile, CMD
+    # "start"), не привязан к портам. Не проверено вживую (нужен реальный livekit-server).
+
+  stt:
+    image: fedirz/faster-whisper-server:latest-cpu
+    ports:
+      - "8001:8000"
+    environment:
+      # small — быстро, но реальная жалоба на качество техтерминов ("очень плохо").
+      # medium — компромисс: заметно точнее, инференс на CPU всё ещё в единицы секунд
+      # (не измеряли точно медиан для medium — если окажется медленно, откатить на small).
+      - WHISPER__MODEL=Systran/faster-whisper-medium
+    volumes:
+      - stt-cache:/root/.cache/huggingface
+
+  tts:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    ports:
+      - "8002:8000"
+    # Без volume для кэша моделей — реальная проверка показала PermissionError: именованный
+    # volume создаётся Docker'ом от root, а образ работает под непривилегированным ubuntu
+    # (uid 1000) и не может в него писать. Можно было бы chown'ить volume отдельным init-шагом,
+    # но для MVP проще принять, что голос перекачивается заново при пересоздании контейнера —
+    # `docker compose stop/start` (без rm) кэш внутри слоя контейнера сохраняет.
+
+volumes:
+  stt-cache:

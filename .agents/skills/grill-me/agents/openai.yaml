@@ -1,0 +1,7 @@
+interface:
+  display_name: "Grill Me"
+  short_description: "Delegate the coding, not the understanding."
+  icon_small: "./assets/grill-me.png"
+  icon_large: "./assets/grill-me.png"
+  brand_color: "#6F4AA8"
+  default_prompt: "Use $grill-me to quiz me on this codebase."

@@ -1,0 +1,28 @@
+# Redis и Postgres — общая инфра, берутся из ../infra/docker-compose.yml (см. корневой
+# docker-compose.yml с include:). Здесь — сам воркер + ЕГО собственный точный ASR:
+# large-v3-turbo, который оказался слишком медленным для live-agent (20-30 сек/реплику
+# на CPU без GPU), но это ровно то, для чего он подходит здесь — точность важнее
+# латентности вне реального времени (раздел 5.1 архитектурного документа).
+
+services:
+  evaluation-agent:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - STT_BASE_URL=http://stt-accurate:8000/v1
+    depends_on:
+      - stt-accurate
+    # Воркер не реализован (см. README) — контейнер сейчас упадёт на NotImplementedError,
+    # это ожидаемо на текущем этапе, не баг сборки.
+
+  stt-accurate:
+    image: fedirz/faster-whisper-server:latest-cpu
+    environment:
+      - WHISPER__MODEL=deepdml/faster-whisper-large-v3-turbo-ct2
+    volumes:
+      - stt-accurate-cache:/root/.cache/huggingface
+
+volumes:
+  stt-accurate-cache:

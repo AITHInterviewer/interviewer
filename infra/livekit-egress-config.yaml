@@ -1,0 +1,23 @@
+# Конфиг livekit-egress — dev-заготовка, НЕ проверен вживую (см. предупреждение в
+# infra/README.md и docker-compose.yml). Собран по официальной документации LiveKit:
+# https://docs.livekit.io/home/egress/overview/
+#
+# api_key/api_secret совпадают с dev-ключами livekit-server (LIVEKIT_KEYS=devkey: secret).
+api_key: devkey
+api_secret: secret
+ws_url: ws://livekit-server:7880
+
+# Куда пишутся записи комнат — S3-совместимое хранилище (MinIO из этого же compose).
+# Egress конфигурируется на уровне рум-composite/track-запросов через API при создании
+# комнаты (см. раздел "Как реально пишется запись" в docs/Архитектура и дизайн MVP.md) —
+# этот файл задаёт только дефолтный output-target для egress-сервиса.
+s3:
+  access_key: ainterviewer
+  secret: ainterviewer123
+  bucket: ainterviewer-recordings
+  endpoint: http://minio:9000
+  force_path_style: true
+  region: us-east-1
+
+# TODO: bucket ainterviewer-recordings нужно создать в MinIO при первом поднятии
+# инфраструктуры (mc mb или через консоль на :9001) — автосоздания в этом конфиге нет.

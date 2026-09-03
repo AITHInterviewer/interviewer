@@ -1,0 +1,18 @@
+# Корневой compose — поднимает ВСЁ разом: общую инфру + все сервисы. Используется
+# `include:` (Docker Compose v2.20+), не дублирует определения сервисов — каждый
+# держит свой compose-файл у себя (см. README.md, таблица сервисов).
+#
+# Отдельные сервисы можно поднимать частями — см. README каждого сервиса
+# (`docker compose -f infra/docker-compose.yml -f backend/docker-compose.yml up`).
+#
+# НЕ проверено вживую целиком (`docker compose up` из корня ни разу не запускался за
+# всё интервью до этого коммита) — evaluation-agent при этом гарантированно упадёт
+# (worker.py не реализован, см. evaluation-agent/README.md), это ожидаемо, не признак
+# сломанной сборки остального.
+
+include:
+  - infra/docker-compose.yml
+  - backend/docker-compose.yml
+  - live-agent/docker-compose.yml
+  - evaluation-agent/docker-compose.yml
+  - frontend/docker-compose.yml
