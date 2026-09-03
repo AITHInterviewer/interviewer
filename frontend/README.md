@@ -1,60 +1,34 @@
-# Frontend
+# Frontend: NAPOLEON [INTERVIEW]
 
-Новый frontend-каркас на `Next.js + TypeScript + Tailwind + shadcn/ui`.
+Демо-UI доказательного асинхронного техинтервью. Данные только моки, backend не нужен.
 
-## Статус
-
-- `/` — пустая стартовая страница.
-- `/interview/[token]` — пустой candidate flow без интеграции с backend.
-- `getUserMedia`, `MediaRecorder` и `speechSynthesis` пока только запланированы, не подключены.
-
-## Стек
-
-- **Next.js** (App Router)
-- **TypeScript**
-- **Tailwind CSS v4**
-- **shadcn/ui**
-
-## Установка и запуск
+## Запуск
 
 ```bash
 cd frontend
 npm install
-cp .env.example .env
+cp -n .env.example .env
 npm run dev
 ```
 
-Приложение будет доступно на `http://localhost:3000`.
+Открыть http://localhost:3000 - редирект на `/login`.
 
-## Команды
+## Демо-путь жюри
+
+1. `/login` → «Войти как кандидат №3»
+2. C1 «Начать» → согласие → проверка → правила → тренировка → вопрос 3
+3. Сохранить ответ на вопросе 3 → уточнение C7 → дальше до C9
+4. `/login` → рекрутер → вакансия → канбан → Лидия Орлова
+5. Drawer по «Недостаточно данных» → «Запросить доп. ответ» → «Передать менеджеру»
+6. «Посмотреть как менеджер» → M4
+
+## Проверки
 
 ```bash
 npm run lint
 npm run build
 ```
 
-## Docker
+## Маршруты
 
-```bash
-docker compose -f ../docker-compose.dev.yml up --build
-```
-
-Для сервис-локального запуска остаётся `frontend/docker-compose.yml`, но canonical happy path для локальной FE/BE разработки находится в корне репозитория.
-
-## Конфигурация
-
-- `NEXT_PUBLIC_BACKEND_URL` используется браузером
-- `BACKEND_INTERNAL_URL` используется frontend-контейнером для server-side проверки backend
-- оба значения задаются через `frontend/.env`
-
-## Зависимости и образ
-
-- зависимости управляются через `package.json` и `package-lock.json`
-- Docker-образ не требует отдельной ручной установки Node tooling вне проекта
-- тот же Dockerfile используется для локального baseline и CI-сборки
-
-## Дальше
-
-- Собрать recruiter dashboard заново.
-- Реализовать candidate interview UI на browser APIs.
-- Подключить frontend к новому backend API.
+См. `specs/005-evidence-interview-ui/contracts/ui-routes.md`.

@@ -42,8 +42,9 @@ active `frontend/`, `backend/`, `live-agent/`, and `evaluation-agent/` work is
 
 - `specs/001-live-interview-contour/` — `live-agent/`
 - `specs/002-batch-evaluation-contour/` — `evaluation-agent/`
-- `specs/003-recruiter-vacancy-management/` — recruiter-facing `backend/` + `frontend/`
-- `specs/004-candidate-interview-flow/` — candidate-facing `frontend/` (+ integration with `live-agent/`)
+- `specs/003-recruiter-vacancy-management/` — recruiter-facing `backend/` (API, модели); UI рекрутёра для хакатонного демо живёт в 005
+- `specs/004-candidate-interview-flow/` — live-контур кандидата (`live-agent/` + будущая интеграция); UI асинхронного демо живёт в 005
+- `specs/005-evidence-interview-ui/` — демо-UI `frontend/`: асинхронное интервью с доказательствами, моки, экраны по спецификации кейса
 
 Each feature directory's `spec.md` MUST stay current with what the corresponding code
 actually does, including a plain statement of what is implemented versus still open.
@@ -162,4 +163,4 @@ migration in team workflow. The scope of this constitution is `frontend/`, `back
 `live-agent/`, and `evaluation-agent/`; extending it to further areas requires a further
 amendment.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-03 | **Last Amended**: 2026-09-03
+**Version**: 1.2.0 | **Ratified**: 2026-09-03 | **Last Amended**: 2026-09-03

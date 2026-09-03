@@ -1,19 +1,20 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+
+import { ThemeProvider } from "@/lib/theme";
 
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
-
 export const metadata: Metadata = {
-  title: "AInterviewer",
-  description: "Frontend scaffold for the interviewer app.",
+  title: "NAPOLEON [INTERVIEW]",
+  description: "Доказательное асинхронное техинтервью",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ru">
-      <body className={inter.className}>{children}</body>
+    <html lang="ru" data-theme="light" suppressHydrationWarning>
+      <body>
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }
