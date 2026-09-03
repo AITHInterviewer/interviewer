@@ -9,6 +9,8 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+frontend/.env.local
+backend/.env.local
 
 # Node / Next.js
 node_modules/

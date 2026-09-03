@@ -6,6 +6,8 @@ type InterviewPageProps = {
 
 export default async function InterviewPage({ params }: InterviewPageProps) {
   const { token } = await params;
+  const publicBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? "not configured";
+  const internalBackendUrl = process.env.BACKEND_INTERNAL_URL ?? "not configured";
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-8 px-6 py-10">
@@ -27,6 +29,10 @@ export default async function InterviewPage({ params }: InterviewPageProps) {
             <p className="text-sm text-muted-foreground">Интервью ещё не подключено к backend или live-agent.</p>
           </div>
           <p className="text-sm text-muted-foreground">Токен ссылки: {token}</p>
+          <div className="space-y-2 rounded-lg bg-muted/40 p-4 text-sm text-muted-foreground">
+            <p>Public backend URL: {publicBackendUrl}</p>
+            <p>Internal backend URL: {internalBackendUrl}</p>
+          </div>
           <div className="flex gap-3">
             <Button type="button" variant="outline" disabled>
               Включить камеру

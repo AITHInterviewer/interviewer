@@ -1,8 +1,13 @@
 services:
   backend:
-    build: .
+    build:
+      context: .
+      target: dev
     env_file:
       - path: .env
-        required: false
+        required: true
     ports:
       - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests

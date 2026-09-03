@@ -20,6 +20,7 @@
 ```bash
 cd frontend
 npm install
+cp .env.example .env
 npm run dev
 ```
 
@@ -35,8 +36,22 @@ npm run build
 ## Docker
 
 ```bash
-docker compose -f docker-compose.yml up --build
+docker compose -f ../docker-compose.dev.yml up --build
 ```
+
+Для сервис-локального запуска остаётся `frontend/docker-compose.yml`, но canonical happy path для локальной FE/BE разработки находится в корне репозитория.
+
+## Конфигурация
+
+- `NEXT_PUBLIC_BACKEND_URL` используется браузером
+- `BACKEND_INTERNAL_URL` используется frontend-контейнером для server-side проверки backend
+- оба значения задаются через `frontend/.env`
+
+## Зависимости и образ
+
+- зависимости управляются через `package.json` и `package-lock.json`
+- Docker-образ не требует отдельной ручной установки Node tooling вне проекта
+- тот же Dockerfile используется для локального baseline и CI-сборки
 
 ## Дальше
 

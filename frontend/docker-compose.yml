@@ -2,7 +2,17 @@ services:
   frontend:
     build:
       context: .
+      target: dev
+    env_file:
+      - path: .env
+        required: true
     ports:
       - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_BACKEND_URL=http://backend:8000
+    volumes:
+      - .:/app
+      - frontend-node-modules:/app/node_modules
+      - frontend-next:/app/.next
+
+volumes:
+  frontend-node-modules:
+  frontend-next:
