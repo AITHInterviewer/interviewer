@@ -1,6 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 DEFAULT_FRONTEND_ORIGIN = "http://localhost:3000"
 
 
