@@ -114,7 +114,6 @@ description: "Task list for Docker Dev Baseline implementation"
 - [X] T032 [P] Align quickstart validation steps with the implemented baseline commands in `specs/002-docker-dev-baseline/quickstart.md`
 - [X] T033 [P] Align design artifacts with any implementation-level path or command refinements in `specs/002-docker-dev-baseline/plan.md`, `specs/002-docker-dev-baseline/research.md`, and `specs/002-docker-dev-baseline/data-model.md`
 - [X] T034 Run backend verification command against the baseline changes in `backend/tests/test_health.py`
-- [ ] T035 Run end-to-end Docker baseline validation from `specs/002-docker-dev-baseline/quickstart.md`
 
 ---
 
