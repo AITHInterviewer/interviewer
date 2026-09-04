@@ -1,0 +1,17 @@
+name: diagnose tts 500 (self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: TTS container logs (tail)
+        run: docker logs live-agent-tts-1 --tail 100
+
+      - name: List models known to the server
+        run: (Invoke-WebRequest -Uri http://localhost:3906/v1/models -UseBasicParsing).Content
