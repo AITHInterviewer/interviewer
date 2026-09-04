@@ -89,6 +89,26 @@ jobs:
           NEXT_DEV_ALLOWED_ORIGINS=26.67.31.6
           '@
 
+      - name: Write infra/livekit.yaml (with node_ip for this deploy)
+        # rtc.node_ip — какой IP livekit-server объявляет ICE-кандидатам как адрес для
+        # медиа. 26.67.31.6 — адрес этого раннера в Radmin VPN, тот же, через который
+        # реально ходит браузер кандидата. use_external_ip (STUN) сюда не годится — STUN
+        # находит РЕАЛЬНЫЙ публичный IP хоста через интернет-аплинк, а не VPN-адрес, и
+        # это две разные сети (проверено вживую 2026-09-04, см. git log infra/livekit.yaml).
+        run: |
+          Set-Content -Path infra/livekit.yaml -Encoding utf8 -Value @'
+          port: 7880
+          rtc:
+            tcp_port: 7881
+            port_range_start: 50000
+            port_range_end: 50100
+            node_ip: 26.67.31.6
+          keys:
+            devkey: secret
+          room:
+            auto_create: true
+          '@
+
       - name: Ensure shared Docker network between this stack and live-agent
         # ainterviewer-net — общая сеть между двумя отдельными compose-проектами (этот
         # стек и live-agent/docker-compose.yml), объявлена как external: true в обоих
