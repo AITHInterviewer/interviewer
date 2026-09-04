@@ -28,6 +28,7 @@ describe("InterviewPage", () => {
       ...navigator,
       mediaDevices: {
         getUserMedia: vi.fn(),
+        enumerateDevices: vi.fn().mockResolvedValue([]),
       },
     });
   });
@@ -50,7 +51,11 @@ describe("InterviewPage", () => {
 
   it("requests camera/mic access after clicking «Начать» and shows a live preview once granted", async () => {
     mockFetchOnce(CONSENT_INFO);
-    const fakeStream = { getTracks: () => [] } as unknown as MediaStream;
+    const fakeStream = {
+      getTracks: () => [],
+      getVideoTracks: () => [],
+      getAudioTracks: () => [],
+    } as unknown as MediaStream;
     (navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>).mockResolvedValue(fakeStream);
 
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });

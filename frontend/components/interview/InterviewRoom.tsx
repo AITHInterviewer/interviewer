@@ -22,6 +22,7 @@ export function InterviewRoom({ sessionId, stream }: { sessionId: string; stream
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [channelState, setChannelState] = useState<ChannelState>({ status: "connecting" });
   const [agentPresence, setAgentPresence] = useState<AgentPresence>("absent");
+  const [candidateSpeaking, setCandidateSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -36,6 +37,7 @@ export function InterviewRoom({ sessionId, stream }: { sessionId: string; stream
     const channel = new ControlChannel(sessionId);
     const liveKit = new LiveKitSession();
     let unsubscribePresence: (() => void) | null = null;
+    let unsubscribeSpeaking: (() => void) | null = null;
 
     const unsubscribeChannel = channel.subscribe(setChannelState);
     channel.connect();
@@ -48,6 +50,7 @@ export function InterviewRoom({ sessionId, stream }: { sessionId: string; stream
       .then(() => {
         if (cancelled) return;
         unsubscribePresence = liveKit.onAgentPresenceChange(setAgentPresence);
+        unsubscribeSpeaking = liveKit.onLocalSpeakingChange(setCandidateSpeaking);
       })
       .catch((cause) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : "Не удалось подключиться к звонку");
@@ -57,6 +60,7 @@ export function InterviewRoom({ sessionId, stream }: { sessionId: string; stream
       cancelled = true;
       unsubscribeChannel();
       unsubscribePresence?.();
+      unsubscribeSpeaking?.();
       channel.close();
       liveKit.disconnect();
     };
@@ -77,7 +81,11 @@ export function InterviewRoom({ sessionId, stream }: { sessionId: string; stream
         </div>
 
         <div className="space-y-3">
-          <div className="aspect-video overflow-hidden rounded-xl border bg-muted/30">
+          <div
+            className={`aspect-video overflow-hidden rounded-xl border bg-muted/30 ${
+              candidateSpeaking ? "border-primary" : ""
+            }`}
+          >
             <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
           </div>
           <div
