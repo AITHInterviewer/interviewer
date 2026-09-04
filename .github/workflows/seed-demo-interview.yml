@@ -25,10 +25,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure firewall rule for nginx workaround port 3010
+        run: |
+          $existing = Get-NetFirewallRule -DisplayName "ainterviewer-3010" -ErrorAction SilentlyContinue
+          if (-not $existing) {
+            New-NetFirewallRule -DisplayName "ainterviewer-3010" -Direction Inbound -Protocol TCP -LocalPort 3010 -Action Allow | Out-Null
+          }
+
       - name: Write backend/.env
         run: |
           Set-Content -Path backend/.env -Encoding utf8 -Value @'
-          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
+          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000","http://26.67.31.6:3010"]
           APP_ENV=development
           APP_DEBUG=true
           APP_HOST=0.0.0.0
@@ -62,13 +69,19 @@ jobs:
           BACKEND_INTERNAL_URL=http://backend:8000
           '@
 
-      - name: Build and (re)start postgres + redis + backend + frontend
+      - name: Build and (re)start postgres + redis + backend + frontend + nginx workaround
+        # nginx-radmin-workaround (docker-compose.radmin-workaround.yml) — диагностика
+        # 2026-09-04: что-то на сетевом пути через Radmin VPN ломает Transfer-Encoding:
+        # chunked (Next.js SSR-стриминг, WebSocket-апгрейд для HMR), при этом обычный
+        # HTTP с Content-Length того же и большего размера проходит без проблем. Прокси
+        # буферизует ответ и переотдаёт с Content-Length — см. infra/radmin-workaround/.
         run: |
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
+            -f docker-compose.radmin-workaround.yml `
             up -d --build `
-            postgres redis backend frontend
+            postgres redis backend frontend nginx-radmin-workaround
 
       - name: Reinstall frontend deps and clear stale .next build cache
         # node_modules AND .next are named volumes (docker-compose.dev.yml) that survive
@@ -138,4 +151,5 @@ jobs:
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
-            exec -T -e PUBLIC_FRONTEND_URL=http://26.67.31.6:3000 backend uv run python -m scripts.seed_demo_interview
+            exec -T -e PUBLIC_FRONTEND_URL=http://26.67.31.6:3010 backend uv run python -m scripts.seed_demo_interview
+          Write-Output "(URL выше -- через nginx-обход, порт 3010, не 3000 напрямую; см. docker-compose.radmin-workaround.yml)"
