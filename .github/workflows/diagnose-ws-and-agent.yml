@@ -10,39 +10,21 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: write tts probe scripts
+      - name: write tts probe script
         run: |
-          Set-Content -Path probe_download.py -Encoding utf8 -Value @'
+          Set-Content -Path probe_speech2.py -Encoding utf8 -Value @'
           import json, urllib.request, urllib.error
-          model_id = "speaches-ai/piper-ru_RU-irina-medium"
-          req = urllib.request.Request(
-              f"http://tts:8000/v1/models/{model_id}",
-              method="POST",
-          )
+          body = json.dumps({"model": "speaches-ai/piper-ru_RU-irina-medium", "voice": "irina", "input": "privet, eto test"}).encode()
+          req = urllib.request.Request("http://tts:8000/v1/audio/speech", data=body, headers={"Content-Type": "application/json"})
           try:
-              r = urllib.request.urlopen(req, timeout=120)
-              print("STATUS", r.status)
-              print(r.read()[:2000])
+              r = urllib.request.urlopen(req, timeout=30)
+              data = r.read()
+              print("STATUS", r.status, "BYTES", len(data))
           except urllib.error.HTTPError as e:
               print("STATUS", e.code)
               print(e.read().decode("utf-8", "replace"))
           '@
-          Set-Content -Path probe_models.py -Encoding utf8 -Value @'
-          import urllib.request
-          r = urllib.request.urlopen("http://tts:8000/v1/models", timeout=10)
-          print(r.read().decode("utf-8", "replace")[:4000])
-          '@
 
-      - name: trigger model download
+      - name: actually synthesize speech now that the model is installed
         run: |
-          Get-Content probe_download.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
-
-      - name: list available models/voices after download
-        if: always()
-        run: |
-          Get-Content probe_models.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
-
-      - name: tts logs after download attempt
-        if: always()
-        run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs tts --tail 60
+          Get-Content probe_speech2.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
