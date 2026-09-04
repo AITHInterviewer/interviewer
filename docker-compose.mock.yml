@@ -1,0 +1,65 @@
+# Оверлей для РУЧНОЙ сквозной проверки голосового флоу кандидата.
+#
+#   docker compose -f docker-compose.dev.yml -f docker-compose.mock.yml up --build
+#
+# Добавляет к dev-baseline (frontend + backend) три сервиса: self-hosted STT, self-hosted
+# TTS и HTTP-драйвер графа live-контура. Baseline из docker-compose.dev.yml намеренно не
+# меняется — он governed отдельной спекой (specs/002-docker-dev-baseline) и должен
+# оставаться «только frontend + backend».
+#
+# Что здесь настоящее: решения о переходах принимает реальный LiveContourEngine внутри
+# live-agent-driver, STT/TTS — те же образы и модели, что у боевого live-контура.
+# Что не настоящее: транспорт (HTTP вместо LiveKit-комнаты и WS control-канала) и
+# определение конца реплики (детектор тишины в браузере вместо Silero VAD).
+#
+# LLM: по умолчанию драйвер ходит в Claude Agent SDK, которому нужен авторизованный
+# `claude` CLI внутри контейнера. Если авторизации нет — поднимайте с
+# LIVE_AGENT_FAKE_LLM=1, тогда решения принимает детерминированный FakeLLM (тот же, что
+# в тестах): переходы/уточнения работают, но формулировки шаблонные.
+
+services:
+  backend:
+    environment:
+      - STT_BASE_URL=http://stt:8000/v1
+      - TTS_BASE_URL=http://tts:8000/v1
+      - LIVE_AGENT_DRIVER_URL=http://live-agent-driver:3909
+    depends_on:
+      - stt
+      - tts
+      - live-agent-driver
+
+  live-agent-driver:
+    build: ./live-agent
+    command: ["python", "-m", "ainterviewer.mock_driver"]
+    environment:
+      - MOCK_DRIVER_PORT=3909
+      - LIVE_AGENT_FAKE_LLM=${LIVE_AGENT_FAKE_LLM:-1}
+    ports:
+      - "3909:3909"
+    volumes:
+      # Протокол событий интервью (out/<session_id>.jsonl) должен переживать пересоздание
+      # контейнера — это единственный артефакт прогона, по которому потом можно разобрать,
+      # что решал граф.
+      - ./live-agent/out:/app/out
+
+  stt:
+    image: fedirz/faster-whisper-server:latest-cpu
+    ports:
+      - "3905:8000"
+    environment:
+      - WHISPER__MODEL=Systran/faster-whisper-medium
+    volumes:
+      - stt-cache:/root/.cache/huggingface
+
+  tts:
+    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    ports:
+      - "3906:8000"
+    environment:
+      # Оба параметра — из реальных отказов при скачивании голоса на этой сети,
+      # см. live-agent/docker-compose.yml.
+      - HF_HUB_DISABLE_XET=1
+      - HF_HUB_DOWNLOAD_TIMEOUT=60
+
+volumes:
+  stt-cache:

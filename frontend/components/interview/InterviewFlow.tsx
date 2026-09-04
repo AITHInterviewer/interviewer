@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { DeviceCheck } from "@/components/interview/DeviceCheck";
+import { InterviewRoom } from "@/components/interview/InterviewRoom";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 
@@ -26,6 +27,7 @@ type FlowStep = "loading" | "not_found" | "already_completed" | "consent" | "dev
 export function InterviewFlow({ token }: { token: string }) {
   const [step, setStep] = useState<FlowStep>("loading");
   const [info, setInfo] = useState<ConsentInfo | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,18 +105,15 @@ export function InterviewFlow({ token }: { token: string }) {
     return (
       <div className="space-y-4 rounded-xl border bg-card p-6">
         <h2 className="text-lg font-medium">Проверка камеры и микрофона</h2>
-        <DeviceCheck onGranted={() => setStep("ready")} />
+        <DeviceCheck
+          onGranted={(granted) => {
+            setStream(granted);
+            setStep("ready");
+          }}
+        />
       </div>
     );
   }
 
-  return (
-    <div className="rounded-xl border bg-card p-6">
-      <h2 className="text-lg font-medium">Камера и микрофон готовы</h2>
-      <p className="text-sm text-muted-foreground">
-        Интервью начнётся здесь — см. specs/004-candidate-interview-flow, US2/US3 (control-канал на
-        стороне backend ещё не подключён на момент этой итерации).
-      </p>
-    </div>
-  );
+  return <InterviewRoom sessionId={token} stream={stream} />;
 }

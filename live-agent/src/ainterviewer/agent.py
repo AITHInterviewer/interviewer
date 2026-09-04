@@ -50,7 +50,10 @@ from .state_machine import LiveContourEngine
 
 load_dotenv()
 
-AGENT_ROOT = Path(__file__).resolve().parent.parent
+# .../live-agent/src/ainterviewer/agent.py -> .../live-agent (не src/ — там нет ни
+# mock_data/, ни out/; баг не выстреливал только потому, что этот путь ни разу не
+# запускался вживую, см. README, «Статус проверки»).
+AGENT_ROOT = Path(__file__).resolve().parent.parent.parent
 MOCK_PATH = Path(os.environ.get("MOCK_INTERVIEW_PATH", AGENT_ROOT / "mock_data" / "interview_example.json"))
 
 
