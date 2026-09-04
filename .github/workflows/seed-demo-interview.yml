@@ -25,17 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ensure firewall rule for nginx workaround port 3010
-        run: |
-          $existing = Get-NetFirewallRule -DisplayName "ainterviewer-3010" -ErrorAction SilentlyContinue
-          if (-not $existing) {
-            New-NetFirewallRule -DisplayName "ainterviewer-3010" -Direction Inbound -Protocol TCP -LocalPort 3010 -Action Allow | Out-Null
-          }
-
       - name: Write backend/.env
         run: |
           Set-Content -Path backend/.env -Encoding utf8 -Value @'
-          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000","http://26.67.31.6:3010"]
+          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
           APP_ENV=development
           APP_DEBUG=true
           APP_HOST=0.0.0.0
@@ -63,32 +56,32 @@ jobs:
           '@
 
       - name: Write frontend/.env
+        # NEXT_DEV_ALLOWED_ORIGINS — Next.js dev-сервер по умолчанию блокирует
+        # кросс-origin запросы к dev-ресурсам (HMR websocket и часть бутстрап-скриптов
+        # гидратации); без этого доступ с любого хоста, кроме localhost, тихо не
+        # гидрируется — ни одной ошибки в браузерной консоли, только в логах самого
+        # контейнера ("Blocked cross-origin request to Next.js dev resource"). Найдено
+        # на практике 2026-09-04, см. next.config.ts.
         run: |
           Set-Content -Path frontend/.env -Encoding utf8 -Value @'
           NEXT_PUBLIC_BACKEND_URL=http://26.67.31.6:8000
           BACKEND_INTERNAL_URL=http://backend:8000
+          NEXT_DEV_ALLOWED_ORIGINS=26.67.31.6
           '@
 
-      - name: Build and (re)start postgres + redis + backend + frontend + nginx workaround
-        # nginx-radmin-workaround (docker-compose.radmin-workaround.yml) — диагностика
-        # 2026-09-04: что-то на сетевом пути через Radmin VPN ломает Transfer-Encoding:
-        # chunked (Next.js SSR-стриминг, WebSocket-апгрейд для HMR), при этом обычный
-        # HTTP с Content-Length того же и большего размера проходит без проблем. Прокси
-        # буферизует ответ и переотдаёт с Content-Length — см. infra/radmin-workaround/.
+      - name: Build and (re)start postgres + redis + backend + frontend
         run: |
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
-            -f docker-compose.radmin-workaround.yml `
             up -d --build `
-            postgres redis backend frontend nginx-radmin-workaround
+            postgres redis backend frontend
 
       - name: Reinstall frontend deps and clear stale .next build cache
         # node_modules AND .next are named volumes (docker-compose.dev.yml) that survive
         # `--build`/container recreation — confirmed on this runner: after adding
         # livekit-client, the container kept serving a stale compiled .next bundle where
-        # ConsentInfo's fetch effect silently never fired (no console error, no network
-        # request — just stuck on "Загружаем интервью…"). `rm -rf .next` forces Next to
+        # ConsentInfo's fetch effect silently never fired. `rm -rf .next` forces Next to
         # recompile from the current bind-mounted source (./frontend:/app) on restart.
         run: |
           docker compose --project-directory . `
@@ -151,5 +144,4 @@ jobs:
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
-            exec -T -e PUBLIC_FRONTEND_URL=http://26.67.31.6:3010 backend uv run python -m scripts.seed_demo_interview
-          Write-Output "(URL выше -- через nginx-обход, порт 3010, не 3000 напрямую; см. docker-compose.radmin-workaround.yml)"
+            exec -T -e PUBLIC_FRONTEND_URL=http://26.67.31.6:3000 backend uv run python -m scripts.seed_demo_interview
