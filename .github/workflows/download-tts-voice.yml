@@ -12,8 +12,10 @@ jobs:
     steps:
       - name: Download Russian voice into the tts container
         # uvx isn't a separate binary in this image, only uv itself — "uvx foo" is
-        # equivalent to "uv tool run foo".
-        run: docker exec live-agent-tts-1 uv tool run speaches-cli model download speaches-ai/piper-ru_RU-irina-medium
+        # equivalent to "uv tool run foo". HF_HUB_DISABLE_XET=1: the newer xet transfer
+        # backend was failing with "TLS handshake eof" / "CAS service error" on this
+        # network path (twice, not a one-off blip) — fall back to classic HTTP download.
+        run: docker exec -e HF_HUB_DISABLE_XET=1 live-agent-tts-1 uv tool run speaches-cli model download speaches-ai/piper-ru_RU-irina-medium
 
       - name: List available models
         run: (Invoke-WebRequest -Uri http://localhost:3906/v1/models -UseBasicParsing).Content
