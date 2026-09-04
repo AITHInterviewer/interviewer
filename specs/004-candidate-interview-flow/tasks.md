@@ -24,9 +24,9 @@ agent-driven transitions), US4 (P2, live_coding-редактор).
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-- [ ] T001 Добавить `redis` (async client) в зависимости `backend/pyproject.toml` и `livekit-api` (Python SDK для выпуска access token) — см. `plan.md`, Technical Context
-- [ ] T002 [P] Добавить `REDIS_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_WS_URL` в `backend/app/config.py` и `backend/.env.example` (значения по умолчанию — dev-ключи `infra/docker-compose.yml`, `devkey`/`secret`)
-- [ ] T003 [P] Добавить `redis` (async client, publisher) в зависимости `live-agent/pyproject.toml`
+- [X] T001 Добавить `redis` (async client) в зависимости `backend/pyproject.toml` и `livekit-api` (Python SDK для выпуска access token) — см. `plan.md`, Technical Context
+- [X] T002 [P] Добавить `REDIS_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_WS_URL` в `backend/app/config.py` и `backend/.env.example` (значения по умолчанию — dev-ключи `infra/docker-compose.yml`, `devkey`/`secret`)
+- [X] T003 [P] Добавить `redis` (async client, publisher) в зависимости `live-agent/pyproject.toml`
 
 **Checkpoint**: зависимости и конфиг на месте
 
@@ -39,8 +39,8 @@ end-to-end (live-agent → Redis → backend → frontend) должен рабо
 событиях. US1 (см. Notes) от этой фазы не зависит и может вестись параллельно.
 
 - [ ] T004 ORM-модель `Answer` в `backend/app/models/answer.py` + Alembic-миграция в `backend/app/migrations/versions/` (см. `data-model.md`, раздел `Answer`)
-- [ ] T005 [US-agnostic] Реализовать `RedisEventSink` в `live-agent/src/ainterviewer/control_bridge.py` — публикует тот же `Event` (`events.py`, БЕЗ изменения схемы) в канал `live-agent:events:{interview_id}` **параллельно** с `EventLog.emit()` (см. `research.md` п.2 — аддитивно, `live-agent/CLAUDE.md` правило 5 не нарушается)
-- [ ] T006 Подключить `RedisEventSink` рядом с `EventLog` в `live-agent/src/ainterviewer/agent.py` — каждый `emit()` идёт в оба sink
+- [X] T005 [US-agnostic] Реализовать `RedisEventSink` в `live-agent/src/ainterviewer/control_bridge.py` — публикует тот же `Event` (`events.py`, БЕЗ изменения схемы) в канал `live-agent:events:{interview_id}` **параллельно** с `EventLog.emit()` (см. `research.md` п.2 — аддитивно, `live-agent/CLAUDE.md` правило 5 не нарушается)
+- [X] T006 Подключить `RedisEventSink` рядом с `EventLog` в `live-agent/src/ainterviewer/agent.py` — каждый `emit()` идёт в оба sink
 - [ ] T007 WS-эндпоинт `GET /ws/interview/{access_token}` (хендшейк/валидация токена, коды закрытия `4401`/`4409`) в `backend/app/routers/interview_ws.py` — см. `contracts/control-channel.md`
 - [ ] T008 Сервис `backend/app/services/control_channel.py` — подписка на Redis-канал `live-agent:events:{interview_id}`, маппинг `EventType → ControlEvent` строго по таблице из `data-model.md` (без собственной логики решений — FR-011)
 - [ ] T009 Подключить `interview_ws`-роутер в `backend/app/main.py`
@@ -63,11 +63,11 @@ state machine) проходит целиком — US2/US3/US4 могут стр
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Публичный `GET /interview/{access_token}` в `backend/app/routers/candidate_interview.py` — метаданные для экрана согласия (название вакансии, кол-во вопросов, диапазон длительности из [[003-recruiter-vacancy-management]], `Interview.status`)
-- [ ] T013 [P] [US1] Экран согласия с раздельными пунктами + кнопкой «Начать» в `frontend/app/interview/[token]/page.tsx`, использует T012
-- [ ] T014 [US1] Компонент `frontend/components/interview/DeviceCheck.tsx` — `getUserMedia`, live-превью `<video>` + индикатор уровня микрофона (Web Audio `AnalyserNode`)
-- [ ] T015 [US1] Блокирующий экран отказа в доступе + кнопка повторного запроса в `DeviceCheck.tsx` (FR-013, US1 Acceptance Scenario 3)
-- [ ] T016 [US1] `frontend/app/interview/[token]/page.test.tsx` — тест на гейтинг (нет перехода без согласия/устройств) и на состояние повтора после отказа
+- [X] T012 [US1] Публичный `GET /interview/{access_token}` в `backend/app/routers/candidate_interview.py` — метаданные для экрана согласия (название вакансии, кол-во вопросов, диапазон длительности из [[003-recruiter-vacancy-management]], `Interview.status`)
+- [X] T013 [P] [US1] Экран согласия с раздельными пунктами + кнопкой «Начать» — реализован в `frontend/components/interview/InterviewFlow.tsx` (клиентский компонент), `page.tsx` остаётся серверным и только резолвит `token`: `getUserMedia`/`useState` требуют `"use client"`, который нельзя поставить на страницу с `async params`
+- [X] T014 [US1] Компонент `frontend/components/interview/DeviceCheck.tsx` — `getUserMedia`, live-превью `<video>` + индикатор уровня микрофона (Web Audio `AnalyserNode`)
+- [X] T015 [US1] Блокирующий экран отказа в доступе + кнопка повторного запроса в `DeviceCheck.tsx` (FR-013, US1 Acceptance Scenario 3)
+- [X] T016 [US1] `frontend/app/interview/[token]/page.test.tsx` — тест на гейтинг (нет перехода без согласия/устройств) и на состояние повтора после отказа
 
 **Checkpoint**: US1 полностью функциональна и демонстрируема независимо — не требует
 Phase 2 (control-канал не участвует в этом сценарии)
@@ -117,7 +117,7 @@ Phase 2 (control-канал не участвует в этом сценарии
 - [ ] T029 [US3] Reconnect: `reconnecting`-оверлей в `control-channel.ts` (T010) + повтор WS-хендшейка с тем же `access_token` при разрыве (`contracts/control-channel.md`, коды закрытия)
 - [ ] T030 [P] [US3] Флаг `--publish-redis` в `live-agent/scripts/simulate.py` — публикует события T005 в Redis без реального LiveKit/STT/TTS (`quickstart.md`, Сценарий A)
 - [ ] T031 [US3] `backend/tests/test_interview_ws.py` + `test_control_channel.py` (pytest) — фейковые Redis-события → корректная последовательность `ControlEvent`, backend не меняет и не переупорядочивает решения
-- [ ] T032 [US3] `live-agent/tests/test_control_bridge.py` (pytest) — `RedisEventSink` публикует идентичный payload тому, что уходит в `EventLog`, файл `out/*.jsonl` не меняется по формату (регрессия на `live-agent/CLAUDE.md` правило 5)
+- [X] T032 [US3] `live-agent/tests/test_control_bridge.py` (pytest) — `RedisEventSink` публикует идентичный payload тому, что уходит в `EventLog`, файл `out/*.jsonl` не меняется по формату (регрессия на `live-agent/CLAUDE.md` правило 5)
 
 **Checkpoint**: все три P1-стори работают независимо и вместе; control-канал закрывает
 основной открытый архитектурный вопрос фичи
