@@ -4,8 +4,16 @@
 
 ## Статус
 
-- Реализован только `GET /health`.
-- БД, ORM, миграции и доменные роутеры пока отсутствуют.
+- `GET /health`.
+- Кандидатский флоу (specs/004-candidate-interview-flow): `GET /interview/{access_token}`
+  (consent-info), `POST /interview/{access_token}/livekit-token`, WS control-канал
+  `GET /ws/interview/{access_token}`.
+- Минимальный DB-слой (Postgres, SQLAlchemy async + Alembic): `Recruiter`/`Vacancy`/
+  `Question`/`Interview` (schema-only срез specs/003-recruiter-vacancy-management, без
+  CRUD рекрутёра) + `Answer` (specs/004). Не прогонялось на реальном Postgres — см.
+  `specs/004-candidate-interview-flow/tasks.md`, «Known Gaps».
+- `app/routers/mock_interview.py` — временный контур ручной проверки STT/TTS, не часть
+  боевой архитектуры (см. его docstring).
 
 ## Стек
 
@@ -32,6 +40,19 @@ uv run ruff check app/ tests/
 uv run pytest -q
 ```
 
+## Миграции
+
+```bash
+docker compose exec backend uv run alembic upgrade head
+```
+
+(или `uv run alembic upgrade head` локально с `DATABASE_URL`, переопределённым на
+host-порт Postgres — см. «Dev-данные» выше за тем же приёмом). Требует
+`infra/docker-compose.yml` (сервис `postgres`) поднятым — `docker-compose.dev.yml` в
+корне репозитория Postgres не поднимает сам. `app/migrations/versions/0001_initial.py`
+написана вручную (не `alembic revision --autogenerate`) — на первом реальном Postgres
+сверить `alembic check` на пусто, прежде чем полагаться на неё дальше.
+
 ## Docker
 
 ```bash
@@ -51,8 +72,33 @@ docker compose -f ../docker-compose.dev.yml up --build
 - Docker-образ использует `uv` внутри контейнера и не требует внешнего Python setup для сборки
 - тот же Dockerfile используется для локального baseline и CI-сборки
 
+## Dev-данные
+
+Нет CRUD рекрутёра — единственный способ получить реальный `access_token` для ручной
+проверки. В контейнере (env уже настроен на compose-хостнеймы `postgres`/`redis`):
+
+```bash
+docker compose exec backend uv run python scripts/seed_demo_interview.py
+```
+
+Локально (вне контейнера) — переопределить `DATABASE_URL` на host-порт из
+`infra/docker-compose.yml` (`postgres` → `localhost:3901`):
+
+```bash
+cd backend
+DATABASE_URL=postgresql+asyncpg://ainterviewer:ainterviewer@localhost:3901/ainterviewer uv run python scripts/seed_demo_interview.py
+```
+
+Печатает `access_token` и готовую ссылку `http://localhost:3000/interview/<token>`.
+Вакансия/вопросы захардкожены, текст вопросов совпадает с
+`live-agent/mock_data/interview_example.json` (осознанное упрощение, не настоящий CRUD).
+
 ## Дальше
 
-- Вернуть конфиг приложения и доменные роутеры.
-- Добавить БД и миграции.
-- Подготовить API для нового frontend.
+- Прогнать миграцию (`alembic upgrade head`) и `alembic check` на реальном Postgres —
+  писалась вручную без доступа к живой БД.
+- Answer-upload (`POST /interview/{access_token}/answers/{question_id}/chunks`+`finalize`,
+  specs/004-candidate-interview-flow, tasks.md T020/T021).
+- Пересылка `candidate_input` из WS в `live-agent` (T028).
+- CRUD рекрутёра / вакансий (остальной скоуп specs/003-recruiter-vacancy-management —
+  сейчас поднята только схема таблиц, без эндпоинтов).

@@ -14,6 +14,7 @@
     "@radix-ui/react-slot": "^1.2.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "livekit-client": "^2.22.2",
     "lucide-react": "^0.542.0",
     "next": "^16.1.6",
     "react": "^19.2.0",

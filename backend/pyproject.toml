@@ -28,6 +28,12 @@ dev = [
     "httpx>=0.27",
     "pytest>=8.3",
     "ruff>=0.8",
+    # Тестовая БД (tests/conftest.py) — SQLite в памяти, т.к. реальный Postgres недоступен
+    # в песочнице, где писался код; на боевой asyncpg-DSN (DATABASE_URL) не влияет.
+    "aiosqlite>=0.20",
+    # Тестовый Redis (tests/test_interview_ws.py) — реальный Redis недоступен в песочнице,
+    # где писался код; на боевой REDIS_URL не влияет.
+    "fakeredis>=2.30",
 ]
 
 [tool.ruff]
