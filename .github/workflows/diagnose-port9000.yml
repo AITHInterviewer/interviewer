@@ -1,0 +1,19 @@
+name: diagnose port 9000 conflict (self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: List ALL docker containers on this host (any project)
+        run: docker ps -a
+
+      - name: Show what's bound to port 9000 at the OS level
+        run: |
+          Get-NetTCPConnection -LocalPort 9000 -ErrorAction SilentlyContinue | Format-Table LocalAddress, LocalPort, State, OwningProcess
+          Get-Process -Id (Get-NetTCPConnection -LocalPort 9000 -ErrorAction SilentlyContinue).OwningProcess -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, Path
