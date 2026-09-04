@@ -1,0 +1,29 @@
+name: seed demo interview (self-hosted)
+
+# Разовая ручная джоба — прогоняет миграцию и `scripts/seed_demo_interview.py` внутри
+# уже поднятого backend-контейнера (см. deploy-full.yml — тот же project/сеть, чтобы
+# резолвить "postgres" по имени) и печатает готовую ссылку на интервью. Не деплоит и не
+# трогает контейнеры — только выполняет команды внутри уже работающего `backend`.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  seed:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run migration + seed script inside the backend container
+        run: |
+          docker compose --project-directory . `
+            -f docker-compose.dev.yml `
+            -f infra/docker-compose.yml `
+            exec -T backend uv run alembic upgrade head
+          docker compose --project-directory . `
+            -f docker-compose.dev.yml `
+            -f infra/docker-compose.yml `
+            exec -T backend uv run python scripts/seed_demo_interview.py
