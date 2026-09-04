@@ -130,6 +130,17 @@ jobs:
             -f infra/docker-compose.yml `
             up -d --build `
             postgres redis backend frontend livekit-server
+          # livekit-server отдельно, с --force-recreate: он читает infra/livekit.yaml
+          # через bind-mount — Compose не пересоздаёт контейнер только из-за того, что
+          # ИЗМЕНИЛОСЬ СОДЕРЖИМОЕ файла на хосте (сама конфигурация сервиса в compose не
+          # изменилась), без этого контейнер продолжает работать со старым node_ip до
+          # следующего изменения docker-compose.yml (проверено вживую 2026-09-04 — новый
+          # IP из предыдущего шага не подхватился без явного recreate). Не форсим
+          # остальные сервисы — незачем гонять их без нужды при каждом деплое.
+          docker compose --project-directory . `
+            -f docker-compose.dev.yml `
+            -f infra/docker-compose.yml `
+            up -d --force-recreate livekit-server
 
       - name: Reinstall frontend deps and clear stale .next build cache
         # node_modules AND .next are named volumes (docker-compose.dev.yml) that survive
