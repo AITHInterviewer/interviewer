@@ -5,8 +5,13 @@
 ## Статус
 
 - `/` — пустая стартовая страница.
-- `/interview/[token]` — пустой candidate flow без интеграции с backend.
-- `getUserMedia`, `MediaRecorder` и `speechSynthesis` пока только запланированы, не подключены.
+- `/interview/[token]` — согласие → device-check → control-канал (WS) + LiveKit-звонок
+  (specs/004-candidate-interview-flow, US1-US3). Answer-upload (`MediaRecorder` по
+  вопросам) и live_coding-редактор не реализованы — см. `tasks.md` той фичи, T020-T022,
+  T033-T036.
+- `getUserMedia` подключён (device-check); `MediaRecorder`/`speechSynthesis` не нужны —
+  голос идёт через LiveKit (`lib/livekit-client.ts`), не через браузерный `MediaRecorder`
+  на каждую реплику.
 
 ## Стек
 

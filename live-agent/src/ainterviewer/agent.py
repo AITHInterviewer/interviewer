@@ -108,6 +108,18 @@ def _build_event_sinks(interview_id: str) -> list[EventSink]:
 async def entrypoint(ctx: JobContext) -> None:
     interview = InterviewInput.model_validate_json(MOCK_PATH.read_text(encoding="utf-8"))
 
+    # КРИТИЧНО для specs/004-candidate-interview-flow: backend подписывается на Redis-канал
+    # `live-agent:events:{Interview.id из Postgres}` — тот же id, что выпущен в
+    # LiveKit-токене как `room_name` (contracts/livekit-token.md). Вопросы по-прежнему
+    # захардкожены в MOCK_PATH (хардкод вакансии/вопросов — принятое упрощение, см. чат
+    # 2026-09-04), но САМ id интервью должен браться из комнаты, в которую продиспатчило
+    # LiveKit, а не из мок-файла — иначе backend слушает канал с реальным UUID, а
+    # live-agent публикует в канал "demo-001" (id из мок-файла), и они никогда не
+    # встречаются: control-канал молча не получает ни одного события.
+    room_name = ctx.job.room.name
+    if room_name:
+        interview.interview_id = room_name
+
     events = EventLog(
         AGENT_ROOT / "out" / f"{interview.interview_id}.jsonl",
         sinks=_build_event_sinks(interview.interview_id),

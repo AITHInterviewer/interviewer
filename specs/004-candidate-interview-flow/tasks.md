@@ -38,17 +38,50 @@ agent-driven transitions), US4 (P2, live_coding-редактор).
 end-to-end (live-agent → Redis → backend → frontend) должен работать хотя бы на фейковых
 событиях. US1 (см. Notes) от этой фазы не зависит и может вестись параллельно.
 
-- [ ] T004 ORM-модель `Answer` в `backend/app/models/answer.py` + Alembic-миграция в `backend/app/migrations/versions/` (см. `data-model.md`, раздел `Answer`)
+- [X] T004 ORM-модель `Answer` в `backend/app/models/answer.py` + Alembic-миграция в `backend/app/migrations/versions/` (см. `data-model.md`, раздел `Answer`) — попутно поднят весь минимальный DB-слой [[003-recruiter-vacancy-management]] (`Recruiter`/`Vacancy`/`Question`/`Interview`, только схема), которого не было в коде вообще; `interview_directory.py`-заглушка удалена, `candidate_interview.py` читает из Postgres. Миграция написана вручную (нет живого Postgres в песочнице, где писался код) — при первом запуске на реальном Postgres сверить `alembic check`/`--autogenerate` diff на пусто.
 - [X] T005 [US-agnostic] Реализовать `RedisEventSink` в `live-agent/src/ainterviewer/control_bridge.py` — публикует тот же `Event` (`events.py`, БЕЗ изменения схемы) в канал `live-agent:events:{interview_id}` **параллельно** с `EventLog.emit()` (см. `research.md` п.2 — аддитивно, `live-agent/CLAUDE.md` правило 5 не нарушается)
-- [X] T006 Подключить `RedisEventSink` рядом с `EventLog` в `live-agent/src/ainterviewer/agent.py` — каждый `emit()` идёт в оба sink
-- [ ] T007 WS-эндпоинт `GET /ws/interview/{access_token}` (хендшейк/валидация токена, коды закрытия `4401`/`4409`) в `backend/app/routers/interview_ws.py` — см. `contracts/control-channel.md`
-- [ ] T008 Сервис `backend/app/services/control_channel.py` — подписка на Redis-канал `live-agent:events:{interview_id}`, маппинг `EventType → ControlEvent` строго по таблице из `data-model.md` (без собственной логики решений — FR-011)
-- [ ] T009 Подключить `interview_ws`-роутер в `backend/app/main.py`
-- [ ] T010 [P] `frontend/lib/control-channel.ts` — WS-клиент + client-side state machine (состояния из `data-model.md`, раздел «Client-side interview state»), пока без UI-потребителей
-- [ ] T011 [P] Реализовать `livekit_tokens.py` в `backend/app/services/` + `POST /interview/{access_token}/livekit-token` в `backend/app/routers/candidate_interview.py` — см. `contracts/livekit-token.md`
+- [X] T006 Подключить `RedisEventSink` рядом с `EventLog` в `live-agent/src/ainterviewer/agent.py` — каждый `emit()` идёт в оба sink. **Попутно найден и исправлен блокер** (обнаружен при подготовке к сквозному прогону, 2026-09-04): `entrypoint()` брал `interview_id` только из захардкоженного `mock_data/interview_example.json` ("demo-001"), игнорируя `ctx.job.room.name` — Redis-канал, в который публикует `live-agent`, никогда не совпадал бы с каналом, который слушает backend (`room_name` = реальный `Interview.id`, см. `contracts/livekit-token.md`), control-канал молча не получал бы ни одного события. Исправлено — `interview.interview_id` переопределяется на `ctx.job.room.name`, когда он есть; вопросы по-прежнему из мок-файла (хардкод вакансии — принятое упрощение).
+- [X] T007 WS-эндпоинт `GET /ws/interview/{access_token}` (хендшейк/валидация токена, коды закрытия `4401`/`4409`) в `backend/app/routers/interview_ws.py` — см. `contracts/control-channel.md`. `candidate_input` от кандидата пока только логируется, не пересылается (см. T028).
+- [X] T008 Сервис `backend/app/services/control_channel.py` — подписка на Redis-канал `live-agent:events:{interview_id}`, маппинг `EventType → ControlEvent` строго по таблице из `data-model.md` (без собственной логики решений — FR-011). `reconnect_status` (генерируется backend'ом локально) — не реализован, см. Known Gaps.
+- [X] T009 Подключить `interview_ws`-роутер в `backend/app/main.py`
+- [X] T010 [P] `frontend/lib/control-channel.ts` — WS-клиент + client-side state machine (состояния из `data-model.md`, раздел «Client-side interview state»), пока без UI-потребителей
+- [X] T011 [P] Реализовать `livekit_tokens.py` в `backend/app/services/` + `POST /interview/{access_token}/livekit-token` в `backend/app/routers/candidate_interview.py` — см. `contracts/livekit-token.md`
 
 **Checkpoint**: фейковый поток событий (`live-agent` → Redis → backend → frontend
 state machine) проходит целиком — US2/US3/US4 могут строить UI поверх готового канала
+
+**Known Gaps на момент этой реализации (не выдаём желаемое за проверенное, см.
+`live-agent/CLAUDE.md`, правило 10, тот же принцип применяется здесь)**:
+- Не прогнано end-to-end на реальных Postgres/Redis/LiveKit — в песочнице, где писался
+  код, нет Docker/сети до этих сервисов. Backend-тесты (`pytest`, 14 шт.) проходят на
+  SQLite-in-memory вместо Postgres (см. `tests/conftest.py`) и `fakeredis` вместо Redis
+  (`tests/test_interview_ws.py`, T031 — покрывает хендшейк, коды закрытия 4401/4409,
+  ПОЛНЫЙ relay-цикл Redis→ControlEvent→WS-сообщение и закрытие на `completed` реальной
+  асинхронной оркестрацией, не моком) — это проверяет протокол и бизнес-логику, не саму
+  связность с настоящим Postgres/asyncpg/Redis по сети. Миграция `0001_initial.py`
+  написана вручную, не автосгенерирована — сверить `alembic check` на первом реальном
+  Postgres. LiveKit (медиатранспорт) и STT/TTS вообще не задействованы ни в одном тесте —
+  `livekit-api`/`livekit-client` (выпуск токена, `lib/livekit-client.ts`) проверены только
+  тем, что компилируются и что `POST .../livekit-token` возвращает непустой JWT, не тем,
+  что реальный LiveKit-сервер его принимает.
+- `question_id`, который `live-agent` кладёт в `Event`, сейчас берётся из мок-вакансии
+  (`mock_data/interview_example.json`, строки вида `q1`) — не совпадает с Postgres UUID
+  `question.id`. `control_channel.py` на этот случай отдаёт консервативный
+  `input_format=none` вместо падения, но реальный `input_format=code` для `live_coding`
+  заработает только когда [[001-live-interview-contour]] будет читать вопросы из
+  Postgres, а не из мок-файла — отдельная интеграционная работа, не предмет этой фичи.
+- `candidate_input` от кандидата (T027/T028) принимается WS-эндпоинтом, но не
+  пересылается дальше в `live-agent` и не сохраняется в `Answer.code_snapshots` — только
+  логируется. Реализация T028 намеренно отделена, т.к. требует решить сам механизм связи
+  backend→live-agent в обратную сторону (Redis pub/sub в другую сторону? прямой вызов?),
+  чего не было в `research.md`.
+- `reconnect_status` (`data-model.md` — единственный `ControlEvent.type`, не имеющий
+  источника в `live-agent`) не генерируется backend'ом — WS просто закрывается на
+  разрыве, frontend (`control-channel.ts`) сам детектит это по `onclose` и показывает
+  `reconnecting`, но backend не шлёт явное подтверждение восстановления подписки.
+- Reconnect намеренно не ограничен по частоте/количеству — обсуждалось с пользователем
+  2026-09-04, решено не решать сейчас (не путать с прокторингом, который вне скоупа
+  спеки другим пунктом).
 
 ---
 
@@ -85,14 +118,14 @@ Phase 2 (control-канал не участвует в этом сценарии
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] `frontend/app/interview/[token]/interview-room.tsx` — layout: `QuestionPanel` по центру, тайлы по краям, подключается к T010 (control-channel state)
-- [ ] T018 [P] [US2] `frontend/lib/livekit-client.ts` — подключение браузера кандидата к LiveKit room через токен из T011 (`livekit-client` SDK), публикация камеры/микрофона из `DeviceCheck` (T014)
-- [ ] T019 [US2] `frontend/components/interview/CandidateTile.tsx` (свой видеопоток) и `AgentTile.tsx` (индикация присутствия агента — LiveKit remote participant/TTS-активность)
-- [ ] T020 [US2] Сервис `answer_storage.py` в `backend/app/services/` — приём чанков, склейка, запись `Answer` (T004) в MinIO — см. `contracts/answer-upload.md`
-- [ ] T021 [US2] `POST /interview/{access_token}/answers/{question_id}/chunks` и `/finalize` в `backend/app/routers/candidate_interview.py`
-- [ ] T022 [US2] Интеграция `MediaRecorder` в `interview-room.tsx` — старт/стоп по `question_id` из control-channel state (T010), чанки на T021, `finalize` по приходу `transition`/`completed` (зависит от T010, T021)
-- [ ] T023 [US2] Рендер `ControlEvent.text` как субтитров; warmup/closing без визуального отличия (FR-005)
-- [ ] T024 [US2] Финальный экран «Спасибо, ответы отправлены на обработку» по `ControlEvent.type=completed`
+- [X] T017 [US2] Layout интервью — реализован в уже существующем `frontend/components/interview/InterviewRoom.tsx` (не в новом `app/interview/[token]/interview-room.tsx`, чтобы не заводить второй компонент рядом с уже подключённым в `InterviewFlow.tsx`), подключён к `control-channel.ts` (T010)
+- [X] T018 [P] [US2] `frontend/lib/livekit-client.ts` — подключение к LiveKit room через токен из T011, публикация треков из `DeviceCheck`-стрима
+- [X] T019 [US2] Упрощение: тайлы кандидата/агента — инлайн-разметка в `InterviewRoom.tsx`, не отдельные `CandidateTile.tsx`/`AgentTile.tsx` компоненты (нечего переиспользовать за пределами этого экрана на этой итерации — вынести в отдельные файлы, когда появится второй потребитель)
+- [ ] T020 [US2] Сервис `answer_storage.py` в `backend/app/services/` — приём чанков, склейка, запись `Answer` (T004) в MinIO — см. `contracts/answer-upload.md`. **Отложено осознанно** — цель ближайшей итерации (обсуждение с пользователем 2026-09-04, `/goal`) сужена до самого флоу разговора, вакансия/вопросы захардкожены; запись/сохранение ответов — следующий шаг.
+- [ ] T021 [US2] `POST /interview/{access_token}/answers/{question_id}/chunks` и `/finalize` — отложено вместе с T020
+- [ ] T022 [US2] Интеграция `MediaRecorder` — отложено вместе с T020/T021 (сейчас `InterviewRoom.tsx` публикует камеру/микрофон в LiveKit для реалтайм-обработки речи, но не пишет и не грузит их отдельно на backend)
+- [X] T023 [US2] Рендер `ControlEvent.text` — `InterviewRoom.tsx` показывает текст вопроса как есть; warmup/closing не различаются визуально (нечего различать — рендерится одно и то же поле)
+- [X] T024 [US2] Финальный экран по `ControlEvent.type=completed` — реализован (`StatusLine`, статус `completed`)
 
 **Checkpoint**: US1 + US2 работают вместе — кандидат проходит путь от согласия до
 финального экрана на фейковом или реальном потоке решений
@@ -110,13 +143,13 @@ Phase 2 (control-канал не участвует в этом сценарии
 
 ### Implementation for User Story 3
 
-- [ ] T025 [US3] Строго связать переходы `interview-room.tsx` (T017) с `ControlEvent` — убрать любой локальный «next»-контрол, если он появился в T017/T022 как заглушка
-- [ ] T026 [US3] `frontend/components/interview/AnswerInput.tsx` — условный рендер поля ввода по `ControlEvent.input_format` (таблица в `data-model.md`)
-- [ ] T027 [US3] Отправка `candidate_input` по control-каналу для `input_format != none` (`contracts/control-channel.md`) — расширение `control-channel.ts` (T010)
+- [X] T025 [US3] Строго связать переходы `InterviewRoom.tsx` с `ControlEvent` — нет ни одного локального «next»-контрола, весь UI реактивен к `channelState`
+- [ ] T026 [US3] `frontend/components/interview/AnswerInput.tsx` — условный рендер поля ввода по `ControlEvent.input_format` — отложено вместе с T020-T022 (хардкод-вопросы этой итерации все `format=voice` → `input_format=none`, нечего рендерить)
+- [ ] T027 [US3] Отправка `candidate_input` по control-каналу для `input_format != none` — метод `sendCandidateInput` в `control-channel.ts` уже есть (T010), но ничто в UI его пока не вызывает (см. T026)
 - [ ] T028 [US3] Backend: приём `candidate_input` в `control_channel.py` (T008) — только пересылка/сохранение в `Answer.code_snapshots`, БЕЗ интерпретации содержимого и БЕЗ влияния на переходы (FR-011)
-- [ ] T029 [US3] Reconnect: `reconnecting`-оверлей в `control-channel.ts` (T010) + повтор WS-хендшейка с тем же `access_token` при разрыве (`contracts/control-channel.md`, коды закрытия)
+- [X] T029 [US3] Reconnect: `reconnecting`-статус в `control-channel.ts` (T010) на аномальном разрыве + повтор WS-хендшейка с тем же `access_token`, отражается в `InterviewRoom.tsx` (`StatusLine`) — покрыто vitest (`control-channel.test.ts`)
 - [ ] T030 [P] [US3] Флаг `--publish-redis` в `live-agent/scripts/simulate.py` — публикует события T005 в Redis без реального LiveKit/STT/TTS (`quickstart.md`, Сценарий A)
-- [ ] T031 [US3] `backend/tests/test_interview_ws.py` + `test_control_channel.py` (pytest) — фейковые Redis-события → корректная последовательность `ControlEvent`, backend не меняет и не переупорядочивает решения
+- [X] T031 [US3] `backend/tests/test_interview_ws.py` + `test_control_channel.py` (pytest) — `test_interview_ws.py` гоняет полный цикл на `fakeredis`+SQLite (handshake, коды закрытия, relay Redis→ControlEvent→WS, закрытие на `completed`) реальной асинхронной оркестрацией, не моком
 - [X] T032 [US3] `live-agent/tests/test_control_bridge.py` (pytest) — `RedisEventSink` публикует идентичный payload тому, что уходит в `EventLog`, файл `out/*.jsonl` не меняется по формату (регрессия на `live-agent/CLAUDE.md` правило 5)
 
 **Checkpoint**: все три P1-стори работают независимо и вместе; control-канал закрывает

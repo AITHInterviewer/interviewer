@@ -4,15 +4,22 @@
 
 **Created**: 2026-09-03
 
-**Status**: Not started — `backend/` реализует только `GET /health`, доменных роутеров/моделей нет; `frontend/` не имеет ни одного экрана рекрутёра
+**Status**: Not started (CRUD/UI рекрутёра) — `backend/app/models/` завёл схему таблиц
+этой фичи (`Recruiter`/`Vacancy`/`Question`/`Interview`, Alembic-миграция), но только как
+side-effect [[004-candidate-interview-flow]] (нужны были реальные FK для `Answer` и WS
+control-канала) — без CRUD-эндпоинтов, аутентификации рекрутёра или `speckit-plan`/
+`speckit-tasks` этой фичи; `frontend/` не имеет ни одного экрана рекрутёра.
 
 **Input**: `docs/Архитектура и дизайн MVP.md`, разделы 1, 2.1, 2.1.1, 2.1.2, 2.2, 2.4, 2.5, 4, 5, 5.1, 6
 
 ## Синхронизация с кодом
 
-Ничего из этого спека не реализовано в `backend/` (`app/routers/health.py` — единственный
-роутер) и `frontend/` (`app/page.tsx`, `app/layout.tsx` — пустой каркас). Это первый
-крупный кусок продуктовой функциональности, ожидающий `speckit-plan`/`speckit-tasks`.
+CRUD/бизнес-логика этого спека не реализована ни в `backend/`, ни в `frontend/`
+(`app/page.tsx`, `app/layout.tsx` — пустой каркас). Схема таблиц (`app/models/`,
+`app/migrations/versions/0001_initial.py`) существует, но это не то же самое, что этот
+спек реализован — см. `specs/004-candidate-interview-flow/tasks.md`, T004, за тем, зачем
+и как она появилась. Это по-прежнему первый крупный кусок продуктовой функциональности,
+ожидающий `speckit-plan`/`speckit-tasks` для CRUD/UI-части.
 Полный источник требований — архитектурный документ; здесь — саммари под user stories,
 не дублирование каждого поля (за деталями полей моделей — раздел 4 документа).
 

@@ -38,15 +38,12 @@
 |---|---|
 | `404` | `access_token` не найден |
 
-## Временная реализация до готовности [[003-recruiter-vacancy-management]]
+## Статус реализации
 
-003 (владелец `Interview`/`Vacancy`/`Question`) на момент реализации этой фичи ещё не
-поднял Postgres-модели ни для одной сущности (см. `specs/003-recruiter-vacancy-management/
-spec.md`, «Синхронизация с кодом» — только `GET /health`). Чтобы не блокировать 004 на
-готовности чужой DB-схемы, `backend/app/services/interview_directory.py` временно отдаёт
-это же тело ответа из захардкоженного in-memory словаря (несколько тестовых токенов).
-
-**Это явный, документированный временный код, не тихий хак**: как только 003 поставит
-реальную таблицу `Interview`, `candidate_interview.py` должен переключиться на чтение из
-неё, сохранив тот же контракт ответа — `interview_directory.py` целиком удаляется, а не
-обрастает больше логикой.
+Реализовано поверх минимального DB-слоя [[003-recruiter-vacancy-management]] (только
+схема `Recruiter`/`Vacancy`/`Question`/`Interview`, без CRUD рекрутёра — см.
+`app/services/interview_repository.py`). Временная in-memory заглушка
+(`interview_directory.py`) удалена. `estimated_duration_min` считается по формуле раздела
+2.1.2 архитектурного документа с двумя параметрами-плейсхолдерами (фиксированный оверхед,
+среднее по адаптивному бюджету), не сверенными с 003 — см. docstring
+`interview_repository.py`.

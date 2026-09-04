@@ -4,20 +4,23 @@
 
 **Created**: 2026-09-03
 
-**Status**: Not started (UI) / Partially covered by [[001-live-interview-contour]] (диалоговая логика) — `frontend/app/interview/[token]/page.tsx` существует, но пустой (см. `frontend/README.md`: «пустой candidate flow без интеграции с backend»). Разделение ответственности frontend/backend/live-agent зафиксировано ниже (было открытым вопросом) — моста backend↔live-agent и control-канала frontend↔backend в коде ещё нет.
+**Status**: In progress — control-канал backend↔frontend (WS-эндпоинт, Redis-мост, LiveKit-токен) реализован (`tasks.md`, Phase 2); UI кандидатского интервью (US1 consent/device-check готов, US2/US3/US4 — нет) и answer-upload ещё не реализованы. Разделение ответственности frontend/backend/live-agent зафиксировано ниже.
 
 **Input**: `docs/Архитектура и дизайн MVP.md`, разделы 2.3, 2.3.1, 2.3.2, 6, 9; обсуждение с пользователем 2026-09-04 (разделение ответственности FE/BE/live-agent, control-канал)
 
 ## Синхронизация с кодом
 
 Диалоговая логика (когда переходить дальше, когда уточнять) уже реализована в
-`live-agent/` и описана в [[001-live-interview-contour]]. Этот спек — про то, чего в коде
-ещё нет: браузерный UI кандидата (согласие, видеозвонок-подобный экран, запись через
-`MediaRecorder`, `live_coding`-редактор), control-канал между frontend и backend, и мост
-между backend и протоколом событий live-контура. Роут `/interview/[token]` в `frontend/` —
-пустая заглушка, без логики согласия, камеры, записи или связи с `live-agent`. Backend
-сейчас реализует только `GET /health` — ни доменных роутеров, ни WebSocket-эндпоинта нет
-(см. [[003-recruiter-vacancy-management]], «Синхронизация с кодом»).
+`live-agent/` и описана в [[001-live-interview-contour]]. Control-канал реализован:
+`backend/app/routers/interview_ws.py` (WS-хендшейк), `app/services/control_channel.py`
+(Redis→ControlEvent), `app/services/livekit_tokens.py`, `frontend/lib/control-channel.ts`
+(клиент, пока без UI-потребителей) — см. `tasks.md`, Phase 2, и его же «Known Gaps»
+(не прогонялось на реальном Postgres/Redis/LiveKit). Ещё не реализовано: браузерный UI
+интервью (видеозвонок-подобный экран, запись через `MediaRecorder`, `live_coding`-
+редактор — US2/US3/US4), answer-upload. Backend по пути завёл минимальный DB-слой
+[[003-recruiter-vacancy-management]] (schema-only `Recruiter`/`Vacancy`/`Question`/
+`Interview`, без CRUD рекрутёра — см. `specs/003-recruiter-vacancy-management/spec.md`,
+«Синхронизация с кодом», не обновлялось этой правкой).
 
 Зависит от [[003-recruiter-vacancy-management]] (нужен реальный `access_token` от
 созданного интервью) и от протокола [[001-live-interview-contour]] (UI должен как минимум
@@ -174,8 +177,18 @@ control-flow на фронтенде вторым источником исти�
   [[001-live-interview-contour]]); backend не переигрывает эти решения, только оркестрирует
   запуск live-agent-сессии и ретранслирует её события кандидату. Медиапоток (аудио/видео
   кандидата) идёт отдельным транспортом, подходящим рантайму live-agent (LiveKit room), не
-  через control-канал. Точный механизм доставки событий из `live-agent` в backend в
-  реальном времени (сейчас `live-agent` пишет только файловый `out/<id>.jsonl`, см.
-  [[001-live-interview-contour]]) — не предмет этого спека, это решается в `/speckit-plan`.
+  через control-канал.
+- **Механизм доставки событий live-agent → backend (закрыт этим обновлением, был открытым
+  вопросом)**: `live-agent` публикует те же события, что пишет в файловый
+  `out/<id>.jsonl` ([[001-live-interview-contour]]), дополнительно в Redis pub/sub-канал
+  `live-agent:events:{interview_id}` (уже реализовано, `live-agent/src/ainterviewer/
+  control_bridge.py::RedisEventSink`); backend подписывается на этот канал на время сессии
+  и ретранслирует в WebSocket-соединение конкретного кандидата. WebSocket держится открытым
+  весь сеанс интервью (не переоткрывается при подключении LiveKit) — это единственный канал
+  push-доставки control-событий, включая полный текст вопроса; frontend НЕ запрашивает текст
+  вопроса отдельным HTTP-запросом. HTTP используется отдельно и только для того, что является
+  бинарным артефактом ответа, а не control-сигналом: загрузка записанных чанков видео/аудио
+  (`FR-003`) и `code_submission`/`code_snapshots[]` для `live_coding` — эти запросы не
+  дублируют и не заменяют control-канал.
 - Прокторинг (анти-читинг, контроль постороннего присутствия и т.п.) осознанно вне скоупа
   этого спека — фиксируется отдельно, когда будет нужен.
