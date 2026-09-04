@@ -134,12 +134,19 @@ jobs:
           '@
 
       - name: Build and (re)start infra + backend + frontend
+        # livekit-server исключён из этого прогона: его фиксированный UDP-диапазон
+        # 50000-50100 конфликтует с портами, которые Windows/WSL2 (Docker Desktop backend)
+        # резервирует динамически — "Only one usage of each socket address..." на одном из
+        # портов диапазона. Известная особенность Docker Desktop на Windows, не ошибка
+        # конфига; чинить отдельно (сузить диапазон и/или снять исключения через
+        # `netsh interface ipv4 show excludedportrange protocol=udp` на самой машине), не
+        # блокируя этим postgres/redis/minio.
         run: |
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
             up -d --build --remove-orphans `
-            postgres redis minio livekit-server backend frontend
+            postgres redis minio backend frontend
 
       - name: Build and (re)start live-agent (+ its stt/tts)
         run: |
@@ -199,7 +206,9 @@ jobs:
           Write-Output "stt (live):      http://26.67.31.6:8001/v1/models"
           Write-Output "tts (live):      http://26.67.31.6:8002"
           Write-Output "minio console:   http://26.67.31.6:9001"
-          Write-Output "livekit signal:  ws://26.67.31.6:7880"
           Write-Output "postgres:        26.67.31.6:5432"
+          Write-Output "NOTE: livekit-server is NOT running this pass (UDP port-range"
+          Write-Output "conflict on this Windows host, see the build step comment) —"
+          Write-Output "live-agent's job-worker mode has nothing to connect to yet."
           Write-Output "NOTE: live-agent LLM calls need 'claude login' run once on this"
           Write-Output "machine under the runner service account — not done by this workflow."
