@@ -25,7 +25,16 @@ jobs:
       - name: Interface metrics
         run: Get-NetIPInterface -AddressFamily IPv4 | Sort-Object InterfaceMetric | Format-Table ifIndex, InterfaceAlias, InterfaceMetric, ConnectionState
 
+      - name: Network connection profiles (Public/Private/Domain per adapter)
+        # A VPN can cause Windows to reclassify an adapter's network category — if RDP's
+        # built-in firewall rules only allow Private/Domain and the adapter gets tagged
+        # Public, RDP silently stops accepting connections on it. Locale-independent check.
+        run: Get-NetConnectionProfile | Format-Table InterfaceAlias, NetworkCategory, IPv4Connectivity
+
       - name: RDP service and firewall rule status
+        # -DisplayGroup with the English name doesn't match on a non-English Windows
+        # locale (this machine is RU) — filter by DisplayName content instead, which is
+        # also localized but consistently contains "Desktop" in the underlying rule name.
         run: |
           Get-Service TermService | Format-List Name, Status, StartType
-          Get-NetFirewallRule -DisplayGroup "Remote Desktop" | Format-Table DisplayName, Enabled, Direction, Action, Profile
+          Get-NetFirewallRule | Where-Object { $_.DisplayName -match 'Desktop' -or $_.Name -match 'RemoteDesktop' } | Format-Table DisplayName, Enabled, Direction, Action, Profile
