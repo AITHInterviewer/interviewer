@@ -25,6 +25,7 @@ type DeviceCheckProps = {
  */
 export function DeviceCheck({ onGranted }: DeviceCheckProps) {
   const [status, setStatus] = useState<DeviceCheckStatus>("idle");
+  const [errorReason, setErrorReason] = useState<string | null>(null);
   const [micLevel, setMicLevel] = useState(0);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
@@ -97,7 +98,24 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       setMicrophoneId(stream.getAudioTracks()[0]?.getSettings().deviceId ?? "");
       setStatus("granted");
       await refreshDeviceList();
-    } catch {
+    } catch (cause) {
+      // Разрешение на сайт в браузере может быть выдано (зелёные тумблеры в настройках
+      // сайта), а getUserMedia всё равно упадёт — например, если у устройства физически
+      // нет камеры/микрофона (NotFoundError, частый случай для RDP-сессии без проброса
+      // видео) или устройство занято другим приложением (NotReadableError). Показываем
+      // реальную причину вместо одного общего "нет доступа" на все случаи.
+      const name = cause instanceof DOMException ? cause.name : "";
+      setErrorReason(
+        name === "NotFoundError"
+          ? "Камера или микрофон не найдены на этом устройстве."
+          : name === "NotReadableError"
+            ? "Камера или микрофон уже используются другим приложением."
+            : name === "NotAllowedError"
+              ? null // штатный кейс ниже — про разрешение браузера
+              : cause instanceof Error
+                ? cause.message
+                : "Неизвестная ошибка.",
+      );
       setStatus("denied");
     }
   }, [refreshDeviceList, startMicLevelLoop]);
@@ -169,9 +187,10 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       >
         <h2 className="text-lg font-medium">Нет доступа к камере или микрофону</h2>
         <p className="text-sm text-muted-foreground">
-          Похоже, доступ уже был отклонён раньше — из кода браузер больше не показывает системный запрос
-          повторно. Разрешите камеру и микрофон для этого сайта в настройках браузера (обычно значок
-          замка/камеры слева от адресной строки) и нажмите «Запросить снова».
+          {errorReason ??
+            "Похоже, доступ уже был отклонён раньше — из кода браузер больше не показывает системный " +
+              "запрос повторно. Разрешите камеру и микрофон для этого сайта в настройках браузера " +
+              "(обычно значок замка/камеры слева от адресной строки) и нажмите «Запросить снова»."}
         </p>
         <Button type="button" onClick={() => void acquire()}>
           Запросить доступ снова
