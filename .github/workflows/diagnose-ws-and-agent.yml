@@ -12,12 +12,15 @@ jobs:
     steps:
       - name: write tts probe scripts
         run: |
-          Set-Content -Path probe_speech.py -Encoding utf8 -Value @'
+          Set-Content -Path probe_download.py -Encoding utf8 -Value @'
           import json, urllib.request, urllib.error
-          body = json.dumps({"model": "speaches-ai/piper-ru_RU-irina-medium", "voice": "irina", "input": "privet"}).encode()
-          req = urllib.request.Request("http://tts:8000/v1/audio/speech", data=body, headers={"Content-Type": "application/json"})
+          model_id = "speaches-ai/piper-ru_RU-irina-medium"
+          req = urllib.request.Request(
+              f"http://tts:8000/v1/models/{model_id}",
+              method="POST",
+          )
           try:
-              r = urllib.request.urlopen(req, timeout=15)
+              r = urllib.request.urlopen(req, timeout=120)
               print("STATUS", r.status)
               print(r.read()[:2000])
           except urllib.error.HTTPError as e:
@@ -30,11 +33,16 @@ jobs:
           print(r.read().decode("utf-8", "replace")[:4000])
           '@
 
-      - name: curl tts directly to see the real error body
+      - name: trigger model download
         run: |
-          Get-Content probe_speech.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
+          Get-Content probe_download.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
 
-      - name: list available models/voices
+      - name: list available models/voices after download
         if: always()
         run: |
           Get-Content probe_models.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
+
+      - name: tts logs after download attempt
+        if: always()
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs tts --tail 60
