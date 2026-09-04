@@ -1,20 +1,37 @@
 name: deploy full stack (self-hosted)
 
 # Расширение deploy-dev.yml: помимо frontend+backend поднимает общую инфру (postgres,
-# redis, minio, livekit) и live-agent (+ его self-hosted stt/tts). evaluation-agent
+# redis, minio, livekit-server) и live-agent (+ его self-hosted stt/tts). evaluation-agent
 # намеренно НЕ включает сам воркер — worker.py падает на NotImplementedError (см.
 # evaluation-agent/README.md, раздел «Статус»), это ожидаемо, не баг — поднимается только
 # его STT (stt-accurate), самостоятельная часть.
 #
-# Ручной запуск (workflow_dispatch) — в отличие от deploy-dev.yml это не часть core
-# happy path (см. specs/002-docker-dev-baseline/spec.md, FR-003: AI-сервисы явно
-# исключены из основного baseline), поднимается по требованию.
+# Три ОТДЕЛЬНЫХ `docker compose` вызова, не один со склейкой всех `-f` — при мульти-file
+# compose относительные пути (env_file/build context/volumes) резолвятся относительно
+# директории ПЕРВОГО `-f`-файла целиком для всех файлов разом, а не каждый относительно
+# своей директории. infra/docker-compose.yml + docker-compose.dev.yml оба без относительных
+# путей, кроме тех, что уже написаны относительно корня репо — их можно смешивать через
+# `--project-directory .`. live-agent/ и evaluation-agent/ (compose-файлы коллег) написаны
+# для запуска из СВОЕЙ директории (`build: .`, `env_file: .env`) — не трогаем их, а задаём
+# `--project-directory` явно под каждый, оставаясь в cwd репозитория (без `cd`).
+#
+# livekit-egress сюда не включаю: у него единственный относительный путь
+# (`./livekit-egress-config.yaml`) в infra/docker-compose.yml, а сервис и так помечен в
+# infra/README.md как "ни разу не проверялся вживую" — не стоит того, чтобы усложнять
+# резолюцию путей ради непроверенного сервиса.
 #
 # ВАЖНО про live-agent: LLM-часть требует `claude login` (Claude Agent SDK на подписке,
 # см. live-agent/CLAUDE.md, п.8) — выполненного ПОД ТЕМ ЖЕ пользователем, из-под которого
 # работает раннер (сейчас это bdtss). Это разовый интерактивный шаг (открывает браузер
 # для логина), который эта джоба выполнить не может — до него граф диалога поднимется,
 # но реальные LLM-вызовы будут падать с ошибкой авторизации.
+#
+# ВАЖНО про сети: infra+backend+frontend — один compose-проект (`--project-directory .`,
+# имя "interviewer"), общая docker-сеть — backend сможет резолвить "postgres"/"redis"/
+# "minio" по имени, когда реально начнёт их использовать. live-agent и evaluation-agent —
+# отдельные проекты/сети (их файлы не трогаем) — если live-agent'у нужен livekit-server
+# из infra, он достаёт его через `host.docker.internal` (Docker Desktop на Windows
+# резолвит это в адрес хоста), не по имени сервиса.
 
 on:
   workflow_dispatch: {}
@@ -59,10 +76,9 @@ jobs:
 
       - name: Write backend/.env
         # backend/app/config.py requires all of these (no defaults) — without them
-        # Settings() raises ValidationError at import and backend won't start. Here
-        # (unlike deploy-dev.yml) infra/docker-compose.yml really does bring up
-        # postgres/redis/minio under these exact service names, so these point at
-        # live services, not placeholders.
+        # Settings() raises ValidationError at import and backend won't start. infra +
+        # backend/frontend run as one compose project here, so postgres/redis/minio
+        # resolve by these exact service names.
         run: |
           Set-Content -Path backend/.env -Encoding utf8 -Value @'
           CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
@@ -112,23 +128,26 @@ jobs:
           TTS_MODEL=speaches-ai/piper-ru_RU-irina-medium
           TTS_VOICE=irina
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
-          LIVEKIT_URL=ws://livekit-server:7880
+          LIVEKIT_URL=ws://host.docker.internal:7880
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret
           '@
 
-      - name: Build and (re)start full stack
+      - name: Build and (re)start infra + backend + frontend
         run: |
-          docker compose `
-            -f infra/docker-compose.yml `
+          docker compose --project-directory . `
             -f docker-compose.dev.yml `
-            -f live-agent/docker-compose.yml `
-            -f evaluation-agent/docker-compose.yml `
+            -f infra/docker-compose.yml `
             up -d --build --remove-orphans `
-            postgres redis minio livekit-server livekit-egress `
-            backend frontend `
-            stt tts live-agent `
-            stt-accurate
+            postgres redis minio livekit-server backend frontend
+
+      - name: Build and (re)start live-agent (+ its stt/tts)
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --remove-orphans
+
+      - name: Build and (re)start evaluation-agent's stt-accurate
+        run: |
+          docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml up -d --build --remove-orphans stt-accurate
 
       - name: Wait for backend health
         run: |
@@ -142,7 +161,7 @@ jobs:
           }
           if (-not $ok) {
             Write-Error "backend did not become healthy in time"
-            docker compose -f docker-compose.dev.yml logs backend --tail 100
+            docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs backend --tail 100
             exit 1
           }
           Write-Output "backend healthy"
@@ -166,7 +185,12 @@ jobs:
       - name: Report container status
         if: always()
         run: |
-          docker compose -f infra/docker-compose.yml -f docker-compose.dev.yml -f live-agent/docker-compose.yml -f evaluation-agent/docker-compose.yml ps
+          Write-Output "--- infra + backend + frontend ---"
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml ps
+          Write-Output "--- live-agent ---"
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps
+          Write-Output "--- evaluation-agent (stt-accurate only) ---"
+          docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml ps
 
       - name: Print URLs
         run: |
