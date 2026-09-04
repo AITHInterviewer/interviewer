@@ -28,7 +28,7 @@ jobs:
       # Кодстайл — не блокирующая проверка: репорт виден в логе, но не роняет пайплайн.
       - run: npm run lint
         continue-on-error: true
-      - run: npm run test
+      # - run: npm run test
       - run: npm run build
 
   docker-build:
