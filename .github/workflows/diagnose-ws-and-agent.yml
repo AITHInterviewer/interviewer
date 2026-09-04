@@ -10,21 +10,16 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: live-agent ps
-        run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps
-
       - name: live-agent logs (full, no tail limit)
-        if: always()
         run: |
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
 
-      - name: livekit-server logs
+      - name: tts logs
         if: always()
         run: |
-          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server --tail 150
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs tts --tail 200
 
-      - name: backend logs (control_channel + ws only)
+      - name: stt logs
         if: always()
         run: |
-          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs backend --tail 400
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 100
