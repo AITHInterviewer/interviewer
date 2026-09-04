@@ -1,0 +1,31 @@
+name: diagnose network (self-hosted)
+
+# Разовая диагностика: смотрит таблицу маршрутов и сетевые адаптеры на раннере, чтобы
+# понять, как уживаются Radmin VPN и другой VPN-клиент (Hide My Name), включённые
+# одновременно — в частности, почему RDP на эту машину перестаёт работать при включении
+# второго VPN (типичная причина: kill-switch второго VPN или ассиметричная маршрутизация
+# после того как он подменяет default route).
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Network adapters
+        run: Get-NetIPConfiguration | Format-List InterfaceAlias, InterfaceDescription, IPv4Address, IPv4DefaultGateway
+
+      - name: Routing table
+        run: route print -4
+
+      - name: Interface metrics
+        run: Get-NetIPInterface -AddressFamily IPv4 | Sort-Object InterfaceMetric | Format-Table ifIndex, InterfaceAlias, InterfaceMetric, ConnectionState
+
+      - name: RDP service and firewall rule status
+        run: |
+          Get-Service TermService | Format-List Name, Status, StartType
+          Get-NetFirewallRule -DisplayGroup "Remote Desktop" | Format-Table DisplayName, Enabled, Direction, Action, Profile

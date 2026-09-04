@@ -141,11 +141,16 @@ jobs:
         # конфига; чинить отдельно (сузить диапазон и/или снять исключения через
         # `netsh interface ipv4 show excludedportrange protocol=udp` на самой машине), не
         # блокируя этим postgres/redis/minio.
+        # --force-recreate: a previous attempt aborted mid-`up` (livekit-server's UDP
+        # bind error) left interviewer-minio-1 running from that partial invocation
+        # without its host port mapping — compose then reused that same container
+        # unchanged on the next run instead of recreating it. Force-recreate makes this
+        # idempotent against that class of leftover.
         run: |
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
-            up -d --build --remove-orphans `
+            up -d --build --force-recreate --remove-orphans `
             postgres redis minio backend frontend
 
       - name: Build and (re)start live-agent (+ its stt/tts)
