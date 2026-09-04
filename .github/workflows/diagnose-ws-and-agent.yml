@@ -10,13 +10,13 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: try downloading the same HF model file directly from the runner host (not container)
+      - name: try BITS transfer (resumable, handles flaky connections better)
         run: |
-          $ProgressPreference = 'SilentlyContinue'
+          Remove-Item "$env:TEMP\model.onnx" -ErrorAction SilentlyContinue
           try {
             $sw = [Diagnostics.Stopwatch]::StartNew()
-            Invoke-WebRequest -Uri "https://huggingface.co/speaches-ai/piper-ru_RU-irina-medium/resolve/main/model.onnx" `
-              -OutFile "$env:TEMP\model.onnx" -TimeoutSec 120
+            Start-BitsTransfer -Source "https://huggingface.co/speaches-ai/piper-ru_RU-irina-medium/resolve/main/model.onnx" `
+              -Destination "$env:TEMP\model.onnx" -ErrorAction Stop
             $sw.Stop()
             $size = (Get-Item "$env:TEMP\model.onnx").Length
             Write-Output "OK: downloaded $size bytes in $($sw.Elapsed)"
