@@ -10,11 +10,12 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: TTS synth call with error body captured
+      - name: TTS synth call, ASCII-only input, UTF-8 explicit
         run: |
-          $body = @{ model = "speaches-ai/piper-ru_RU-irina-medium"; voice = "irina"; input = "Привет, это проверка"; response_format = "mp3" } | ConvertTo-Json
+          $payload = @{ model = "speaches-ai/piper-ru_RU-irina-medium"; voice = "irina"; input = "hello test"; response_format = "mp3" } | ConvertTo-Json
+          $bytes = [System.Text.Encoding]::UTF8.GetBytes($payload)
           try {
-            $r = Invoke-WebRequest -Uri "http://localhost:3906/v1/audio/speech" -Method Post -Body $body -ContentType "application/json" -UseBasicParsing -TimeoutSec 60
+            $r = Invoke-WebRequest -Uri "http://localhost:3906/v1/audio/speech" -Method Post -Body $bytes -ContentType "application/json; charset=utf-8" -UseBasicParsing -TimeoutSec 60
             Write-Output "OK: $($r.StatusCode), bytes=$($r.RawContentLength)"
           } catch {
             $resp = $_.Exception.Response
@@ -23,7 +24,9 @@ jobs:
               $reader = New-Object System.IO.StreamReader($stream)
               $errBody = $reader.ReadToEnd()
               Write-Output "STATUS: $($resp.StatusCode.value__)"
-              Write-Output "BODY: $errBody"
+              Write-Output "BODY: [$errBody]"
+              Write-Output "HEADERS:"
+              $resp.Headers | Format-Table -AutoSize | Out-String | Write-Output
             } else {
               Write-Output "NO RESPONSE: $($_.Exception.Message)"
             }
