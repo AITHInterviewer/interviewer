@@ -110,6 +110,9 @@ jobs:
           S3_SECRET_KEY=ainterviewer123
           S3_BUCKET=ainterviewer-resumes
           S3_REGION=us-east-1
+          LIVEKIT_API_KEY=devkey
+          LIVEKIT_API_SECRET=secret
+          LIVEKIT_WS_URL=ws://26.67.31.6:3907
           '@
 
       - name: Write frontend/.env

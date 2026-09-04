@@ -25,7 +25,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Ensure firewall rules for livekit-server ports
+        run: |
+          $rules = @{
+            "ainterviewer-3907" = @{ Port = 3907; Proto = "TCP" }
+            "ainterviewer-3908" = @{ Port = 3908; Proto = "TCP" }
+            "ainterviewer-livekit-udp" = @{ Port = "50000-50100"; Proto = "UDP" }
+          }
+          foreach ($name in $rules.Keys) {
+            $existing = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
+            if (-not $existing) {
+              New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol $rules[$name].Proto -LocalPort $rules[$name].Port -Action Allow | Out-Null
+            }
+          }
+
       - name: Write backend/.env
+        # LIVEKIT_WS_URL — по умолчанию в коде "ws://localhost:3907" (см. app/config.py),
+        # что для БРАУЗЕРА кандидата означает "его собственную машину", не раннер —
+        # LiveKit-соединение падает с ERR_CONNECTION_REFUSED. Нужен внешний IP раннера.
         run: |
           Set-Content -Path backend/.env -Encoding utf8 -Value @'
           CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
@@ -53,6 +70,9 @@ jobs:
           S3_SECRET_KEY=ainterviewer123
           S3_BUCKET=ainterviewer-resumes
           S3_REGION=us-east-1
+          LIVEKIT_API_KEY=devkey
+          LIVEKIT_API_SECRET=secret
+          LIVEKIT_WS_URL=ws://26.67.31.6:3907
           '@
 
       - name: Write frontend/.env
@@ -69,13 +89,17 @@ jobs:
           NEXT_DEV_ALLOWED_ORIGINS=26.67.31.6
           '@
 
-      - name: Build and (re)start postgres + redis + backend + frontend
+      - name: Build and (re)start postgres + redis + backend + frontend + livekit-server
+        # livekit-server: deploy-full.yml исключает его из-за конфликта фиксированного
+        # UDP-диапазона 50000-50100 с портами, которые Docker Desktop/WSL2 на Windows
+        # резервирует динамически (см. комментарий в том файле) — пробуем всё равно
+        # здесь, читаем реальную ошибку, если она есть, вместо того чтобы гадать заранее.
         run: |
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
             up -d --build `
-            postgres redis backend frontend
+            postgres redis backend frontend livekit-server
 
       - name: Reinstall frontend deps and clear stale .next build cache
         # node_modules AND .next are named volumes (docker-compose.dev.yml) that survive
@@ -134,6 +158,12 @@ jobs:
             exit 1
           }
           Write-Output "frontend healthy"
+
+      - name: Report livekit-server status
+        if: always()
+        run: |
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml ps livekit-server
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server --tail 50
 
       - name: Run migration + seed script inside the backend container
         run: |
