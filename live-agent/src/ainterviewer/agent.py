@@ -32,6 +32,7 @@ LLM с накопленной историей чата (`chat_ctx`) и гене
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -49,6 +50,8 @@ from .schema import InterviewInput
 from .state_machine import LiveContourEngine
 
 load_dotenv()
+
+logger = logging.getLogger("ainterviewer.agent")
 
 # .../live-agent/src/ainterviewer/agent.py -> .../live-agent (не src/ — там нет ни
 # mock_data/, ни out/; баг не выстреливал только потому, что этот путь ни разу не
@@ -157,13 +160,22 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     agent = InterviewerAgent(engine)
+
+    # Логи на каждом шаге — временно, для диагностики зависания без единой ошибки при
+    # первом живом прогоне (2026-09-04): процесс тихо замирал где-то между регистрацией
+    # воркера и первой репликой, ни одна из строк ниже не появлялась в логах контейнера.
+    logger.info("entrypoint: ctx.connect()...")
     await ctx.connect()
+    logger.info("entrypoint: ctx.connect() done, session.start()...")
     await session.start(agent=agent)
+    logger.info("entrypoint: session.start() done, engine.start()...")
 
     first_utterance = f"{INTRO_PHRASE} {await engine.start()}"
+    logger.info("entrypoint: engine.start() done, session.say()...")
     # add_to_chat_ctx=False: это вступление не должно попасть в chat_ctx как "assistant"-реплика,
     # потому что мы им всё равно не пользуемся в llm_node (см. класс выше) — она там просто лишняя.
     await session.say(first_utterance, add_to_chat_ctx=False)
+    logger.info("entrypoint: session.say() done")
 
     # TODO: не реализовано и не проверено — дождаться engine.state.phase == Phase.DONE
     # (например, подпиской на событие INTERVIEW_COMPLETED в EventLog или опросом состояния)
