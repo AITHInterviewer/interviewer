@@ -1,12 +1,19 @@
 name: seed demo interview (self-hosted)
 
-# Разовая ручная джоба — прогоняет миграцию и `scripts/seed_demo_interview.py` внутри
-# уже поднятого backend-контейнера (см. deploy-full.yml — тот же project/сеть, чтобы
-# резолвить "postgres" по имени) и печатает готовую ссылку на интервью. Не деплоит и не
-# трогает контейнеры — только выполняет команды внутри уже работающего `backend`.
+# Разовая ручная джоба — не полагается на то, что deploy-full.yml уже поднял стек в ТОМ
+# ЖЕ workspace (проверено на практике: backend/.env не был записан там, где ждал этот
+# workflow, — контейнеры оказались подняты из другого места/вручную). Поэтому сам пишет
+# .env-файлы (тем же содержимым, что deploy-full.yml) и сам гарантирует, что
+# postgres/redis/backend подняты и пересобраны (--build — подхватит недавний фикс
+# Dockerfile, который добавил scripts/+alembic.ini в dev-образ), прежде чем выполнять
+# миграцию и сид внутри контейнера.
 
 on:
   workflow_dispatch: {}
+
+concurrency:
+  group: deploy-full
+  cancel-in-progress: false
 
 jobs:
   seed:
@@ -15,14 +22,72 @@ jobs:
       run:
         shell: powershell
     steps:
-      # clean: false — по умолчанию checkout делает `git clean -ffdx`, что стирает
-      # untracked `backend/.env`/`frontend/.env` (не закоммичены, пишутся отдельным шагом
-      # в deploy-full.yml в ТОМ ЖЕ workspace на self-hosted раннере). `docker compose`
-      # парсит env_file всех сервисов в -f файлах даже для простого `exec`, а не только
-      # тех, что реально запускаются — без .env падает ещё до старта команды в контейнере.
       - uses: actions/checkout@v4
-        with:
-          clean: false
+
+      - name: Write backend/.env
+        run: |
+          Set-Content -Path backend/.env -Encoding utf8 -Value @'
+          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
+          APP_ENV=development
+          APP_DEBUG=true
+          APP_HOST=0.0.0.0
+          APP_PORT=8000
+          SECRET_KEY=dev-secret-change-me
+          POSTGRES_DB=ainterviewer
+          POSTGRES_HOST=postgres
+          POSTGRES_USER=ainterviewer
+          POSTGRES_PASSWORD=ainterviewer
+          DATABASE_URL=postgresql+asyncpg://ainterviewer:ainterviewer@postgres:5432/ainterviewer
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          REDIS_URL=redis://redis:6379/0
+          CELERY_BROKER_URL=redis://redis:6379/1
+          CELERY_RESULT_BACKEND=redis://redis:6379/2
+          MINIO_ROOT_USER=ainterviewer
+          MINIO_ROOT_PASSWORD=ainterviewer123
+          MINIO_BUCKET=ainterviewer-resumes
+          S3_ENDPOINT_URL=http://minio:9000
+          S3_PUBLIC_ENDPOINT_URL=http://26.67.31.6:3903
+          S3_ACCESS_KEY=ainterviewer
+          S3_SECRET_KEY=ainterviewer123
+          S3_BUCKET=ainterviewer-resumes
+          S3_REGION=us-east-1
+          '@
+
+      - name: Write frontend/.env
+        # Не запускаем frontend в этой джобе, но docker-compose.dev.yml объявляет для
+        # него env_file — compose парсит его для ЛЮБОЙ команды по этим -f файлам, даже
+        # если реально стартуют только postgres/redis/backend.
+        run: |
+          Set-Content -Path frontend/.env -Encoding utf8 -Value @'
+          NEXT_PUBLIC_BACKEND_URL=http://26.67.31.6:8000
+          BACKEND_INTERNAL_URL=http://backend:8000
+          '@
+
+      - name: Build and (re)start postgres + redis + backend
+        run: |
+          docker compose --project-directory . `
+            -f docker-compose.dev.yml `
+            -f infra/docker-compose.yml `
+            up -d --build `
+            postgres redis backend
+
+      - name: Wait for backend health
+        run: |
+          $ok = $false
+          for ($i = 0; $i -lt 24; $i++) {
+            try {
+              Invoke-WebRequest -Uri http://localhost:8000/health -UseBasicParsing -TimeoutSec 3 | Out-Null
+              $ok = $true
+              break
+            } catch { Start-Sleep -Seconds 5 }
+          }
+          if (-not $ok) {
+            Write-Error "backend did not become healthy in time"
+            docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs backend --tail 100
+            exit 1
+          }
+          Write-Output "backend healthy"
 
       - name: Run migration + seed script inside the backend container
         run: |
