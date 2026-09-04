@@ -6,6 +6,8 @@ import { CaretRight, ShieldCheck } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { AppShell, recruiterNav } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { VersionTag } from "@/components/chrome/VersionTag";
 import { AiNote, HumanNote } from "@/components/evidence/AiNote";
 import { Modal, ToastStack } from "@/components/evidence/Drawer";
@@ -25,13 +27,20 @@ export default function CandidateReportPage() {
   const [mode, setMode] = useState<"generalist" | "technical">("generalist");
   const [selected, setSelected] = useState<ReportRequirement | null>(candidate?.report[0] ?? null);
   const [followUpOpen, setFollowUpOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [comment, setComment] = useState("");
+  const [followUpText, setFollowUpText] = useState("Хочу лучше понять, как вы проверяли результат фикса");
+  const [followUpError, setFollowUpError] = useState("");
   const [toasts, setToasts] = useState<string[]>([]);
   const [selectedReqs, setSelectedReqs] = useState<string[]>([]);
   const [history, setHistory] = useState(() => {
     if (typeof window === "undefined" || !getCandidateById(params.cid)) return [];
     return readStore().decisions[params.cid] ?? [];
+  });
+  const [followUpRequest, setFollowUpRequest] = useState(() => {
+    if (typeof window === "undefined" || !getCandidateById(params.cid)) return undefined;
+    return readStore().followUpRequests[params.cid];
   });
 
   function refreshHistory() {
@@ -42,7 +51,16 @@ export default function CandidateReportPage() {
     return (
       <AppShell nav={recruiterNav()} title="Отчёт">
         <main className="workspace">
-          <h1>Отчёт не найден</h1>
+          <ScreenState
+            kind="error"
+            title="Отчёт не найден"
+            text="Такого кандидата или вакансии в демо нет. Вернитесь к вакансиям или ко входу."
+            action={
+              <Button asChild variant="secondary">
+                <Link href="/vacancies">К вакансиям</Link>
+              </Button>
+            }
+          />
         </main>
       </AppShell>
     );
@@ -65,32 +83,41 @@ export default function CandidateReportPage() {
   return (
     <AppShell nav={recruiterNav()} title="Отчёт">
       <main className="workspace report-workspace">
-        <header className="page-title">
-          <div>
-            <p className="path">
-              Кандидаты / {candidate.name}
-            </p>
-            <h1>Технический отчёт</h1>
-            <p className="page-title__description">
-              {vacancy.title}, <VersionTag />, интервью {candidate.durationMin} минут, сессия завершена{" "}
-              {candidate.submittedAt}
-            </p>
-          </div>
-          <div className="density-switch" aria-label="Плотность отчёта">
-            <button type="button" data-active={mode === "generalist"} onClick={() => setMode("generalist")}>
-              Кратко
-            </button>
-            <button type="button" data-active={mode === "technical"} onClick={() => setMode("technical")}>
-              Подробно
-            </button>
-          </div>
-        </header>
+        <PageHeader
+          path={`Кандидаты / ${candidate.name}`}
+          title="Технический отчёт"
+          description={
+            <>
+              {vacancy.title}, интервью {candidate.durationMin} минут, сессия завершена {candidate.submittedAt}.{" "}
+              <span className="demo-jargon">
+                <VersionTag demoNote />
+              </span>
+            </>
+          }
+          actions={
+            <div className="density-switch" aria-label="Плотность отчёта">
+              <button type="button" data-active={mode === "generalist"} onClick={() => setMode("generalist")}>
+                Кратко
+              </button>
+              <button type="button" data-active={mode === "technical"} onClick={() => setMode("technical")}>
+                Подробно
+              </button>
+            </div>
+          }
+        />
 
         <AiNote label="Система предлагает" title={candidate.systemRecommendation}>
-          <p style={{ color: "var(--ink-secondary)", fontSize: 13 }}>
+          <p>
             Обязательные требования: {candidate.mandatoryCovered.confirmed} из {candidate.mandatoryCovered.total}.
             {candidate.criticalError ? ` ${candidate.criticalError}.` : ""}
           </p>
+          {candidate.systemRecommendation === "Недостаточно данных" ? (
+            <p className="status-hint">
+              «Недостаточно данных» значит: по обязательным пунктам не хватает источника — цитаты нет в
+              транскрипте или вопрос не задавался. Логичный шаг: запросить доп. ответ или принять решение
+              человеком.
+            </p>
+          ) : null}
         </AiNote>
 
         <section className="report-glance">
@@ -181,7 +208,7 @@ export default function CandidateReportPage() {
                 <div className="evidence-section">
                   <h3>Вывод</h3>
                   <AiNote>
-                    <p style={{ fontSize: 13, color: "var(--ink-secondary)" }}>{selected.aiSummary}</p>
+                    <p>{selected.aiSummary}</p>
                   </AiNote>
                 </div>
                 <div className="evidence-quote">
@@ -197,12 +224,10 @@ export default function CandidateReportPage() {
                   <h3>Почему такой статус</h3>
                   <p>{selected.whyStatus}</p>
                   {selected.insufficientReason ? (
-                    <p style={{ marginTop: 8 }}>
-                      Причина: {selected.insufficientReason}
-                    </p>
+                    <p className="status-hint">Причина: {selected.insufficientReason}</p>
                   ) : null}
                   {selected.followUpText ? (
-                    <p style={{ marginTop: 10 }}>
+                    <p className="status-hint">
                       Уточнение: {selected.followUpText}. Ответ:{" "}
                       {selected.followUpAnswer === "skipped" ? "пропущено" : selected.followUpAnswer}
                     </p>
@@ -225,9 +250,9 @@ export default function CandidateReportPage() {
         </div>
 
         {mode === "technical" ? (
-          <section style={{ marginTop: 18 }}>
+          <section className="stack-list">
             <h2>Ответы по вопросам</h2>
-            <p style={{ color: "var(--ink-secondary)", fontSize: 13 }}>
+            <p className="muted-copy">
               В демо показаны сводки по требованиям. Полный транскрипт будет после пилота.
             </p>
           </section>
@@ -258,7 +283,6 @@ export default function CandidateReportPage() {
               <strong>Не выбрано</strong>
             )}
             <input
-              style={{ marginTop: 8, minWidth: 260 }}
               placeholder="Комментарий для менеджера"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
@@ -274,9 +298,7 @@ export default function CandidateReportPage() {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => {
-                if (window.confirm("Не продвигать этого кандидата?")) decide("Не продвигать");
-              }}
+              onClick={() => setRejectOpen(true)}
             >
               Не продвигать
             </Button>
@@ -288,12 +310,24 @@ export default function CandidateReportPage() {
             </Button>
           </div>
         </div>
+        {followUpRequest ? (
+          <p>
+            <Link href={`/i/${candidate.token}/extra/${candidate.id}`}>
+              Открыть ссылку для кандидата
+            </Link>
+          </p>
+        ) : null}
       </main>
 
-      <Modal open={followUpOpen} title="Запросить доп. ответ" onClose={() => setFollowUpOpen(false)}>
-        <p style={{ marginBottom: 12, color: "var(--ink-secondary)", fontSize: 13 }}>
-          Один вопрос - выше шанс ответа.
-        </p>
+      <Modal
+        open={followUpOpen}
+        title="Запросить доп. ответ"
+        onClose={() => {
+          setFollowUpOpen(false);
+          setFollowUpError("");
+        }}
+      >
+        <p className="muted-copy">Один вопрос - выше шанс ответа.</p>
         {candidate.report
           .filter((item) => item.status !== "Подтверждено")
           .map((item) => {
@@ -318,29 +352,37 @@ export default function CandidateReportPage() {
               </label>
             );
           })}
-        <label style={{ display: "grid", gap: 8, marginTop: 16 }}>
+        <label>
           Пояснение для кандидата
-          <textarea defaultValue="Хочу лучше понять, как вы проверяли результат фикса" />
+          <textarea value={followUpText} onChange={(e) => setFollowUpText(e.target.value)} />
         </label>
-        <div className="form-actions" style={{ marginTop: 16 }}>
+        {followUpError ? <p className="follow-up-error">{followUpError}</p> : null}
+        <div className="form-actions">
           <Button
             type="button"
             onClick={() => {
+              if (selectedReqs.length === 0 || followUpText.trim() === "") {
+                setFollowUpError("Выберите хотя бы один пункт и напишите пояснение — пустой запрос отправить нельзя.");
+                return;
+              }
               const store = readStore();
+              const request = {
+                requirementIds: selectedReqs,
+                explanation: followUpText.trim(),
+                at: new Date().toLocaleString("ru-RU"),
+              };
               writeStore({
                 ...store,
                 followUpRequests: {
                   ...store.followUpRequests,
-                  [candidate.id]: {
-                    requirementIds: selectedReqs,
-                    explanation: "доп. ответ",
-                    at: new Date().toLocaleString("ru-RU"),
-                  },
+                  [candidate.id]: request,
                 },
               });
+              setFollowUpRequest(request);
               appendDecision(candidate.id, "Запрошен доп. ответ", comment);
               refreshHistory();
               toast("Письмо с запросом доп. ответа отправлено");
+              setFollowUpError("");
               setFollowUpOpen(false);
             }}
           >
@@ -351,9 +393,9 @@ export default function CandidateReportPage() {
 
       <Modal open={exportOpen} title="Экспорт" onClose={() => setExportOpen(false)}>
         <span className="pilot-badge">Пилот</span>
-        <p style={{ marginTop: 12 }}>Предпросмотр карточки для Huntflow.</p>
+        <p className="pilot-hint">В демо ATS и Huntflow не подключены — это макет карточки.</p>
         <AiNote label="Система предлагает" title={candidate.systemRecommendation}>
-          <p style={{ fontSize: 13 }}>
+          <p>
             Обязательные {candidate.mandatoryCovered.confirmed}/{candidate.mandatoryCovered.total}
           </p>
         </AiNote>
@@ -362,12 +404,33 @@ export default function CandidateReportPage() {
             {lastDecision.kind}
           </HumanNote>
         ) : null}
-        <div className="form-actions" style={{ marginTop: 16 }}>
+        <div className="form-actions">
           <Button type="button" onClick={() => window.print()}>
             Скачать PDF
           </Button>
           <Button type="button" variant="secondary" onClick={() => toast("В демо Huntflow не подключён")}>
             Отправить в Huntflow
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal open={rejectOpen} title="Не продвигать" onClose={() => setRejectOpen(false)}>
+        <p className="muted-copy">
+          Кандидат не пойдёт дальше. Решение сохранится в истории. Это действие в демо можно повторить, но
+          откатить системно нельзя.
+        </p>
+        <div className="form-actions">
+          <Button
+            type="button"
+            onClick={() => {
+              decide("Не продвигать");
+              setRejectOpen(false);
+            }}
+          >
+            Не продвигать
+          </Button>
+          <Button type="button" variant="secondary" onClick={() => setRejectOpen(false)}>
+            Отмена
           </Button>
         </div>
       </Modal>

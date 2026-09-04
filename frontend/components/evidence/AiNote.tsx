@@ -13,8 +13,8 @@ export function AiNote({
   return (
     <section className="ai-note">
       <div className="ai-note__label">{label}</div>
-      {title ? <h2 style={{ marginTop: 4, fontSize: 20 }}>{title}</h2> : null}
-      <div style={{ marginTop: 6 }}>{children}</div>
+      {title ? <h2 className="ai-note__title">{title}</h2> : null}
+      <div className="ai-note__body">{children}</div>
     </section>
   );
 }

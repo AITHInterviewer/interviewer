@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
 
 import { CandidateShell } from "@/components/chrome/CandidateShell";
 import { LaptopGate } from "@/components/chrome/LaptopGate";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
 import { getCandidateByToken } from "@/lib/demo/candidates";
 import { vacancy } from "@/lib/demo/vacancies";
@@ -13,7 +14,22 @@ import { vacancy } from "@/lib/demo/vacancies";
 export default function RulesPage() {
   const params = useParams<{ token: string }>();
   const candidate = getCandidateByToken(params.token);
-  if (!candidate) return null;
+  if (!candidate) {
+    return (
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Ссылка не найдена"
+          text="Такого приглашения в демо нет. Вернитесь ко входу и выберите роль кандидата."
+          action={
+            <Button asChild variant="secondary">
+              <Link href="/login">К выбору роли</Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
 
   return (
     <LaptopGate>

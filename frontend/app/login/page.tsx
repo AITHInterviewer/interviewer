@@ -1,44 +1,74 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 
 import { BrandMark } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
+import { Modal } from "@/components/evidence/Drawer";
 import { Button } from "@/components/ui/button";
-
-const entries = [
-  { href: "/vacancies", label: "Войти как рекрутер" },
-  { href: "/vacancies/python-middle/rubric", label: "Войти как эксперт" },
-  { href: "/manager/lida", label: "Войти как менеджер" },
-  { href: "/i/dmitry", label: "Войти как кандидат №1" },
-  { href: "/i/nikita", label: "Войти как кандидат №2" },
-  { href: "/i/lida", label: "Войти как кандидат №3" },
-];
+import { demoRoles, roleCardLabel } from "@/lib/demo/roles";
+import { setDemoRole } from "@/lib/demo/session";
+import type { DemoRole } from "@/lib/demo/types";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const [selected, setSelected] = useState<DemoRole | null>(null);
+
+  function closeOnboarding() {
+    setSelected(null);
+  }
+
+  function continueWithRole(role: DemoRole) {
+    setDemoRole(role.id);
+    router.push(role.homePath);
+  }
+
   return (
     <main className="workspace workspace--form">
-      <div className="page-title">
-        <div>
-          <BrandMark />
-          <p className="path" style={{ marginTop: 18 }}>
-            демо-вход
-          </p>
-          <h1>Вход</h1>
-          <p className="page-title__description">
-            Настоящая почта не нужна. Выберите роль, чтобы пройти демо-путь жюри.
-          </p>
-        </div>
-      </div>
+      <BrandMark />
+      <PageHeader
+        path="демо-вход"
+        title="Вход"
+        description="Демо доказательного интервью. Настоящая почта не нужна — письма наружу не уходят."
+      />
       <div className="login-grid">
-        {entries.map((item) => (
-          <Button key={item.href} asChild variant="secondary" size="large">
-            <Link href={item.href}>{item.label}</Link>
-          </Button>
+        {demoRoles.map((role) => (
+          <button
+            className="login-card"
+            key={role.id}
+            type="button"
+            onClick={() => setSelected(role)}
+          >
+            <strong className="login-card__title">{roleCardLabel(role)}</strong>
+            <span className="login-card__see">{role.cardLine}</span>
+            <span className="login-card__cta">Открыть</span>
+          </button>
         ))}
       </div>
-      <p style={{ marginTop: 24, color: "var(--ink-tertiary)", fontSize: 12 }}>
-        Пометка: демо. Письма наружу не уходят.
-      </p>
+      <p className="login-note">Пометка: демо. Письма наружу не уходят.</p>
+
+      <Modal
+        open={Boolean(selected)}
+        title={selected ? roleCardLabel(selected) : "Роль"}
+        onClose={closeOnboarding}
+      >
+        {selected ? (
+          <div className="login-onboarding">
+            <p>{selected.onboarding.who}</p>
+            <p>{selected.onboarding.willSee}</p>
+            <p>{selected.onboarding.firstAction}</p>
+            <div className="form-actions">
+              <Button type="button" onClick={() => continueWithRole(selected)}>
+                {selected.onboarding.continueLabel}
+              </Button>
+              <Button type="button" variant="secondary" onClick={closeOnboarding}>
+                {selected.onboarding.backLabel}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
     </main>
   );
 }

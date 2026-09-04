@@ -15,7 +15,7 @@ export const vacancy: Vacancy = {
   recruiterName: "Анна Ковалёва",
   recruiterEmail: "anna.kovaleva@napoleon-it.ru",
   updatedAt: "3 сентября 2026",
-  counts: { invited: 2, inProgress: 1, reportReady: 3, decided: 0 },
+  counts: { invited: 1, inProgress: 1, processing: 1, reportReady: 3, decided: 1 },
   seniorModeDefault: false,
   languages: ["RU", "EN"],
   stack: ["Python", "FastAPI", "PostgreSQL", "Redis", "Docker"],
@@ -31,4 +31,8 @@ export const vacancy: Vacancy = {
 export function getVacancy(id: string): Vacancy | undefined {
   if (id === vacancy.id) return vacancy;
   return undefined;
+}
+
+export function formatVacancyCounts(counts: Vacancy["counts"]): string {
+  return `приглашены ${counts.invited} · проходят ${counts.inProgress} · обработка ${counts.processing} · отчёты ${counts.reportReady} · решено ${counts.decided}`;
 }

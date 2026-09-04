@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { AppShell, recruiterNav } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
 import { Button } from "@/components/ui/button";
 import { requirements } from "@/lib/demo/rubric";
 import { vacancy } from "@/lib/demo/vacancies";
@@ -22,16 +23,14 @@ export default function NewVacancyPage() {
   return (
     <AppShell nav={recruiterNav()} title="Новая вакансия">
       <main className="workspace workspace--form">
-        <header className="page-title">
-          <div>
-            <p className="path">Вакансии / новая</p>
-            <h1>Новая вакансия</h1>
-            <p className="page-title__description">Три шага. Извлечение в демо имитируется за 2 секунды.</p>
-          </div>
-        </header>
+        <PageHeader
+          path="Вакансии / новая"
+          title="Новая вакансия"
+          description="Три шага. Извлечение в демо имитируется за 2 секунды."
+        />
 
         {step === 1 ? (
-          <section className="form-surface" style={{ border: "1px solid var(--border)", borderRadius: 12 }}>
+          <section className="form-surface form-panel">
             <label>
               Описание вакансии
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={8} />
@@ -65,6 +64,9 @@ export default function NewVacancyPage() {
                 }}
               >
                 {extracting ? "Извлекаю требования…" : "Извлечь требования"}
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => router.push("/vacancies")}>
+                Отмена
               </Button>
             </div>
           </section>
@@ -109,6 +111,9 @@ export default function NewVacancyPage() {
                 </label>
               ))}
               <div className="form-actions">
+                <Button type="button" variant="secondary" onClick={() => setStep(1)}>
+                  Назад
+                </Button>
                 <Button type="button" onClick={() => setStep(3)}>
                   Перейти к отправке
                 </Button>
@@ -118,14 +123,20 @@ export default function NewVacancyPage() {
         ) : null}
 
         {step === 3 ? (
-          <section className="form-surface" style={{ border: "1px solid var(--border)", borderRadius: 12 }}>
+          <section className="form-surface form-panel">
             <p>Вакансия получит статус «На проверке».</p>
             <div className="form-actions">
-              <Button variant="secondary" type="button" onClick={() => router.push("/vacancies/python-middle")}>
+              <Button type="button" variant="ghost" onClick={() => setStep(2)}>
+                Назад
+              </Button>
+              <Button variant="secondary" type="button" onClick={() => router.push("/brief/python-middle")}>
                 Отправить менеджеру на бриф
               </Button>
-              <Button type="button" onClick={() => router.push("/vacancies/python-middle")}>
+              <Button type="button" onClick={() => router.push("/vacancies/python-middle/rubric")}>
                 Отправить эксперту на калибровку
+              </Button>
+              <Button type="button" variant="text" onClick={() => router.push("/vacancies")}>
+                Отмена
               </Button>
             </div>
           </section>

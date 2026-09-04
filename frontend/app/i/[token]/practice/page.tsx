@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import { CandidateShell } from "@/components/chrome/CandidateShell";
 import { LaptopGate } from "@/components/chrome/LaptopGate";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
 import { getCandidateByToken } from "@/lib/demo/candidates";
 import { practiceQuestion } from "@/lib/demo/rubric";
@@ -18,7 +19,22 @@ export default function PracticePage() {
   const candidate = getCandidateByToken(params.token);
   const [phase, setPhase] = useState<"idle" | "done">("idle");
 
-  if (!candidate) return null;
+  if (!candidate) {
+    return (
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Ссылка не найдена"
+          text="Такого приглашения в демо нет. Вернитесь ко входу и выберите роль кандидата."
+          action={
+            <Button asChild variant="secondary">
+              <Link href="/login">К выбору роли</Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
 
   return (
     <LaptopGate>

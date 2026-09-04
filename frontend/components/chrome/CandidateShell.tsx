@@ -1,10 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { BrandMark } from "@/components/chrome/AppShell";
 import { Stepper } from "@/components/chrome/Stepper";
+import { clearDemoRole } from "@/lib/demo/session";
 
 const STEPS = [
   "Приглашение",
@@ -59,6 +61,10 @@ export function CandidateShell({
           <a href="mailto:help@napoleon-it.ru">help@napoleon-it.ru</a>
           {" · "}
           Telegram <a href="https://t.me/napoleon_help">@napoleon_help</a>
+          {" · "}
+          <Link className="candidate-help__role" href="/login" onClick={() => clearDemoRole()}>
+            К выбору роли
+          </Link>
         </p>
       </div>
     </div>

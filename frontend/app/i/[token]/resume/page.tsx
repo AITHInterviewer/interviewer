@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowRight } from "@phosphor-icons/react";
 import { CandidateShell } from "@/components/chrome/CandidateShell";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { LaptopGate } from "@/components/chrome/LaptopGate";
 import { Button } from "@/components/ui/button";
 import { getCandidateByToken } from "@/lib/demo/candidates";
@@ -17,12 +19,27 @@ export default function ResumePage() {
       ? readSession(candidate.token).currentQuestion || 1
       : 1;
 
-  if (!candidate) return null;
+  if (!candidate) {
+    return (
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Ссылка не найдена"
+          text="Продолжить нечего: такого приглашения нет. Вернитесь ко входу."
+          action={
+            <Button asChild variant="secondary">
+              <Link href="/login">К выбору роли</Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
 
   return (
     <LaptopGate>
       <CandidateShell step="Вопросы 1-5">
-        <section className="setup-stage" style={{ width: "100%" }}>
+        <section className="setup-stage setup-stage--full">
           <h1>Продолжить интервью</h1>
           <p>
             Вы остановились на вопросе {question} из 5. Ответы на предыдущие вопросы сохранены.

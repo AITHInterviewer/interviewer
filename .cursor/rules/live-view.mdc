@@ -1,0 +1,23 @@
+---
+description: Просмотр UI только через Playwright, без MCP-браузера Cursor на localhost
+alwaysApply: true
+---
+
+# Live view
+
+Когда нужно посмотреть интерфейс вживую (клики, скриншоты, проверка экранов):
+
+1. Не вызывай MCP `cursor-ide-browser` (`browser_navigate`, `browser_lock`, `browser_snapshot`, `browser_take_screenshot`) для `localhost` / `127.0.0.1` — зависает на Next.js HMR.
+2. Не запускай `npx -p playwright-core`.
+3. Не используй `waitUntil: "networkidle"`.
+4. Запускай изолированный раннер:
+
+```bash
+cd tools/live-view
+test -d node_modules/playwright-core || npm install --no-audit --no-fund --loglevel=error
+node smoke.mjs
+```
+
+Либо `node run.mjs /login /vacancies`. Живое окно Chrome: `PW_HEADED=1`. Скрины: `tools/live-view/out/`. Только `http://localhost`, не `127.0.0.1` (иначе Next не гидратируется).
+
+Субагент просмотра: файл `~/.cursor/agents/live-view.md`. Если типа `live-view` нет в Task — `shell` / `generalPurpose` с этим рецептом. Скилл: `.cursor/skills/live-view/SKILL.md`.

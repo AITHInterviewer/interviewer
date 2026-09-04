@@ -44,8 +44,14 @@ export function EvidenceLink({
         {label}
       </button>
       {open ? (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Фрагмент ответа">
-          <div className="modal-card" style={{ maxWidth: 560 }}>
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Фрагмент ответа"
+          onClick={() => setOpen(false)}
+        >
+          <div className="modal-card" style={{ maxWidth: 560 }} onClick={(event) => event.stopPropagation()}>
             <div className="section-heading">
               <h2>Фрагмент {label}</h2>
               <button className="icon-button icon-button--small" type="button" onClick={() => setOpen(false)} aria-label="Закрыть">

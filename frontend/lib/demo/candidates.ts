@@ -1,6 +1,8 @@
 import type { Candidate, ReportRequirement } from "./types";
 import { readStore } from "./recruiter-store";
 
+export { listPipelineCards, pipelineCards, PIPELINE_COLUMNS, PIPELINE_STAGE_LABELS } from "./pipeline";
+
 function baseReport(): ReportRequirement[] {
   return [
     {

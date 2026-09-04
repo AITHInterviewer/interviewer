@@ -2,6 +2,7 @@
 
 import { X } from "@phosphor-icons/react";
 import { useEffect, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 function useEscape(open: boolean, onClose: () => void) {
   useEffect(() => {
@@ -57,8 +58,14 @@ export function Modal({
   useEscape(open, onClose);
   if (!open) return null;
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="modal-card">
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onClick={onClose}
+    >
+      <div className="modal-card" onClick={(event) => event.stopPropagation()}>
         <div className="section-heading">
           <h2>{title}</h2>
           <button className="icon-button icon-button--small" type="button" onClick={onClose} aria-label="Закрыть">
@@ -72,14 +79,15 @@ export function Modal({
 }
 
 export function ToastStack({ messages }: { messages: string[] }) {
-  if (!messages.length) return null;
-  return (
+  if (!messages.length || typeof document === "undefined") return null;
+  return createPortal(
     <div className="toast-stack" aria-live="polite">
       {messages.map((message) => (
         <div className="toast" key={message}>
           {message}
         </div>
       ))}
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -1,5 +1,7 @@
 # Feature Specification: Кандидат — прохождение видеоинтервью
 
+> **Статус: не канон демо.** Живое видеоинтервью с баллами. Для демо жюри — асинхронный сценарий в [`../005-evidence-interview-ui/spec.md`](../005-evidence-interview-ui/spec.md) и код `frontend/`. Навигация: [`docs/artifacts/README.md`](../../docs/artifacts/README.md). Статус ниже про пустой candidate flow устарел относительно текущего `frontend/`.
+
 **Feature Branch**: `004-candidate-interview-flow`
 
 **Created**: 2026-09-03

@@ -1,10 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Play } from "@phosphor-icons/react";
 import { useState, useSyncExternalStore } from "react";
 
 import { AppShell, managerNav } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { HumanNote } from "@/components/evidence/AiNote";
 import { Button } from "@/components/ui/button";
 import { getCandidateById } from "@/lib/demo/candidates";
@@ -31,7 +34,16 @@ export default function ManagerBriefPage() {
     return (
       <AppShell nav={managerNav()} title="Менеджер">
         <main className="workspace">
-          <h1>Кандидат не найден</h1>
+          <ScreenState
+            kind="error"
+            title="Кандидат не найден"
+            text="Такой карточки к встрече в демо нет. Откройте список или вход."
+            action={
+              <Button asChild variant="secondary">
+                <Link href="/manager">К встречам</Link>
+              </Button>
+            }
+          />
         </main>
       </AppShell>
     );
@@ -48,28 +60,28 @@ export default function ManagerBriefPage() {
   return (
     <AppShell nav={managerNav()} title="Перед встречей">
       <main className="manager-brief">
-        <header>
-          <span>
-            {candidate.name} · {vacancy.title}
-          </span>
-          <button className="text-button no-print" type="button" onClick={() => window.print()}>
-            Печать
-          </button>
-        </header>
-        <section>
-          <h1>{candidate.name}</h1>
-          <p>
-            Рекрутер {vacancy.recruiterName}: передаёт
-            {last ? ` · ${last.kind}` : ""}.
-            {last?.comment ? ` Комментарий: ${last.comment}` : ""}
-          </p>
-          {last ? (
-            <HumanNote label={`Решение: ${last.author}, ${last.at}`}>
-              {last.kind}
-            </HumanNote>
-          ) : null}
-        </section>
-        <section className="meeting-sheet" style={{ marginTop: 28 }}>
+        <PageHeader
+          path={`${candidate.name} · ${vacancy.title}`}
+          title={candidate.name}
+          description={
+            <>
+              Рекрутер {vacancy.recruiterName}: передаёт
+              {last ? ` · ${last.kind}` : ""}.
+              {last?.comment ? ` Комментарий: ${last.comment}` : ""}
+            </>
+          }
+          actions={
+            <button className="text-button no-print" type="button" onClick={() => window.print()}>
+              Печать
+            </button>
+          }
+        />
+        {last ? (
+          <HumanNote label={`Решение: ${last.author}, ${last.at}`}>
+            {last.kind}
+          </HumanNote>
+        ) : null}
+        <section className="meeting-sheet">
           <div className="meeting-confirmed">
             <h2>Подтверждено - можно не проверять повторно</h2>
             <p>{confirmed.join(", ") || "Пока нет"}</p>

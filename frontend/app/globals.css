@@ -28,6 +28,12 @@
   --radius-control: 8px;
   --radius-panel: 12px;
   --radius-pill: 999px;
+  --text-path: 12px;
+  --text-meta: 13px;
+  --text-body: 15px;
+  --text-h2: 16px;
+  --text-h1: 32px;
+  --text-display: 32px;
   --content: 1440px;
   --ease: 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -80,7 +86,7 @@ body {
   background: var(--canvas);
   color: var(--ink);
   font-family: var(--font-sans);
-  font-size: 15px;
+  font-size: var(--text-body);
   line-height: 1.48;
   -webkit-font-smoothing: antialiased;
 }

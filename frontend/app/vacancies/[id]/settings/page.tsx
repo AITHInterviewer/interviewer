@@ -1,9 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { AppShell, recruiterNav } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { PilotBadge, VersionTag } from "@/components/chrome/VersionTag";
+import { Button } from "@/components/ui/button";
 import { getVacancy } from "@/lib/demo/vacancies";
 
 export default function VacancySettingsPage() {
@@ -14,7 +18,16 @@ export default function VacancySettingsPage() {
     return (
       <AppShell nav={recruiterNav()} title="Настройки">
         <main className="workspace">
-          <h1>Вакансия не найдена</h1>
+          <ScreenState
+            kind="error"
+            title="Вакансия не найдена"
+            text="Такой вакансии в демо нет. Вернитесь к списку."
+            action={
+              <Button asChild variant="secondary">
+                <Link href="/vacancies">К вакансиям</Link>
+              </Button>
+            }
+          />
         </main>
       </AppShell>
     );
@@ -23,24 +36,27 @@ export default function VacancySettingsPage() {
   return (
     <AppShell nav={recruiterNav()} title="Настройки вакансии">
       <main className="workspace workspace--form">
-        <header className="page-title">
-          <div>
-            <p className="path">{vacancy.title}</p>
-            <h1>Настройка и версии</h1>
-            <PilotBadge />
-          </div>
-        </header>
-        <section className="form-surface" style={{ border: "1px solid var(--border)", borderRadius: 12 }}>
+        <PageHeader
+          path={vacancy.title}
+          title="Настройка и версии"
+          description={<PilotBadge />}
+          actions={
+            <Button asChild variant="secondary">
+              <Link href={`/vacancies/${vacancy.id}`}>К доске</Link>
+            </Button>
+          }
+        />
+        <section className="form-surface form-panel">
           <h2>Общее</h2>
           <p>Название: {vacancy.title}</p>
           <p>Грейд: {vacancy.grade}</p>
           <p>Эксперт: {vacancy.expertName}</p>
           <p>Менеджер: {vacancy.managerName}</p>
           <p>
-            <VersionTag />
+            <VersionTag demoNote />
           </p>
         </section>
-        <section className="form-surface" style={{ border: "1px solid var(--border)", borderRadius: 12, marginTop: 16 }}>
+        <section className="form-surface form-panel">
           <h2>Версии</h2>
           <table className="vacancies-table">
             <thead>
@@ -67,9 +83,10 @@ export default function VacancySettingsPage() {
             </tbody>
           </table>
         </section>
-        <section className="form-surface" style={{ border: "1px solid var(--border)", borderRadius: 12, marginTop: 16 }}>
+        <section className="form-surface form-panel">
           <h2>Письма</h2>
-          <p>Шаблоны приглашения, напоминания и запроса доп. ответа - макет пилота.</p>
+          <p>Шаблоны приглашения, напоминания и запроса доп. ответа — макет пилота.</p>
+          <p className="pilot-hint">В пилоте это макет. Редактирование писем появится после пилота.</p>
         </section>
       </main>
     </AppShell>

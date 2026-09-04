@@ -6,6 +6,7 @@ import { CheckCircle } from "@phosphor-icons/react";
 import { useEffect } from "react";
 
 import { CandidateShell } from "@/components/chrome/CandidateShell";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
 import { getCandidateByToken } from "@/lib/demo/candidates";
 import { updateSession } from "@/lib/demo/session";
@@ -20,7 +21,22 @@ export default function DonePage() {
     updateSession(candidate.token, { submitted: true, interrupted: false });
   }, [candidate]);
 
-  if (!candidate) return null;
+  if (!candidate) {
+    return (
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Ссылка не найдена"
+          text="Интервью с таким адресом в демо нет. Вернитесь ко входу."
+          action={
+            <Button asChild variant="secondary">
+              <Link href="/login">К выбору роли</Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
 
   return (
     <CandidateShell step="Готово">
@@ -44,6 +60,12 @@ export default function DonePage() {
         </div>
         <Button asChild variant="secondary">
           <Link href={`/i/${candidate.token}/transcript`}>Транскрипт и правки терминов</Link>
+        </Button>
+        <Button asChild variant="text">
+          <Link href={`/i/${candidate.token}/result`}>Итог по интервью (пилот)</Link>
+        </Button>
+        <Button asChild variant="text">
+          <Link href={`/i/${candidate.token}/extra/${candidate.token}`}>Дополнительный вопрос (пилот)</Link>
         </Button>
         <Button asChild variant="text">
           <Link href={`/i/${candidate.token}/request`}>Запросить удаление данных</Link>

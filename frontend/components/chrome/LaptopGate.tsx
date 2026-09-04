@@ -19,8 +19,8 @@ export function LaptopGate({ children }: { children: ReactNode }) {
   if (!narrow) return <>{children}</>;
   return (
     <div className="laptop-gate">
-      <h1 style={{ fontSize: 28, marginBottom: 12 }}>Откройте с ноутбука</h1>
-      <p style={{ color: "var(--ink-secondary)", fontSize: 16 }}>
+      <h1>Откройте с ноутбука</h1>
+      <p>
         Интервью проходит на ноутбуке с микрофоном. На этом устройстве можно только прочитать приглашение и
         прислать ссылку себе на почту.
       </p>

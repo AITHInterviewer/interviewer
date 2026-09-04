@@ -6,6 +6,8 @@ import { CaretRight, WarningCircle } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { AppShell, expertNav, recruiterNav } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { VersionTag } from "@/components/chrome/VersionTag";
 import { Button } from "@/components/ui/button";
 import { requirements } from "@/lib/demo/rubric";
@@ -21,7 +23,16 @@ export default function RubricPage() {
     return (
       <AppShell nav={expertNav()} title="Рубрика">
         <main className="workspace">
-          <h1>Вакансия не найдена</h1>
+          <ScreenState
+            kind="error"
+            title="Вакансия не найдена"
+            text="Рубрики для этой вакансии в демо нет. Вернитесь к задачам эксперта."
+            action={
+              <Button asChild variant="secondary">
+                <Link href="/expert">К задачам</Link>
+              </Button>
+            }
+          />
         </main>
       </AppShell>
     );
@@ -30,26 +41,26 @@ export default function RubricPage() {
   return (
     <AppShell nav={[...recruiterNav(), ...expertNav()]} title="Рубрика">
       <main className="workspace workspace--wide">
-        <header className="page-title">
-          <div>
-            <p className="path">Вакансии / {vacancy.title}</p>
-            <h1>Калибровка рубрики {vacancy.rubricVersion}</h1>
-            <p className="page-title__description">
-              Режим просмотра. <VersionTag /> Celery пока не покрыто вопросом.
-            </p>
-          </div>
-          <div className="page-actions">
-            <Button asChild variant="secondary">
-              <Link href={`/vacancies/${vacancy.id}/questions`}>Комплект вопросов</Link>
-            </Button>
-            <Button type="button" disabled title="В демо рубрика утверждена заранее">
-              Утвердить
-            </Button>
-          </div>
-        </header>
-        <p style={{ marginBottom: 16, color: "var(--ink-tertiary)", fontSize: 13 }}>
-          В демо рубрика утверждена заранее
-        </p>
+        <PageHeader
+          path={`Вакансии / ${vacancy.title}`}
+          title={`Калибровка рубрики ${vacancy.rubricVersion}`}
+          description={
+            <>
+              Режим просмотра. <VersionTag demoNote /> Celery пока не покрыто вопросом.
+            </>
+          }
+          actions={
+            <>
+              <Button asChild variant="secondary">
+                <Link href={`/vacancies/${vacancy.id}/questions`}>Комплект вопросов</Link>
+              </Button>
+              <Button type="button" disabled title="В демо рубрика утверждена заранее">
+                Утвердить
+              </Button>
+            </>
+          }
+        />
+        <p className="pilot-hint">В демо рубрика утверждена заранее</p>
         <div className="calibration-grid">
           <aside className="requirement-index">
             <div className="section-heading">
@@ -84,9 +95,12 @@ export default function RubricPage() {
                 <h2>{selected.title}</h2>
                 <span className="status">{selected.mandatory ? "Обязательное" : "Желательное"}</span>
               </div>
-              <button className="text-button" type="button" disabled>
-                Редактировать
-              </button>
+              <div>
+                <button className="text-button" type="button" disabled>
+                  Редактировать
+                </button>
+                <p className="pilot-hint">В демо это макет</p>
+              </div>
             </div>
             <dl className="criterion-fields">
               <div>

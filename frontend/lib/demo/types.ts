@@ -88,6 +88,44 @@ export type Decision = {
   comment: string;
 };
 
+export type DemoRoleId =
+  | "recruiter"
+  | "expert"
+  | "manager"
+  | "candidate-dmitry"
+  | "candidate-nikita"
+  | "candidate-lida"
+  | "admin";
+
+export type RoleOnboarding = {
+  who: string;
+  willSee: string;
+  firstAction: string;
+  continueLabel: string;
+  backLabel: string;
+};
+
+export type DemoRole = {
+  id: DemoRoleId;
+  title: string;
+  personName: string;
+  cardLine: string;
+  homePath: string;
+  onboarding: RoleOnboarding;
+};
+
+export type PipelineStage = "invited" | "inProgress" | "processing" | "reportReady" | "decided";
+
+export type PipelineCard = {
+  id: string;
+  name: string;
+  stage: PipelineStage;
+  stageLine: string;
+  reportHref?: string;
+  decisionLabel?: string;
+  canonical: boolean;
+};
+
 export type Vacancy = {
   id: string;
   title: string;
@@ -101,7 +139,13 @@ export type Vacancy = {
   recruiterName: string;
   recruiterEmail: string;
   updatedAt: string;
-  counts: { invited: number; inProgress: number; reportReady: number; decided: number };
+  counts: {
+    invited: number;
+    inProgress: number;
+    processing: number;
+    reportReady: number;
+    decided: number;
+  };
   seniorModeDefault: boolean;
   languages: string[];
   stack: string[];

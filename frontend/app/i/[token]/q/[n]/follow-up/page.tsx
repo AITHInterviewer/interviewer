@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { CircleNotch, Microphone } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { CandidateShell } from "@/components/chrome/CandidateShell";
 import { LaptopGate } from "@/components/chrome/LaptopGate";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
 import { getCandidateByToken } from "@/lib/demo/candidates";
 import { getQuestion } from "@/lib/demo/rubric";
@@ -20,7 +22,39 @@ export default function FollowUpPage() {
   const [mode, setMode] = useState<"idle" | "text">("idle");
   const [text, setText] = useState("");
 
-  if (!candidate || !question) return null;
+  if (!candidate) {
+    return (
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Ссылка не найдена"
+          text="Такого приглашения в демо нет. Вернитесь ко входу и выберите роль кандидата."
+          action={
+            <Button asChild variant="secondary">
+              <Link href="/login">К выбору роли</Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
+
+  if (!question) {
+    return (
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Вопрос не найден"
+          text="Такого шага в демо нет. Вернитесь к приглашению или ко входу."
+          action={
+            <Button asChild variant="secondary">
+              <Link href={`/i/${candidate.token}`}>К приглашению</Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
 
   function finish(skipped: boolean, answer?: string) {
     const session = readSession(candidate!.token);
@@ -48,7 +82,7 @@ export default function FollowUpPage() {
             <CircleNotch size={20} />
             Нужно прояснить одну деталь
           </div>
-          <h1>{question.followUpText}</h1>
+          <h1>{question.followUpText?.trim() || "Нужно уточнить один момент по этому ответу"}</h1>
           <p>Короткий ответ, около минуты. Больше уточнений к этому вопросу не будет.</p>
           {mode === "idle" ? (
             <div className="candidate-actions">
@@ -74,6 +108,7 @@ export default function FollowUpPage() {
                 <Button type="button" disabled={!text.trim()} onClick={() => finish(false, text)}>
                   Отправить ответ
                 </Button>
+                {!text.trim() ? <p className="disabled-hint">Сначала напишите ответ</p> : null}
                 <button className="text-button" type="button" onClick={() => finish(true)}>
                   Пропустить уточнение
                 </button>

@@ -48,6 +48,7 @@
 - Рекрутер → `/vacancies`
 - Эксперт → `/vacancies/python-middle/rubric`
 - Менеджер → `/manager/lida`
+- Админ → `/vacancies`
 - Кандидат №1/2/3 → `/i/dmitry` `/i/nikita` `/i/lida`
 
 ## Redirects

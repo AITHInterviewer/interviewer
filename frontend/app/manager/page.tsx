@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { AppShell, managerNav } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
 import { PilotBadge } from "@/components/chrome/VersionTag";
 import { Button } from "@/components/ui/button";
 import { candidates } from "@/lib/demo/candidates";
@@ -12,12 +13,11 @@ export default function ManagerListPage() {
   return (
     <AppShell nav={managerNav()} title="К встречам">
       <main className="workspace">
-        <header className="page-title">
-          <div>
-            <h1>Кандидаты к встрече</h1>
-            <PilotBadge />
-          </div>
-        </header>
+        <PageHeader
+          path="Менеджер"
+          title="Кандидаты к встрече"
+          description={<PilotBadge />}
+        />
         <table className="vacancies-table">
           <thead>
             <tr>

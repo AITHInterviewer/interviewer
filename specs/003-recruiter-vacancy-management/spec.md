@@ -1,5 +1,7 @@
 # Feature Specification: Рекрутёр — вакансии, интервью, отчёты
 
+> **Статус: не канон демо.** Эта спека описывает другую линию продукта (живое видеоинтервью с баллами). Для хакатонного UI источник правды — [`../005-evidence-interview-ui/spec.md`](../005-evidence-interview-ui/spec.md) и [`docs/artifacts/README.md`](../../docs/artifacts/README.md). Строка статуса ниже про «frontend без экранов рекрутёра» тоже устарела: экраны уже есть на моках.
+
 **Feature Branch**: `003-recruiter-vacancy-management`
 
 **Created**: 2026-09-03

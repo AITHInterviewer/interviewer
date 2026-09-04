@@ -6,6 +6,7 @@ import { ArrowLeft, ArrowRight } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { CandidateShell } from "@/components/chrome/CandidateShell";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { Drawer } from "@/components/evidence/Drawer";
 import { Button } from "@/components/ui/button";
 import { getCandidateByToken } from "@/lib/demo/candidates";
@@ -19,7 +20,22 @@ export default function ConsentPage() {
   const [video, setVideo] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
 
-  if (!candidate) return null;
+  if (!candidate) {
+    return (
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Ссылка не найдена"
+          text="Такого приглашения в демо нет. Вернитесь ко входу и выберите роль кандидата."
+          action={
+            <Button asChild variant="secondary">
+              <Link href="/login">К выбору роли</Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
 
   return (
     <CandidateShell step="Согласие">
@@ -61,17 +77,20 @@ export default function ConsentPage() {
               Назад
             </Link>
           </Button>
-          <Button
-            type="button"
-            disabled={!audio}
-            onClick={() => {
-              updateSession(candidate.token, { consentAudio: audio, consentVideo: video });
-              router.push(`/i/${candidate.token}/check`);
-            }}
-          >
-            Продолжить
-            <ArrowRight size={17} />
-          </Button>
+          <div>
+            <Button
+              type="button"
+              disabled={!audio}
+              onClick={() => {
+                updateSession(candidate.token, { consentAudio: audio, consentVideo: video });
+                router.push(`/i/${candidate.token}/check`);
+              }}
+            >
+              Продолжить
+              <ArrowRight size={17} />
+            </Button>
+            {!audio ? <p className="disabled-hint">Отметьте согласие на запись аудио</p> : null}
+          </div>
         </div>
       </section>
       <Drawer open={docOpen} title="Полный текст согласия" onClose={() => setDocOpen(false)}>

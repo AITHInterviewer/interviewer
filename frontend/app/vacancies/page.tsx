@@ -5,10 +5,31 @@ import { Plus } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 
 import { AppShell, recruiterNav } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
-import { vacancy } from "@/lib/demo/vacancies";
+import { formatVacancyCounts, vacancy } from "@/lib/demo/vacancies";
 
 const TABS = ["Активные", "Черновики", "На проверке", "Архив"] as const;
+
+const EMPTY_COPY: Record<(typeof TABS)[number], { title: string; text: string }> = {
+  Активные: {
+    title: "Вакансий пока нет",
+    text: "В этом демо нет активных вакансий. Создайте новую — понадобится описание, около 5 минут.",
+  },
+  Черновики: {
+    title: "Черновиков в этом демо нет",
+    text: "В этом демо данных нет. Активная вакансия Middle+ Python — во вкладке «Активные».",
+  },
+  "На проверке": {
+    title: "На проверке пусто",
+    text: "В этом демо вакансий на проверке нет. Смотрите активную вакансию или откройте пилот утверждения.",
+  },
+  Архив: {
+    title: "Архив пуст",
+    text: "В этом демо архивных вакансий нет. Это не ошибка — архив для демо не заполняли.",
+  },
+};
 
 export default function VacanciesPage() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Активные");
@@ -18,21 +39,23 @@ export default function VacanciesPage() {
     return [];
   }, [tab]);
 
+  const empty = EMPTY_COPY[tab];
+
   return (
     <AppShell nav={recruiterNav()} title="Рекрутер">
       <main className="workspace">
-        <header className="page-title">
-          <div>
-            <p className="path">Рекрутер</p>
-            <h1>Вакансии</h1>
-          </div>
-          <Button asChild>
-            <Link href="/vacancies/new">
-              <Plus size={18} />
-              Новая вакансия
-            </Link>
-          </Button>
-        </header>
+        <PageHeader
+          path="Рекрутер"
+          title="Вакансии"
+          actions={
+            <Button asChild>
+              <Link href="/vacancies/new">
+                <Plus size={18} />
+                Новая вакансия
+              </Link>
+            </Button>
+          }
+        />
         <div className="tabs">
           {TABS.map((item) => (
             <button key={item} type="button" data-active={tab === item} onClick={() => setTab(item)}>
@@ -41,13 +64,22 @@ export default function VacanciesPage() {
           ))}
         </div>
         {rows.length === 0 ? (
-          <div className="empty-state">
-            <h2>Вакансий пока нет</h2>
-            <p>Создайте первую - понадобится описание вакансии, 5 минут.</p>
-            <Button asChild>
-              <Link href="/vacancies/new">Новая вакансия</Link>
-            </Button>
-          </div>
+          <ScreenState
+            kind="empty"
+            title={empty.title}
+            text={empty.text}
+            action={
+              tab === "Активные" ? (
+                <Button asChild>
+                  <Link href="/vacancies/new">Новая вакансия</Link>
+                </Button>
+              ) : (
+                <Button type="button" variant="secondary" onClick={() => setTab("Активные")}>
+                  К активным
+                </Button>
+              )
+            }
+          />
         ) : (
           <table className="vacancies-table">
             <thead>
@@ -70,10 +102,7 @@ export default function VacanciesPage() {
                   <td>{row.grade}</td>
                   <td>{row.status}</td>
                   <td>{row.rubricVersion}</td>
-                  <td>
-                    {row.counts.invited}/{row.counts.inProgress}/{row.counts.reportReady}/
-                    {row.counts.decided}
-                  </td>
+                  <td className="vacancy-counts">{formatVacancyCounts(row.counts)}</td>
                   <td>{row.expertName}</td>
                   <td>{row.updatedAt}</td>
                 </tr>

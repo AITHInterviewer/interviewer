@@ -1,11 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowRight, CheckCircle, Microphone, Pause, Play } from "@phosphor-icons/react";
 import { useEffect, useMemo, useState } from "react";
 
 import { CandidateShell } from "@/components/chrome/CandidateShell";
 import { LaptopGate } from "@/components/chrome/LaptopGate";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
 import { getCandidateByToken } from "@/lib/demo/candidates";
 import { getQuestion } from "@/lib/demo/rubric";
@@ -68,7 +70,39 @@ export default function QuestionPage() {
     return rephrased ? question.altText : question.text;
   }, [question, rephrased]);
 
-  if (!candidate || !question || Number.isNaN(questionIndex)) return null;
+  if (!candidate) {
+    return (
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Ссылка не найдена"
+          text="Такого приглашения в демо нет. Вернитесь ко входу и выберите роль кандидата."
+          action={
+            <Button asChild variant="secondary">
+              <Link href="/login">К выбору роли</Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
+
+  if (!question || Number.isNaN(questionIndex)) {
+    return (
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Вопрос не найден"
+          text="Такого шага в демо нет. Вернитесь к приглашению или ко входу."
+          action={
+            <Button asChild variant="secondary">
+              <Link href={`/i/${candidate.token}`}>К приглашению</Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
 
   const remainingMin = Math.max(5, (5 - questionIndex + 1) * 4);
   const time = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
@@ -261,6 +295,7 @@ export default function QuestionPage() {
                 <Button type="button" disabled={!text.trim()} onClick={() => saveAnswer("text", text)}>
                   Отправить ответ
                 </Button>
+                {!text.trim() ? <p className="disabled-hint">Сначала напишите ответ</p> : null}
               </div>
             ) : null}
 

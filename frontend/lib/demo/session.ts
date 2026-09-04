@@ -1,5 +1,57 @@
 "use client";
 
+import type { DemoRoleId } from "./types";
+
+const DEMO_ROLE_KEY = "napoleon-demo-role";
+const roleListeners = new Set<() => void>();
+
+function emitDemoRole() {
+  roleListeners.forEach((listener) => listener());
+}
+
+export function subscribeDemoRole(listener: () => void) {
+  roleListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    roleListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+export function getDemoRole(): DemoRoleId | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(DEMO_ROLE_KEY);
+    if (
+      raw === "recruiter" ||
+      raw === "expert" ||
+      raw === "manager" ||
+      raw === "candidate-dmitry" ||
+      raw === "candidate-nikita" ||
+      raw === "candidate-lida" ||
+      raw === "admin"
+    ) {
+      return raw;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function setDemoRole(roleId: DemoRoleId): DemoRoleId {
+  if (typeof window === "undefined") return roleId;
+  window.sessionStorage.setItem(DEMO_ROLE_KEY, roleId);
+  emitDemoRole();
+  return roleId;
+}
+
+export function clearDemoRole(): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.removeItem(DEMO_ROLE_KEY);
+  emitDemoRole();
+}
+
 export type CandidateSession = {
   token: string;
   started: boolean;

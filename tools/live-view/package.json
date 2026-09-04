@@ -1,0 +1,9 @@
+{
+  "name": "hakaton-live-view",
+  "private": true,
+  "type": "module",
+  "description": "Isolated Playwright viewer. Do not merge these deps into frontend/.",
+  "dependencies": {
+    "playwright-core": "1.62.1"
+  }
+}

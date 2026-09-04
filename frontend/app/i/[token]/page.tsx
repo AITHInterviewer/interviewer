@@ -6,6 +6,7 @@ import { ArrowRight, Check, Clock, ListChecks } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
 import { CandidateShell } from "@/components/chrome/CandidateShell";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { useIsNarrow } from "@/components/chrome/LaptopGate";
 import { Button } from "@/components/ui/button";
 import { getCandidateByToken } from "@/lib/demo/candidates";
@@ -14,45 +15,54 @@ import { vacancy } from "@/lib/demo/vacancies";
 
 export default function CandidateInvitePage() {
   const params = useParams<{ token: string }>();
+  const token = params.token;
   const router = useRouter();
   const narrow = useIsNarrow(900);
   const [ready, setReady] = useState(false);
-  const candidate = getCandidateByToken(params.token);
+  const candidate = getCandidateByToken(token);
 
   useEffect(() => {
-    if (!candidate) return;
-    let cancelled = false;
-    const session = readSession(candidate.token);
+    if (!token) return;
+    const found = getCandidateByToken(token);
+    if (!found) return;
+    const session = readSession(found.token);
     if (session.submitted) {
-      router.replace(`/i/${candidate.token}/done`);
+      router.replace(`/i/${found.token}/done`);
       return;
     }
     if (session.interrupted || (session.started && session.currentQuestion > 1 && !session.submitted)) {
-      router.replace(`/i/${candidate.token}/resume`);
+      router.replace(`/i/${found.token}/resume`);
       return;
     }
-    updateSession(candidate.token, { started: true });
-    const id = window.setTimeout(() => {
-      if (!cancelled) setReady(true);
-    }, 0);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(id);
-    };
-  }, [candidate, router]);
+    updateSession(found.token, { started: true });
+    const id = window.setTimeout(() => setReady(true), 0);
+    return () => window.clearTimeout(id);
+  }, [token, router]);
 
   if (!candidate) {
     return (
       <main className="workspace">
-        <h1>Ссылка не найдена</h1>
-        <Button asChild variant="secondary">
-          <Link href="/404">Открыть 404</Link>
-        </Button>
+        <ScreenState
+          kind="error"
+          title="Ссылка не найдена"
+          text="Такого приглашения в демо нет. Вернитесь ко входу и выберите роль кандидата."
+          action={
+            <Button asChild variant="secondary">
+              <Link href="/login">К выбору роли</Link>
+            </Button>
+          }
+        />
       </main>
     );
   }
 
-  if (!ready) return null;
+  if (!ready) {
+    return (
+      <CandidateShell step="Приглашение" vacancyTitle={vacancy.title}>
+        <ScreenState kind="loading" title="Загружаю…" text="Открываю приглашение на технический этап." />
+      </CandidateShell>
+    );
+  }
 
   return (
     <CandidateShell step="Приглашение" vacancyTitle={vacancy.title}>
@@ -125,9 +135,6 @@ export default function CandidateInvitePage() {
               </Link>
             </Button>
           )}
-          <button className="text-button" type="button">
-            Напомнить позже
-          </button>
         </div>
         {narrow ? (
           <p className="human-contact">Интервью проходят с ноутбука.</p>

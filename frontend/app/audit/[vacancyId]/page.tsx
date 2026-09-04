@@ -1,12 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, Play } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { AppShell, expertNav } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { PilotBadge } from "@/components/chrome/VersionTag";
 import { AiNote } from "@/components/evidence/AiNote";
+import { ToastStack } from "@/components/evidence/Drawer";
 import { StatusBadge } from "@/components/evidence/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { getVacancy } from "@/lib/demo/vacancies";
@@ -15,12 +19,27 @@ export default function AuditPage() {
   const params = useParams<{ vacancyId: string }>();
   const vacancy = getVacancy(params.vacancyId);
   const [answer, setAnswer] = useState("");
+  const [toasts, setToasts] = useState<string[]>([]);
+
+  function toast(message: string) {
+    setToasts((current) => [...current, message]);
+    window.setTimeout(() => setToasts((current) => current.slice(1)), 3500);
+  }
 
   if (!vacancy) {
     return (
       <AppShell nav={expertNav()} title="Аудит">
         <main className="workspace">
-          <h1>Вакансия не найдена</h1>
+          <ScreenState
+            kind="error"
+            title="Вакансия не найдена"
+            text="Аудит для этой вакансии в демо недоступен."
+            action={
+              <Button asChild variant="secondary">
+                <Link href="/expert">К задачам</Link>
+              </Button>
+            }
+          />
         </main>
       </AppShell>
     );
@@ -29,24 +48,25 @@ export default function AuditPage() {
   return (
     <AppShell nav={expertNav()} title="Аудит">
       <main className="workspace workspace--form">
-        <header className="page-title">
-          <div>
-            <p className="path">Контроль качества</p>
-            <h1>Аудит отчёта</h1>
-            <p className="page-title__description">
-              Аудит · {vacancy.title} v2 · отчёт 3 из 5 · требование 2 из 8 · Кандидат #17
-            </p>
-            <PilotBadge />
-          </div>
-          <div className="audit-nav">
-            <button className="icon-button" type="button">
-              <ArrowLeft size={18} />
-            </button>
-            <button className="icon-button" type="button">
-              <ArrowRight size={18} />
-            </button>
-          </div>
-        </header>
+        <PageHeader
+          path="Контроль качества"
+          title="Аудит отчёта"
+          description={
+            <>
+              Аудит · {vacancy.title} v2 · отчёт 3 из 5 · требование 2 из 8 · Кандидат #17. <PilotBadge />
+            </>
+          }
+          actions={
+            <div className="audit-nav">
+              <button className="icon-button" type="button" onClick={() => toast("В пилоте это макет")}>
+                <ArrowLeft size={18} />
+              </button>
+              <button className="icon-button" type="button" onClick={() => toast("В пилоте это макет")}>
+                <ArrowRight size={18} />
+              </button>
+            </div>
+          }
+        />
         <section className="audit-compare">
           <div>
             <span className="column-label">Ответ кандидата</span>
@@ -54,7 +74,7 @@ export default function AuditPage() {
               «Оказалось, что соединения к базе не закрывались в воркерах. Добавили контекстный менеджер, и всё
               починилось»
             </blockquote>
-            <button className="time-link" type="button">
+            <button className="time-link" type="button" onClick={() => toast("В пилоте это макет")}>
               <Play size={15} weight="fill" />
               Открыть 14:22
             </button>
@@ -63,9 +83,7 @@ export default function AuditPage() {
             <span className="column-label">Вывод системы</span>
             <StatusBadge status="Частично" />
             <AiNote>
-              <p style={{ fontSize: 13 }}>
-                Причина и исправление описаны. Способ проверки после исправления не назван.
-              </p>
+              <p>Причина и исправление описаны. Способ проверки после исправления не назван.</p>
             </AiNote>
           </div>
         </section>
@@ -87,11 +105,16 @@ export default function AuditPage() {
           </fieldset>
           <div className="audit-submit">
             <span>{answer ? `Выбрано: ${answer}` : "Ответьте на первый вопрос"}</span>
-            <Button type="button" disabled={!answer}>
+            <Button
+              type="button"
+              disabled={!answer}
+              onClick={() => toast("В пилоте это макет")}
+            >
               Сохранить аудит
             </Button>
           </div>
         </section>
+        <ToastStack messages={toasts} />
       </main>
     </AppShell>
   );

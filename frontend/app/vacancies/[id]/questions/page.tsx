@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { WarningCircle } from "@phosphor-icons/react";
 
 import { AppShell, expertNav, recruiterNav } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { VersionTag } from "@/components/chrome/VersionTag";
 import { Button } from "@/components/ui/button";
 import { questions, requirements } from "@/lib/demo/rubric";
@@ -18,7 +20,16 @@ export default function QuestionsPage() {
     return (
       <AppShell nav={expertNav()} title="Комплект">
         <main className="workspace">
-          <h1>Вакансия не найдена</h1>
+          <ScreenState
+            kind="error"
+            title="Вакансия не найдена"
+            text="Комплекта вопросов для этой вакансии в демо нет."
+            action={
+              <Button asChild variant="secondary">
+                <Link href="/expert">К задачам</Link>
+              </Button>
+            }
+          />
         </main>
       </AppShell>
     );
@@ -27,21 +38,21 @@ export default function QuestionsPage() {
   return (
     <AppShell nav={[...recruiterNav(), ...expertNav()]} title="Комплект вопросов">
       <main className="workspace workspace--wide">
-        <header className="page-title">
-          <div>
-            <p className="path">Вакансии / {vacancy.title}</p>
-            <h1>Комплект вопросов</h1>
-            <p className="page-title__description">
-              Только просмотр. <VersionTag />
-            </p>
-          </div>
-          <Button asChild variant="secondary">
-            <Link href={`/vacancies/${vacancy.id}/rubric`}>К рубрике</Link>
-          </Button>
-        </header>
-        <p style={{ marginBottom: 16, color: "var(--ink-tertiary)", fontSize: 13 }}>
-          В демо рубрика утверждена заранее
-        </p>
+        <PageHeader
+          path={`Вакансии / ${vacancy.title}`}
+          title="Комплект вопросов"
+          description={
+            <>
+              Только просмотр. <VersionTag demoNote />
+            </>
+          }
+          actions={
+            <Button asChild variant="secondary">
+              <Link href={`/vacancies/${vacancy.id}/rubric`}>К рубрике</Link>
+            </Button>
+          }
+        />
+        <p className="pilot-hint">В демо рубрика утверждена заранее</p>
         <section className="coverage-matrix" style={{ border: "1px solid var(--border)", borderRadius: 12, background: "var(--surface-raised)" }}>
           <div className="section-heading">
             <div>
@@ -81,7 +92,7 @@ export default function QuestionsPage() {
             </Button>
           </div>
         </section>
-        <section style={{ marginTop: 24, display: "grid", gap: 12 }}>
+        <section className="stack-list">
           {questions.map((item) => (
             <article key={item.index} className="candidate-card">
               <strong>
@@ -99,11 +110,12 @@ export default function QuestionsPage() {
             </article>
           ))}
         </section>
-        <div style={{ marginTop: 18 }}>
+        <div className="form-actions">
           <Button type="button" disabled>
             Утвердить комплект
           </Button>
         </div>
+        <p className="pilot-hint">В демо комплект уже утверждён. Редактирование отключено.</p>
       </main>
     </AppShell>
   );

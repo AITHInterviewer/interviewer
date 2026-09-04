@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Napoleon Interview — кросс-функциональная карта пути</title>
+  <style>
+    :root {
+      --canvas: #f2f2f5;
+      --surface: #fafafd;
+      --surface-raised: #fdfdff;
+      --surface-muted: #e9e9ef;
+      --surface-selected: #ededff;
+      --ink: #1c1c20;
+      --ink-secondary: #555560;
+      --ink-tertiary: #757580;
+      --border: #d5d5dd;
+      --border-strong: #aaaab5;
+      --accent: #140af0;
+      --accent-hover: #0e06c2;
+      --accent-ink: #fdfdff;
+      --positive: #126544;
+      --positive-soft: #e2f1e9;
+      --warning: #80530a;
+      --warning-soft: #fff1cc;
+      --danger: #9c3434;
+      --danger-soft: #f8e4e4;
+      --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --radius-control: 8px;
+      --radius-panel: 12px;
+      --radius-pill: 999px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.48;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    h1, h2, p { margin: 0; }
+    h1, h2, strong { font-weight: 600; }
+
+    .workspace {
+      width: min(calc(100% - 40px), 1440px);
+      margin: 0 auto;
+      padding: 36px 0 80px;
+    }
+
+    .brand-mark {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+
+    .brand-mark strong { font-size: 13px; letter-spacing: -0.02em; }
+    .brand-mark span {
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .page-title {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 32px;
+      margin-bottom: 22px;
+    }
+
+    .page-title h1 {
+      font-size: 34px;
+      line-height: 1.08;
+      letter-spacing: -0.035em;
+    }
+
+    .page-title__description {
+      max-width: 72ch;
+      margin-top: 8px;
+      color: var(--ink-secondary);
+    }
+
+    .path {
+      margin-bottom: 8px;
+      color: var(--ink-tertiary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .page-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+    .button {
+      display: inline-flex;
+      min-height: 40px;
+      align-items: center;
+      justify-content: center;
+      padding: 0 15px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-control);
+      background: var(--accent);
+      color: var(--accent-ink);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .button:hover { background: var(--accent-hover); }
+
+    .lede {
+      display: grid;
+      grid-template-columns: 1.4fr 1fr;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .system-proposal,
+    .legend {
+      padding: 18px 20px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-panel);
+    }
+
+    .system-proposal {
+      background: var(--surface-muted);
+    }
+
+    .system-proposal > span,
+    .legend > span {
+      display: block;
+      color: var(--ink-tertiary);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+
+    .system-proposal h2 { font-size: 18px; margin-bottom: 6px; }
+    .system-proposal p { color: var(--ink-secondary); font-size: 13px; max-width: 70ch; }
+
+    .legend { background: var(--surface-raised); }
+    .legend-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .status {
+      display: inline-flex;
+      min-height: 24px;
+      align-items: center;
+      padding: 2px 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
+      background: var(--surface);
+      color: var(--ink-secondary);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .status[data-tone="positive"] {
+      border-color: color-mix(in srgb, var(--positive) 30%, transparent);
+      background: var(--positive-soft);
+      color: var(--positive);
+    }
+
+    .status[data-tone="warning"] {
+      border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .status[data-tone="idle"] {
+      background: var(--surface-muted);
+      color: var(--ink-tertiary);
+    }
+
+    .status[data-tone="pilot"] {
+      border-style: dashed;
+      color: var(--ink-secondary);
+    }
+
+    .board {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-panel);
+      background: var(--surface-raised);
+    }
+
+    table.cjm {
+      width: 100%;
+      min-width: 1180px;
+      border-collapse: separate;
+      border-spacing: 0;
+    }
+
+    .cjm th,
+    .cjm td {
+      vertical-align: top;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+    }
+
+    .cjm th:last-child,
+    .cjm td:last-child { border-right: 0; }
+
+    .cjm thead th {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      background: var(--surface-raised);
+      padding: 14px 16px;
+    }
+
+    .cjm thead th .role {
+      display: block;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .cjm thead th .hint {
+      display: block;
+      margin-top: 3px;
+      color: var(--ink-tertiary);
+      font-size: 11px;
+      font-weight: 400;
+    }
+
+    .cjm .stage {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      width: 220px;
+      min-width: 220px;
+      padding: 16px;
+      background: var(--surface);
+    }
+
+    .cjm thead .stage { z-index: 4; background: var(--surface-raised); }
+
+    .cjm .stage .n {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .cjm .stage strong {
+      display: block;
+      font-size: 15px;
+      letter-spacing: -0.02em;
+      text-wrap: balance;
+    }
+
+    .cjm .stage .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .cjm tbody td {
+      width: 25%;
+      padding: 16px;
+      background: var(--surface-raised);
+    }
+
+    .cjm tbody tr:last-child th,
+    .cjm tbody tr:last-child td { border-bottom: 0; }
+
+    .cell p { font-size: 13px; color: var(--ink); }
+    .cell .ui {
+      margin-top: 10px;
+      color: var(--ink-tertiary);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .cell[data-state="idle"] {
+      background: var(--surface);
+    }
+
+    .cell[data-state="idle"] p {
+      color: var(--ink-tertiary);
+    }
+
+    .cell[data-state="pilot"] {
+      background: color-mix(in srgb, var(--surface-selected) 55%, var(--surface-raised));
+    }
+
+    .cell[data-state="later"] {
+      background: var(--surface-muted);
+    }
+
+    .cell[data-state="later"] p { color: var(--ink-secondary); }
+
+    .human-note,
+    .closed-box {
+      margin-top: 22px;
+      padding: 16px 18px;
+      border-radius: var(--radius-panel);
+    }
+
+    .human-note {
+      border: 1px solid var(--accent);
+      background: var(--surface-selected);
+    }
+
+    .closed-box {
+      border: 1px solid var(--border);
+      background: var(--positive-soft);
+    }
+
+    .human-note span,
+    .closed-box span,
+    .findings-block > span {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .human-note span { color: var(--accent); }
+    .closed-box span { color: var(--positive); }
+    .human-note p,
+    .closed-box p { font-size: 14px; max-width: 90ch; }
+
+    .findings {
+      margin-top: 40px;
+    }
+
+    .findings h2 {
+      font-size: 28px;
+      letter-spacing: -0.03em;
+      margin-bottom: 8px;
+    }
+
+    .findings > .page-title__description { margin-bottom: 22px; }
+
+    .findings-block { margin-top: 28px; }
+
+    .findings-block h3 {
+      margin: 0 0 10px;
+      font-size: 16px;
+      letter-spacing: -0.02em;
+    }
+
+    .findings-block > span { color: var(--ink-tertiary); }
+
+    .gaps {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-panel);
+      overflow: hidden;
+    }
+
+    .gaps th,
+    .gaps td {
+      text-align: left;
+      vertical-align: top;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .gaps th {
+      background: var(--surface);
+      color: var(--ink-tertiary);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .gaps tr:last-child td { border-bottom: 0; }
+    .gaps td.where {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--ink-tertiary);
+      white-space: nowrap;
+    }
+
+    @media (max-width: 900px) {
+      .lede { grid-template-columns: 1fr; }
+      .page-title { flex-direction: column; align-items: flex-start; }
+      .page-title h1 { font-size: 28px; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .workspace { width: 100%; padding: 0; }
+      .page-actions { display: none; }
+      .board { overflow: visible; border: 0; }
+      table.cjm { min-width: 0; font-size: 11px; }
+      .cjm thead th,
+      .cjm .stage { position: static; }
+      .cell p { font-size: 11px; }
+    }
+
+    @page { size: A3 landscape; margin: 12mm; }
+  </style>
+</head>
+<body>
+  <div class="workspace">
+    <div class="brand-mark">
+      <strong>NAPOLEON</strong>
+      <span>[Interview]</span>
+    </div>
+
+    <div class="page-title">
+      <div>
+        <p class="path">CJM · 4 роли · 6 этапов</p>
+        <h1>Кросс-функциональная карта пути</h1>
+        <p class="page-title__description">
+          Одна таблица на всех. Строка — этап процесса, столбец — роль.
+          Читается слева направо: кто в этот момент действует, а кто ещё не нужен.
+          Это не классический ATS со слотами и живым техинтервью. Это асинхронное интервью по доказательствам, как в текущем интерфейсе.
+        </p>
+      </div>
+      <div class="page-actions">
+        <button class="button" type="button" onclick="window.print()">Печать / PDF</button>
+      </div>
+    </div>
+
+    <div class="lede">
+      <div class="system-proposal">
+        <span>Система предлагает</span>
+        <h2>Эксперт задаёт стандарт один раз. Кандидат отвечает, когда удобно. Рекрутер решает по цитатам. Менеджер готовится к встрече.</h2>
+        <p>
+          Нет календаря «эксперт × кандидат». Нет баллов и процентов уверенности.
+          Прокторинг — технические события, они не входят в оценку.
+        </p>
+      </div>
+      <div class="legend">
+        <span>Как читать ячейку</span>
+        <div class="legend-row">
+          <span class="status" data-tone="positive">Активен в демо</span>
+          <span class="status" data-tone="pilot">Пилот, макет</span>
+          <span class="status" data-tone="idle">Не вовлечён</span>
+          <span class="status">Позже / вне платформы</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="board">
+      <table class="cjm">
+        <thead>
+          <tr>
+            <th class="stage">Этап процесса</th>
+            <th>
+              <span class="role">Рекрутер</span>
+              <span class="hint">Ведёт вакансию и решает за 3-5 минут</span>
+            </th>
+            <th>
+              <span class="role">Кандидат</span>
+              <span class="hint">Один раз, ~25 минут, по ссылке</span>
+            </th>
+            <th>
+              <span class="role">Эксперт</span>
+              <span class="hint">Калибрует вакансию, не ходит на каждого</span>
+            </th>
+            <th>
+              <span class="role">Нанимающий менеджер</span>
+              <span class="hint">Не учит продукт, готовится к своей встрече</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th class="stage" scope="row">
+              <span class="n">01</span>
+              <strong>Заявка и публикация</strong>
+              <div class="meta">
+                <span class="status" data-tone="positive">Демо</span>
+                <span class="status" data-tone="pilot">Бриф менеджера — пилот</span>
+              </div>
+            </th>
+            <td class="cell" data-state="active">
+              <p>Публикует вакансию на платформе: вставляет описание, грейд, назначает эксперта и менеджера. Нажимает «Извлечь требования», правит обязательное и желательное, передаёт вакансию дальше.</p>
+              <p class="ui">R1 список · R2 новая вакансия</p>
+            </td>
+            <td class="cell" data-state="idle">
+              <p>Ещё не вовлечён. Вакансию на сайте не ищет и отклик сам не оставляет: вход будет только по ссылке от рекрутера.</p>
+            </td>
+            <td class="cell" data-state="idle">
+              <p>Ещё не вовлечён. Появится, когда вакансия получит статус «На проверке».</p>
+            </td>
+            <td class="cell" data-state="pilot">
+              <p>Формирует профиль роли: пять вопросов про первый месяц, стоп-факторы и чему научат. Подтверждает обязательное и желательное. В демо бриф уже считается собранным.</p>
+              <p class="ui">M1 бриф · M2 подтверждение профиля</p>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="stage" scope="row">
+              <span class="n">02</span>
+              <strong>Калибровка стандарта</strong>
+              <div class="meta">
+                <span class="status" data-tone="positive">Демо, только чтение</span>
+                <span class="status" data-tone="pilot">Утверждение — пилот</span>
+              </div>
+            </th>
+            <td class="cell" data-state="active">
+              <p>Не составляет вопросы вручную и не бронирует слоты. Ждёт, пока эксперт утвердит рубрику. После статуса «Утверждена» можно приглашать людей.</p>
+              <p class="ui">Статус вакансии на доске</p>
+            </td>
+            <td class="cell" data-state="idle">
+              <p>Ещё не вовлечён. Эталонный ответ и критерии оценки ему не показывают. Увидит только «что раскрыть» в вопросе.</p>
+            </td>
+            <td class="cell" data-state="active">
+              <p>Один раз на вакансию фиксирует стандарт: сильный и слабый ответ, критическая ошибка, правило уточнения, 5-7 вопросов и матрица покрытия. Утверждает версию. В демо поля только для просмотра.</p>
+              <p class="ui">E2 рубрика · E4 вопросы · E5 утверждение</p>
+            </td>
+            <td class="cell" data-state="idle">
+              <p>Не проводит интервью и не правит формулировки вопросов. Его обязательное и стоп-факторы уже лежат в рубрике.</p>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="stage" scope="row">
+              <span class="n">03</span>
+              <strong>Приглашение и отбор</strong>
+              <div class="meta">
+                <span class="status" data-tone="positive">Демо</span>
+              </div>
+            </th>
+            <td class="cell" data-state="active">
+              <p>Не разбирает входящие отклики внутри продукта: люди уже есть. Выбирает, кого отправить на интервью, шлёт ссылку из окна приглашения. Смотрит канбан: Приглашены, Проходят, Обработка, Отчёт готов, Решено.</p>
+              <p class="ui">R3 доска · R4 приглашение</p>
+            </td>
+            <td class="cell" data-state="active">
+              <p>Получает инвайт. Открывает ссылку без пароля. Видит вакансию, сколько займёт, правила и кто примет решение. Пока не начал — может просто прочитать и закрыть.</p>
+              <p class="ui">C1 приглашение</p>
+            </td>
+            <td class="cell" data-state="idle">
+              <p>Не мэтчится по календарю с кандидатом. К каждому человеку не выходит. Стандарт уже зафиксирован.</p>
+            </td>
+            <td class="cell" data-state="idle">
+              <p>Лонг-лист в этом продукте не согласует. Увидит человека только после отчёта, если рекрутер нажмёт «Передать менеджеру».</p>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="stage" scope="row">
+              <span class="n">04</span>
+              <strong>Асинхронное интервью</strong>
+              <div class="meta">
+                <span class="status" data-tone="positive">Демо</span>
+                <span class="status" data-tone="pilot">Доп. ответ — пилот</span>
+              </div>
+            </th>
+            <td class="cell" data-state="active">
+              <p>Не координирует расписание и не сидит на звонке. Следит по канбану, кто открыл ссылку, кто отвечает, чей отчёт уже собирается.</p>
+              <p class="ui">R3 колонки «Проходят» и «Обработка»</p>
+            </td>
+            <td class="cell" data-state="active">
+              <p>Даёт согласие на аудио, проверяет микрофон или переключается на текст, читает правила, пробует тренировку. Отвечает на 5 вопросов, когда удобно. Перед вопросом есть время подумать. Одно уточнение. В конце — «Интервью отправлено».</p>
+              <p class="ui">C2-C9 · C10 доп. ответ</p>
+            </td>
+            <td class="cell" data-state="idle">
+              <p>Не проводит live-интервью и не заполняет скоринг на каждого. Система разбирает ответы по его рубрике. Если нужна ручная проверка — это выборка в пилоте, не созвон.</p>
+              <p class="ui">E6 аудит выборки</p>
+            </td>
+            <td class="cell" data-state="idle">
+              <p>Не видит ход вопросов и не получает «прогресс тестов». Его экран появится позже, одной страницей перед встречей.</p>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="stage" scope="row">
+              <span class="n">05</span>
+              <strong>Финальный выбор</strong>
+              <div class="meta">
+                <span class="status" data-tone="positive">Демо</span>
+              </div>
+            </th>
+            <td class="cell" data-state="active">
+              <p>Читает отчёт: серая плашка «Система предлагает», карта требований, цитата и таймкод. Решает сам: передать менеджеру, запросить доп. ответ или не продвигать. Решение пишется цветной записью с именем и датой, старая не стирается.</p>
+              <p class="ui">R5 отчёт · панель решения</p>
+            </td>
+            <td class="cell" data-state="pilot">
+              <p>Ждёт ответа рекрутера до названной даты. В пилоте может дослать один ответ и увидеть итог. Баллов и сравнения с другими не видит.</p>
+              <p class="ui">C12 итог · C13 запрос удаления</p>
+            </td>
+            <td class="cell" data-state="pilot">
+              <p>Процесс по кандидату для него завершён. В пилоте смотрит выборку: вывод системы рядом со своим критерием, имя скрыто. Замечания возвращаются в рубрику, не в карточку человека.</p>
+              <p class="ui">E6 аудит</p>
+            </td>
+            <td class="cell" data-state="active">
+              <p>Если рекрутер передал — открывает одностраничник: что уже подтверждено, о чём говорить на встрече, одна сильная сторона. Прокторинга нет. После живого знакомства отмечает: Берём / Ещё этап / Нет.</p>
+              <p class="ui">M3 список · M4 одностраничник</p>
+            </td>
+          </tr>
+
+          <tr>
+            <th class="stage" scope="row">
+              <span class="n">06</span>
+              <strong>Оффер и онбординг</strong>
+              <div class="meta">
+                <span class="status">Позже / вне продукта</span>
+              </div>
+            </th>
+            <td class="cell" data-state="later">
+              <p>Выставляет оффер и ведёт документы в ATS, не на этих экранах. В пилоте заложен экспорт в Huntflow. Обратную связь о процессе собирает отдельно.</p>
+              <p class="ui">R8 настройки · экспорт ATS</p>
+            </td>
+            <td class="cell" data-state="later">
+              <p>Принимает или отклоняет оффер вне интервью-платформы. Может оставить обратную связь о процессе. Это не текущий демо-контур.</p>
+            </td>
+            <td class="cell" data-state="later">
+              <p>Как ментор на первые недели не подключается через этот продукт. Опционально позже, вне карты интервью.</p>
+            </td>
+            <td class="cell" data-state="later">
+              <p>Ждёт выход сотрудника и готовит план онбординга у себя. Платформа на этом шаге уже отдала решение «Берём» и больше не ведёт человека.</p>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="human-note">
+      <span>Решение человека</span>
+      <p>
+        Скрининг резюме, тесты с ТЗ, слоты эксперта и live-техинтервью в эту карту не входят:
+        у Napoleon Interview эксперт калибрует вакансию заранее, кандидат отвечает асинхронно,
+        а менеджер приходит только к доказанному одностраничнику.
+      </p>
+    </div>
+
+    <div class="findings">
+      <p class="path">Разрывы · по этой карте, не по классическому ATS</p>
+      <h2>Что канвас показывает как слепые зоны</h2>
+      <p class="page-title__description">
+        Серая ячейка «не вовлечён» - не всегда порядок. Иногда это дыра: человек уже ждёт, а система молчит, или данные остались в соседнем столбце.
+        Ниже только то, что видно на <em>вашей</em> карте. Решения по логике и бэклог: <code>docs/слепые-зоны-доработки.md</code>.
+      </p>
+
+      <div class="closed-box">
+        <span>Уже закрыто дизайном, не ищем повторно</span>
+        <p>
+          Конфликт календарей эксперт × кандидат. Ручной перенос откликов в Excel. Живое техинтервью, на котором эксперт выгорает.
+          Двойной live-скоринг «сначала рекрутер, потом эксперт». На карте этих шагов просто нет.
+        </p>
+      </div>
+
+      <div class="findings-block">
+        <span>01</span>
+        <h3>Сервисные разрывы и информационный вакуум</h3>
+        <table class="gaps">
+          <thead>
+            <tr>
+              <th>Слепая зона</th>
+              <th>Где на карте</th>
+              <th>Что происходит</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Кандидат после интервью сидит без связи</td>
+              <td class="where">04 → 05 · C9</td>
+              <td>Ответил, видит «Интервью отправлено» и дату «рекрутер свяжется». Письма «отчёт готов» нет, экран итога - пилот. Пока рекрутер не открыл карточку, кандидат в вакууме.</td>
+            </tr>
+            <tr>
+              <td>Приглашение кажется отправленным</td>
+              <td class="where">03 · R4 → C1</td>
+              <td>Рекрутер видит тост «письмо отправлено». Письмо наружу не уходит, только копия ссылки. Кандидат в своей ячейке «получил инвайт», хотя мог ничего не получить.</td>
+            </tr>
+            <tr>
+              <td>Запрос доп. ответа не доходит</td>
+              <td class="where">05 → 04 · R6 / C10</td>
+              <td>Рекрутер нажал действие, система пишет, что письмо ушло. Экран доп. ответа у кандидата - пилот, ссылка из отчёта не строится. Обе стороны ждут друг друга.</td>
+            </tr>
+            <tr>
+              <td>Специфика команды не попадает в рубрику</td>
+              <td class="where">01 → 02 · M1 / R2 / E2</td>
+              <td>Бриф менеджера - пилот. В демо три экрана показывают один и тот же список, но не передают его друг другу. В жизни рекрутер обсудит роль устно, эксперт откалибрует по JD - и это снова «стандартный чек-лист не про эту команду».</td>
+            </tr>
+            <tr>
+              <td>Менеджер не видит воронку, пока его не позвали</td>
+              <td class="where">02-04 серые · 05 M4</td>
+              <td>Так задумано. Слепая зона: если рекрутер медлит или не передаёт, менеджер не знает, что пайплайн живой. Поправить требования после калибровки он тоже не может.</td>
+            </tr>
+            <tr>
+              <td>Ответ менеджера не возвращается рекрутеру</td>
+              <td class="where">05 · M4 → R3</td>
+              <td>«Берём / Ещё этап / Нет» живёт на странице менеджера. Канбан рекрутера от этого не двигается. Передача оборвалась в обратную сторону.</td>
+            </tr>
+            <tr>
+              <td>Нет дорожки «Система»</td>
+              <td class="where">между 04 и 05</td>
+              <td>Оценку делает бэкстейдж, которого нет в столбцах. Колонки «Проходят» и «Обработка» в демо пустые. Если разбор завис - на карте нет владельца.</td>
+            </tr>
+            <tr>
+              <td>Инвайт открыли и бросили</td>
+              <td class="where">03 · C1</td>
+              <td>Карточка висит в «Приглашены». Напоминаний нет, кнопка «напомнить позже» ничего не делает. Рекрутер не отличит «ещё не видел» от «увидел и ушёл».</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="findings-block">
+        <span>02</span>
+        <h3>Бутылочные горлышки</h3>
+        <table class="gaps">
+          <thead>
+            <tr>
+              <th>Слепая зона</th>
+              <th>Где на карте</th>
+              <th>Что происходит</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Калибровка вместо календаря</td>
+              <td class="where">02 · эксперт</td>
+              <td>Слотов больше нет, но вакансия не едет, пока эксперт не утвердил рубрику. Утверждение - пилот, статус «Активна» в демо проставлен заранее. В пилоте это новое горлышко: один человек на все вакансии, не на всех кандидатов.</td>
+            </tr>
+            <tr>
+              <td>Каждый отчёт требует человека</td>
+              <td class="where">05 · рекрутер</td>
+              <td>Нагрузку сняли с эксперта и положили на рекрутера: 3-5 минут на человека, плюс круг «доп. ответ». При потоке этап 5 становится тормозом воронки.</td>
+            </tr>
+            <tr>
+              <td>Приглашения по одному</td>
+              <td class="where">03 · R4</td>
+              <td>Отклики в Excel не переносят - этого шага нет. Зато ссылки копируют вручную, без пачки. При 20 кандидатах этап 3 снова ручной.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="findings-block">
+        <span>03</span>
+        <h3>Дублирование и лишние действия</h3>
+        <table class="gaps">
+          <thead>
+            <tr>
+              <th>Слепая зона</th>
+              <th>Где на карте</th>
+              <th>Что происходит</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Три хозяина у одних требований</td>
+              <td class="where">01-02 · R2 / M2 / E2</td>
+              <td>Рекрутер правит извлечённое, менеджер подтверждает профиль, эксперт пишет рубрику. Это не «двойной скоринг интервью», а тройной ввод одной нормы. Кто побеждает при конфликте - на карте не сказано.</td>
+            </tr>
+            <tr>
+              <td>Нет резюме, опыт спрашивают вслух</td>
+              <td class="where">04 · кандидат</td>
+              <td>Классики заполняют профиль, потом эксперт спрашивает то же. У вас профиля нет вообще. Вопросы могут тратить лимит на биографию, которую CV закрыло бы за минуту.</td>
+            </tr>
+            <tr>
+              <td>Одна компетенция три раза</td>
+              <td class="where">04 C7 · 05 C10 · 05 M4</td>
+              <td>Уточнение на интервью, доп. ответ по запросу рекрутера, затем живая встреча с менеджером. Одностраничник должен это срезать, но не запрещает переспросить «уже подтверждено».</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="findings-block">
+        <span>04</span>
+        <h3>Технологическая несогласованность</h3>
+        <table class="gaps">
+          <thead>
+            <tr>
+              <th>Слепая зона</th>
+              <th>Где на карте</th>
+              <th>Что происходит</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ATS и платформа живут отдельно</td>
+              <td class="where">01, 03, 06</td>
+              <td>Людей рекрутер берёт «уже откуда-то», оффер уходит в Huntflow. Экспорт - пилот с тостом «не подключён». Статус в ATS и колонка на доске разъедутся.</td>
+            </tr>
+            <tr>
+              <td>Почта везде имитация</td>
+              <td class="where">03, 05, напоминания</td>
+              <td>Инвайт, доп. ответ, шаблоны писем. На карте написано «отправил», в продукте - тост. Это системный разрыв, не один экран.</td>
+            </tr>
+            <tr>
+              <td>Карта врёт про ворота утверждения</td>
+              <td class="where">02 → 03</td>
+              <td>По процессу нельзя приглашать до «Утверждена». В демо вакансия сразу «Активна», кнопка эксперта «Утвердить» не работает. Процесс на бумаге и софт расходятся.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="findings-block">
+        <span>05</span>
+        <h3>Дисбаланс нагрузки на роли</h3>
+        <table class="gaps">
+          <thead>
+            <tr>
+              <th>Слепая зона</th>
+              <th>Где на карте</th>
+              <th>Что происходит</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Перегружен рекрутер, не эксперт</td>
+              <td class="where">столбец рекрутера · 01, 03, 05, 06</td>
+              <td>Классический канвас пугает выгоранием эксперта. У вас наоборот: эксперт ярко горит на этапе 02 и гаснет. Рекрутер тащит публикацию, инвайты, каждый отчёт, доп. ответы, передачу и ATS. Это новая точка саботажа.</td>
+            </tr>
+            <tr>
+              <td>Эксперт не видит последствия калибровки</td>
+              <td class="where">02 ярко · 03-05 серо</td>
+              <td>Аудит выборки - пилот. Если эксперт не видит, как его рубрика сработала, он либо штампует стандарт, либо не хочет тратить час на калибровку.</td>
+            </tr>
+            <tr>
+              <td>Менеджер простаивает, потом удар</td>
+              <td class="where">01 пилот · 02-04 серо · 05 удар</td>
+              <td>Бриф, который даёт ему голос, ещё не в демо. На встречу он приходит к чужому стандарту. Нагрузка маленькая, влияние на планку запаздывает.</td>
+            </tr>
+            <tr>
+              <td>У кандидата мало работы и много ожидания</td>
+              <td class="where">04 25 мин · 05 серо</td>
+              <td>Перегруза нет. Боль - паузы: после инвайта и после «отправлено». Дисбаланс не в количестве кнопок, а в молчании соседних столбцов.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

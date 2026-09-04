@@ -1,5 +1,7 @@
 # ИИ-интервьюер: Context Pack — версия 2
 
+> **Статус: устарело как канон.** Это короткая версия от 2 сентября, главная метрика здесь ASRR. Полный Context Pack: [`artifacts/04-discovery/CONTEXT_PACK.md`](artifacts/04-discovery/CONTEXT_PACK.md). Поведение продукта: [`artifacts/00-canon/PRODUCT_SPEC.md`](artifacts/00-canon/PRODUCT_SPEC.md), метрика пилота — **ДЗС**. Навигация: [`artifacts/README.md`](artifacts/README.md).
+
 Дата: 2 сентября 2026 года. Статус: рабочая продуктовая позиция после Q&A с кейсодателем.
 
 ## Проблема и работа пользователя

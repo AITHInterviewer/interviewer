@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { CandidateShell } from "@/components/chrome/CandidateShell";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { PilotBadge } from "@/components/chrome/VersionTag";
 import { Button } from "@/components/ui/button";
 import { getCandidateByToken } from "@/lib/demo/candidates";
@@ -15,12 +17,27 @@ export default function RequestPage() {
   const [sent, setSent] = useState(false);
   const [kind, setKind] = useState<"delete" | "review">("review");
 
-  if (!candidate) return null;
+  if (!candidate) {
+    return (
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Запрос недоступен"
+          text="Такого интервью в демо нет. Вернитесь ко входу."
+          action={
+            <Button asChild variant="secondary">
+              <Link href="/login">К выбору роли</Link>
+            </Button>
+          }
+        />
+      </main>
+    );
+  }
 
   return (
     <CandidateShell step="Готово">
       <PilotBadge />
-      <section className="setup-stage" style={{ width: "100%", marginTop: 16 }}>
+      <section className="setup-stage setup-stage--full">
         <h1>Запрос</h1>
         {sent ? (
           <p>
@@ -28,7 +45,7 @@ export default function RequestPage() {
           </p>
         ) : (
           <>
-            <div className="density-switch" style={{ width: "fit-content" }}>
+            <div className="density-switch">
               <button type="button" data-active={kind === "delete"} onClick={() => setKind("delete")}>
                 Удалить мои данные
               </button>
@@ -36,7 +53,7 @@ export default function RequestPage() {
                 Пересмотреть результат
               </button>
             </div>
-            <label style={{ display: "grid", gap: 8, marginTop: 18 }}>
+            <label className="field-block">
               Комментарий
               <textarea placeholder="Кратко опишите запрос" />
             </label>
@@ -47,6 +64,9 @@ export default function RequestPage() {
             </div>
           </>
         )}
+        <Button asChild variant="text">
+          <Link href={`/i/${candidate.token}/done`}>Назад</Link>
+        </Button>
       </section>
     </CandidateShell>
   );

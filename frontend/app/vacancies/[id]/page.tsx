@@ -6,22 +6,61 @@ import { CaretRight, Copy, PaperPlaneTilt, Plus } from "@phosphor-icons/react";
 import { useState } from "react";
 
 import { AppShell, recruiterNav } from "@/components/chrome/AppShell";
+import { PageHeader } from "@/components/chrome/PageHeader";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { VersionTag } from "@/components/chrome/VersionTag";
 import { Modal, ToastStack } from "@/components/evidence/Drawer";
 import { Button } from "@/components/ui/button";
 import { candidates, inviteTokenFromName } from "@/lib/demo/candidates";
+import { PIPELINE_COLUMNS, listPipelineCards } from "@/lib/demo/pipeline";
 import { emptyStore, pushToast, readStore, writeStore } from "@/lib/demo/recruiter-store";
+import type { PipelineCard } from "@/lib/demo/types";
 import { getVacancy } from "@/lib/demo/vacancies";
 
-type ColumnId = "invited" | "progress" | "processing" | "ready" | "decided";
+function mergeBoardCards(store: ReturnType<typeof readStore>): PipelineCard[] {
+  const decidedIds = new Set(
+    Object.keys(store.decisions).filter((id) => (store.decisions[id] ?? []).length > 0),
+  );
+  const fromSeed = listPipelineCards().map((card) => {
+    if (card.canonical && decidedIds.has(card.id)) {
+      const last = store.decisions[card.id]?.at(-1);
+      return {
+        ...card,
+        stage: "decided" as const,
+        stageLine: last ? `Решение: ${last.kind}` : card.stageLine,
+        decisionLabel: last?.kind ?? card.decisionLabel,
+      };
+    }
+    return { ...card };
+  });
+  const seedIds = new Set(fromSeed.map((card) => card.id));
+  const extraInvited = store.invited
+    .filter((item) => !seedIds.has(item.id))
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      stage: "invited" as const,
+      stageLine: `Письмо имитировано, пройти до ${item.deadline}`,
+      canonical: false,
+    }));
+  return [...fromSeed, ...extraInvited];
+}
 
-const COLUMNS: Array<{ id: ColumnId; title: string }> = [
-  { id: "invited", title: "Приглашены" },
-  { id: "progress", title: "Проходят" },
-  { id: "processing", title: "Обработка" },
-  { id: "ready", title: "Отчёт готов" },
-  { id: "decided", title: "Решено" },
-];
+function cardTone(card: PipelineCard): string {
+  if (card.stage !== "reportReady" || !card.canonical) return "neutral";
+  const person = candidates.find((item) => item.id === card.id);
+  if (person?.systemRecommendation === "Соответствует") return "positive";
+  if (person?.systemRecommendation === "Не соответствует") return "danger";
+  if (person?.systemRecommendation === "Недостаточно данных") return "warning";
+  return "neutral";
+}
+
+function reportHref(vacancyId: string, card: PipelineCard): string | undefined {
+  if (card.canonical && card.stage === "reportReady") {
+    return `/vacancies/${vacancyId}/candidates/${card.id}`;
+  }
+  return undefined;
+}
 
 export default function VacancyBoardPage() {
   const params = useParams<{ id: string }>();
@@ -37,52 +76,58 @@ export default function VacancyBoardPage() {
     setStore(readStore());
   }
 
-  if (!vacancy) {
-    return (
-      <AppShell nav={recruiterNav()} title="Вакансия">
-        <main className="workspace">
-          <h1>Вакансия не найдена</h1>
-        </main>
-      </AppShell>
-    );
-  }
-
-  const readySorted = [...candidates].sort((a, b) => {
-    const order = { "Недостаточно данных": 0, Соответствует: 1, "Не соответствует": 2 } as const;
-    return order[a.systemRecommendation] - order[b.systemRecommendation];
-  });
-
-  const decidedIds = Object.keys(store.decisions).filter((id) => (store.decisions[id] ?? []).length > 0);
-  const ready = readySorted.filter((c) => !decidedIds.includes(c.id));
-  const decided = readySorted.filter((c) => decidedIds.includes(c.id));
-
   function showToast(message: string) {
     pushToast(message);
     setToasts((current) => [...current, message]);
     window.setTimeout(() => setToasts((current) => current.slice(1)), 3500);
   }
 
+  if (!vacancy) {
+    return (
+      <AppShell nav={recruiterNav()} title="Вакансия">
+        <main className="workspace">
+          <ScreenState
+            kind="error"
+            title="Вакансия не найдена"
+            text="Такой вакансии в демо нет. Вернитесь к списку или ко входу."
+            action={
+              <Button asChild variant="secondary">
+                <Link href="/vacancies">К вакансиям</Link>
+              </Button>
+            }
+          />
+        </main>
+      </AppShell>
+    );
+  }
+
+  const boardCards = mergeBoardCards(store);
+  const inviteDisabled = vacancy.status !== "Активна";
+
   return (
     <AppShell nav={recruiterNav()} title={vacancy.title}>
       <main className="workspace workspace--wide">
-        <header className="page-title">
-          <div>
-            <p className="path">Вакансии / {vacancy.title}</p>
-            <h1>Кандидаты</h1>
-            <p className="page-title__description">
-              {vacancy.grade}, статус {vacancy.status}. <VersionTag />
-            </p>
-          </div>
-          <div className="page-actions">
-            <Button type="button" onClick={() => setInviteOpen(true)} disabled={vacancy.status !== "Активна"}>
-              <Plus size={18} />
-              Пригласить кандидата
-            </Button>
-            <Button asChild variant="secondary">
-              <Link href={`/vacancies/${vacancy.id}/settings`}>⋯ Настройки</Link>
-            </Button>
-          </div>
-        </header>
+        <PageHeader
+          path={`Вакансии / ${vacancy.title}`}
+          title="Кандидаты"
+          description={`${vacancy.grade}, статус ${vacancy.status}.`}
+          actions={
+            <>
+              <Button type="button" onClick={() => setInviteOpen(true)} disabled={inviteDisabled}>
+                <Plus size={18} />
+                Пригласить кандидата
+              </Button>
+              <Button asChild variant="secondary">
+                <Link href={`/vacancies/${vacancy.id}/settings`}>⋯ Настройки</Link>
+              </Button>
+            </>
+          }
+        />
+        {inviteDisabled ? (
+          <p className="disabled-hint">Пригласить нельзя: вакансия не в статусе «Активна».</p>
+        ) : null}
+
+        <p className="board-hint">В этом демо смотрите колонку «Отчёт готов» — там Дмитрий, Никита и Лидия.</p>
 
         <div className="board-toolbar">
           <div className="vacancy-state">
@@ -97,90 +142,58 @@ export default function VacancyBoardPage() {
               Список
             </button>
           </div>
-          <span className="board-toolbar__ats">Эксперт: {vacancy.expertName}</span>
+          <span className="board-toolbar__ats demo-jargon">
+            Эксперт: {vacancy.expertName}. <VersionTag demoNote />
+          </span>
         </div>
 
         {view === "board" ? (
           <section className="kanban" aria-label="Кандидаты по этапам">
-            {COLUMNS.map((column) => {
-              const items =
-                column.id === "invited"
-                  ? store.invited.map((item) => ({
-                      id: item.id,
-                      name: item.name,
-                      detail: `До ${item.deadline}`,
-                      meta: "Письмо имитировано",
-                      href: undefined as string | undefined,
-                      tone: "neutral",
-                    }))
-                  : column.id === "ready"
-                    ? ready.map((item) => ({
-                        id: item.id,
-                        name: item.name,
-                        detail: item.systemRecommendation,
-                        meta: `обязательных ${item.mandatoryCovered.confirmed}/${item.mandatoryCovered.total}`,
-                        href: `/vacancies/${vacancy.id}/candidates/${item.id}`,
-                        tone:
-                          item.systemRecommendation === "Соответствует"
-                            ? "positive"
-                            : item.systemRecommendation === "Не соответствует"
-                              ? "danger"
-                              : "warning",
-                      }))
-                    : column.id === "decided"
-                      ? decided.map((item) => {
-                          const last = store.decisions[item.id]?.at(-1);
-                          return {
-                            id: item.id,
-                            name: item.name,
-                            detail: last?.kind ?? "Решение принято",
-                            meta: last?.at ?? "",
-                            href: `/vacancies/${vacancy.id}/candidates/${item.id}`,
-                            tone: "neutral",
-                          };
-                        })
-                      : [];
+            {PIPELINE_COLUMNS.map((column) => {
+              const items = boardCards.filter((card) => card.stage === column.stage);
               return (
-                <div className="kanban-column" key={column.id}>
+                <div className="kanban-column" key={column.columnId}>
                   <div className="kanban-column__header">
                     <h2>{column.title}</h2>
                     <span>{items.length}</span>
                   </div>
                   <div className="candidate-stack">
-                    {items.length === 0 ? (
-                      <p style={{ color: "var(--ink-tertiary)", fontSize: 12 }}>Пока пусто</p>
-                    ) : (
-                      items.map((item) =>
-                        item.href ? (
-                          <Link
-                            key={item.id}
-                            href={item.href}
-                            className="candidate-card candidate-card--interactive"
-                            data-tone={item.tone}
-                            style={{ textDecoration: "none", color: "inherit" }}
-                          >
-                            <div className="candidate-card__top">
-                              <strong>{item.name}</strong>
-                              <CaretRight size={16} />
-                            </div>
-                            <p>{item.detail}</p>
+                    {items.map((item) => {
+                      const href = reportHref(vacancy.id, item);
+                      const tone = cardTone(item);
+                      const body = (
+                        <>
+                          <div className="candidate-card__top">
+                            <strong>{item.name}</strong>
+                            {href ? <CaretRight size={16} /> : null}
+                          </div>
+                          <p>{item.decisionLabel ?? item.stageLine}</p>
+                          {href ? (
                             <div className="candidate-card__meta">
-                              <span>{item.meta}</span>
+                              <span>Открыть отчёт</span>
                             </div>
-                          </Link>
-                        ) : (
-                          <article className="candidate-card" data-tone={item.tone} key={item.id}>
-                            <div className="candidate-card__top">
-                              <strong>{item.name}</strong>
-                            </div>
-                            <p>{item.detail}</p>
+                          ) : item.decisionLabel && item.stageLine && item.stageLine !== item.decisionLabel ? (
                             <div className="candidate-card__meta">
-                              <span>{item.meta}</span>
+                              <span>{item.stageLine}</span>
                             </div>
-                          </article>
-                        ),
-                      )
-                    )}
+                          ) : null}
+                        </>
+                      );
+                      return href ? (
+                        <Link
+                          key={item.id}
+                          href={href}
+                          className="candidate-card candidate-card--interactive"
+                          data-tone={tone}
+                        >
+                          {body}
+                        </Link>
+                      ) : (
+                        <article className="candidate-card" data-tone={tone} key={item.id}>
+                          {body}
+                        </article>
+                      );
+                    })}
                   </div>
                 </div>
               );
@@ -191,24 +204,30 @@ export default function VacancyBoardPage() {
             <thead>
               <tr>
                 <th>Имя</th>
-                <th>Рекомендация</th>
-                <th>Обязательные</th>
-                <th></th>
+                <th>Стадия</th>
+                <th>Статус</th>
+                <th>Отчёт</th>
               </tr>
             </thead>
             <tbody>
-              {readySorted.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.name}</td>
-                  <td>{item.systemRecommendation}</td>
-                  <td>
-                    {item.mandatoryCovered.confirmed}/{item.mandatoryCovered.total}
-                  </td>
-                  <td>
-                    <Link href={`/vacancies/${vacancy.id}/candidates/${item.id}`}>Открыть отчёт</Link>
-                  </td>
-                </tr>
-              ))}
+              {boardCards.map((item) => {
+                const href = reportHref(vacancy.id, item);
+                const column = PIPELINE_COLUMNS.find((entry) => entry.stage === item.stage);
+                return (
+                  <tr key={item.id}>
+                    <td>{item.name}</td>
+                    <td className="pipeline-stage">{column?.title ?? item.stage}</td>
+                    <td>{item.decisionLabel ?? item.stageLine}</td>
+                    <td>
+                      {href ? (
+                        <Link href={href}>Открыть отчёт</Link>
+                      ) : (
+                        <span className="muted-copy">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -280,9 +299,7 @@ export default function VacancyBoardPage() {
           </form>
           <aside className="mail-preview">
             <span className="mail-preview__label">Так письмо увидит кандидат</span>
-            <h2>
-              {name}, приглашаем на технический этап
-            </h2>
+            <h2>{name}, приглашаем на технический этап</h2>
             <p>
               Вас ждут 5 вопросов по вакансии {vacancy.title}. Интервью займёт около 25 минут, пройти его
               можно до 8 сентября.
