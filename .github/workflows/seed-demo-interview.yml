@@ -70,12 +70,22 @@ jobs:
             up -d --build `
             postgres redis backend frontend
 
-      - name: Reinstall frontend deps (node_modules is a named volume, --build alone doesn't refresh it)
+      - name: Reinstall frontend deps and clear stale .next build cache
+        # node_modules AND .next are named volumes (docker-compose.dev.yml) that survive
+        # `--build`/container recreation — confirmed on this runner: after adding
+        # livekit-client, the container kept serving a stale compiled .next bundle where
+        # ConsentInfo's fetch effect silently never fired (no console error, no network
+        # request — just stuck on "Загружаем интервью…"). `rm -rf .next` forces Next to
+        # recompile from the current bind-mounted source (./frontend:/app) on restart.
         run: |
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
             exec -T frontend npm install
+          docker compose --project-directory . `
+            -f docker-compose.dev.yml `
+            -f infra/docker-compose.yml `
+            exec -T frontend rm -rf .next
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
@@ -128,4 +138,4 @@ jobs:
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
-            exec -T backend uv run python -m scripts.seed_demo_interview
+            exec -T -e PUBLIC_FRONTEND_URL=http://26.67.31.6:3000 backend uv run python -m scripts.seed_demo_interview

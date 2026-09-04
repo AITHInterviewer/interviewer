@@ -19,10 +19,16 @@ tasks.md`, T004, «Known Gaps»). Вопросы совпадают по тек�
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
+
+from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.models import Interview, Question, Recruiter, Vacancy
+
+_DEMO_RECRUITER_EMAIL = "demo-recruiter@example.com"
+_DEMO_VACANCY_TITLE = "Middle + Python Developer"
 
 _QUESTIONS = [
     "Расскажите почему вы сейчас находитесь в поиске работы и что для себя ищите? "
@@ -41,32 +47,48 @@ _QUESTIONS = [
 
 
 async def main() -> None:
+    # Идемпотентно по recruiter/vacancy/questions — повторный запуск переиспользует их
+    # (иначе падает на unique-constraint по email при второй попытке, как уже случалось
+    # на практике) и создаёт только новый Interview+access_token, что и нужно от
+    # "запустить ещё раз, получить свежую ссылку".
     async with SessionLocal() as session:
-        recruiter = Recruiter(email="demo-recruiter@example.com", name="Demo Recruiter", password_hash="x")
-        session.add(recruiter)
-        await session.flush()
+        recruiter = (
+            await session.execute(select(Recruiter).where(Recruiter.email == _DEMO_RECRUITER_EMAIL))
+        ).scalar_one_or_none()
+        if recruiter is None:
+            recruiter = Recruiter(email=_DEMO_RECRUITER_EMAIL, name="Demo Recruiter", password_hash="x")
+            session.add(recruiter)
+            await session.flush()
 
-        vacancy = Vacancy(
-            recruiter_id=recruiter.id,
-            title="Middle + Python Developer",
-            description="Разработка и поддержка высоконагруженных микросервисов на Python.",
-            grade="middle+",
-            status="ready",
-        )
-        session.add(vacancy)
-        await session.flush()
-
-        for i, text in enumerate(_QUESTIONS):
-            session.add(
-                Question(
-                    vacancy_id=vacancy.id,
-                    text=text,
-                    order=i,
-                    estimated_duration_sec=180,
-                    format="voice",
-                    source="base_manual",
+        vacancy = (
+            await session.execute(
+                select(Vacancy).where(
+                    Vacancy.recruiter_id == recruiter.id, Vacancy.title == _DEMO_VACANCY_TITLE
                 )
             )
+        ).scalar_one_or_none()
+        if vacancy is None:
+            vacancy = Vacancy(
+                recruiter_id=recruiter.id,
+                title=_DEMO_VACANCY_TITLE,
+                description="Разработка и поддержка высоконагруженных микросервисов на Python.",
+                grade="middle+",
+                status="ready",
+            )
+            session.add(vacancy)
+            await session.flush()
+
+            for i, text in enumerate(_QUESTIONS):
+                session.add(
+                    Question(
+                        vacancy_id=vacancy.id,
+                        text=text,
+                        order=i,
+                        estimated_duration_sec=180,
+                        format="voice",
+                        source="base_manual",
+                    )
+                )
 
         access_token = secrets.token_urlsafe(24)
         interview = Interview(
@@ -78,9 +100,10 @@ async def main() -> None:
         session.add(interview)
         await session.commit()
 
+        frontend_url = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:3000")
         print(f"interview_id={interview.id}")
         print(f"access_token={access_token}")
-        print(f"URL: http://localhost:3000/interview/{access_token}")
+        print(f"URL: {frontend_url}/interview/{access_token}")
 
 
 if __name__ == "__main__":
