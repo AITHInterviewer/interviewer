@@ -13,6 +13,14 @@ dependencies = [
     "pydantic-settings",
     "celery[redis]",
     "boto3",
+    # redis>=5 уже тянется транзитивно через celery[redis], но объявляем явно — backend
+    # использует его напрямую (redis.asyncio) для control-канала кандидата
+    # (specs/004-candidate-interview-flow), не только как Celery-брокер.
+    "redis>=5.0",
+    # Выпуск access token для LiveKit room (specs/004-candidate-interview-flow,
+    # contracts/livekit-token.md) — backend подписывает токен, secret никогда не уходит
+    # на frontend.
+    "livekit-api>=0.7",
 ]
 
 [project.optional-dependencies]

@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     media_chunk_duration_seconds: int = Field(default=10, gt=0)
     max_upload_size_mb: int = Field(default=100, gt=0)
 
+    # LiveKit (specs/004-candidate-interview-flow, contracts/livekit-token.md) — backend
+    # выпускает access token кандидату, secret никогда не уходит на frontend. Dev-значения
+    # по умолчанию совпадают с infra/docker-compose.yml (LIVEKIT_KEYS=devkey: secret) —
+    # НЕ для прода, см. комментарий в том файле.
+    livekit_api_key: str = "devkey"
+    livekit_api_secret: str = "secret"
+    livekit_ws_url: str = "ws://localhost:3907"
+
     # CORS
     cors_origins: list[str] = []
 
