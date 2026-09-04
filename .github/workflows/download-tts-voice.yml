@@ -1,0 +1,17 @@
+name: download tts voice (self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  download:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Download Russian voice into the tts container
+        run: docker exec live-agent-tts-1 uvx speaches-cli model download speaches-ai/piper-ru_RU-irina-medium
+
+      - name: List available models
+        run: (Invoke-WebRequest -Uri http://localhost:3906/v1/models -UseBasicParsing).Content
