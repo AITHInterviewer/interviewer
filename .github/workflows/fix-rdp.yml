@@ -30,14 +30,17 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections' -Value 0
           Get-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name 'fDenyTSConnections'
 
-      - name: Add firewall rule for RDP on ALL profiles (bypasses network-category issue)
+      - name: Add firewall rule for RDP on ALL profiles, scoped to the Radmin subnet
+        # -RemoteAddress 26.0.0.0/8 keeps this open only to the trusted Radmin VPN network,
+        # not the whole internet — compensating control since NLA is disabled below.
         run: |
           $name = "RDP-3389-any-profile-fix"
           $existing = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
           if ($existing) {
             Remove-NetFirewallRule -DisplayName $name
           }
-          New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol TCP -LocalPort 3389 -Action Allow -Profile Any | Out-Null
+          New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol TCP -LocalPort 3389 -Action Allow -Profile Any -RemoteAddress 26.0.0.0/8 | Out-Null
+          Get-NetFirewallRule -DisplayName $name | Get-NetFirewallAddressFilter | Format-Table LocalAddress, RemoteAddress
           Get-NetFirewallRule -DisplayName $name | Format-Table DisplayName, Enabled, Direction, Action, Profile
 
       - name: Report current network categories (informational)
@@ -46,3 +49,20 @@ jobs:
       - name: Confirm 3389 is listening
         run: |
           Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue | Format-Table LocalAddress, LocalPort, State
+
+      - name: Disable mandatory NLA (client hangs at "securing the connection" over VPN)
+        # NLA does a full CredSSP/TLS handshake before the RDP session even starts. Over a
+        # tunnelled/VPN path the larger handshake packets can black-hole (MTU/fragmentation)
+        # while the small initial TCP SYN still gets through — exactly the "connects, then
+        # hangs on securing the connection" symptom, as opposed to an outright refusal.
+        # Trade-off: NLA is a real security layer; this is a workaround to restore access
+        # now, not a permanent recommendation — worth re-enabling once VPN MTU is sorted.
+        run: |
+          $tsSetting = Get-WmiObject -Class Win32_TSGeneralSetting -Namespace root\cimv2\terminalservices -Filter "TerminalName='RDP-tcp'"
+          $tsSetting.SetUserAuthenticationRequired(0) | Out-Null
+          (Get-WmiObject -Class Win32_TSGeneralSetting -Namespace root\cimv2\terminalservices -Filter "TerminalName='RDP-tcp'").UserAuthenticationRequired
+
+      - name: Lower Radmin VPN adapter MTU (reduce fragmentation risk over the tunnel)
+        run: |
+          netsh interface ipv4 set subinterface "Radmin VPN" mtu=1400 store=persistent
+          netsh interface ipv4 show subinterfaces
