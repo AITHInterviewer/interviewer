@@ -41,7 +41,8 @@ from livekit.agents.llm import ChatContext
 from livekit.plugins import openai as lk_openai
 from livekit.plugins import silero
 
-from .events import EventLog
+from .control_bridge import RedisEventSink
+from .events import EventLog, EventSink
 from .llm_client import ClaudeAgentSDKLiveControlLLM
 from .prompts import INTRO_PHRASE
 from .schema import InterviewInput
@@ -86,10 +87,28 @@ def _build_stt_vocabulary_prompt(interview: InterviewInput) -> str:
     return ", ".join(terms)
 
 
+def _build_event_sinks(interview_id: str) -> list[EventSink]:
+    """REDIS_URL — опциональна: без неё живой опрос кандидата работает как раньше
+    (файловый EventLog, ни один существующий тест/скрипт не меняет поведение). С ней —
+    те же события дополнительно уходят в Redis для control-канала backend/frontend
+    (specs/004-candidate-interview-flow/research.md, п.2). Никогда не влияет на то, что
+    решает граф — см. events.EventSink, `EventLog.emit()` глотает исключения sink'ов."""
+    redis_url = os.environ.get("REDIS_URL")
+    if not redis_url:
+        return []
+    from redis.asyncio import Redis
+
+    redis = Redis.from_url(redis_url)
+    return [RedisEventSink(redis, interview_id)]
+
+
 async def entrypoint(ctx: JobContext) -> None:
     interview = InterviewInput.model_validate_json(MOCK_PATH.read_text(encoding="utf-8"))
 
-    events = EventLog(AGENT_ROOT / "out" / f"{interview.interview_id}.jsonl")
+    events = EventLog(
+        AGENT_ROOT / "out" / f"{interview.interview_id}.jsonl",
+        sinks=_build_event_sinks(interview.interview_id),
+    )
     llm = ClaudeAgentSDKLiveControlLLM()
     engine = LiveContourEngine(interview, llm, events)
 
