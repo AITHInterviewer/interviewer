@@ -9,6 +9,7 @@ describe("InterviewPage", () => {
     render(ui);
 
     expect(screen.getByText(/demo-token/)).toBeInTheDocument();
+    expect(screen.queryByText(/sign in/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /включить камеру/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /начать запись/i })).toBeDisabled();
   });

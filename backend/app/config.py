@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AnyHttpUrl, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,43 +9,45 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = False
 
-    app_host: str
+    app_host: str = "0.0.0.0"
     app_port: int = 8000
 
-    secret_key: str
+    secret_key: str = "development-secret-key"
+    jwt_secret: str = "development-jwt-secret"
+    jwt_access_token_expire_minutes: int = 60
 
     # PostgreSQL
-    postgres_db: str
-    postgres_host: str
-    postgres_user: str
-    postgres_password: str
+    postgres_db: str = "ainterviewer"
+    postgres_host: str = "localhost"
+    postgres_user: str = "ainterviewer"
+    postgres_password: str = "ainterviewer"
 
-    database_url: str
+    database_url: str = "sqlite+aiosqlite:///./app.db"
 
     # Redis
     redis_host: str = "redis"
     redis_port: int = 6379
 
-    redis_url: str
+    redis_url: str = "redis://localhost:6379/0"
 
     # Celery
-    celery_broker_url: str
-    celery_result_backend: str
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/0"
 
     celery_task_always_eager: bool = False
     celery_task_track_started: bool = True
 
     # MinIO
-    minio_root_user: str
-    minio_root_password: str
+    minio_root_user: str = "ainterviewer"
+    minio_root_password: str = "ainterviewer123"
     minio_bucket: str = "interviews"
 
     # S3
-    s3_endpoint_url: str
-    s3_public_endpoint_url: str
+    s3_endpoint_url: str = "http://localhost:9000"
+    s3_public_endpoint_url: str = "http://localhost:9000"
 
-    s3_access_key: str
-    s3_secret_key: str
+    s3_access_key: str = "ainterviewer"
+    s3_secret_key: str = "ainterviewer123"
 
     s3_bucket: str = "interviews"
     s3_region: str = "us-east-1"

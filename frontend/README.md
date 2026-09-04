@@ -4,7 +4,11 @@
 
 ## Статус
 
-- `/` — пустая стартовая страница.
+- `/` — внутренний entrypoint с редиректом на login или role-specific protected area.
+- `/register` — self-signup первого рекрутёра.
+- `/login` — общий вход для `recruiter`, `hiring_manager`, `expert`.
+- `/internal/recruiter` — protected recruiter area с созданием внутренних аккаунтов.
+- `/internal/hiring-manager` и `/internal/expert` — role-specific placeholder areas.
 - `/interview/[token]` — пустой candidate flow без интеграции с backend.
 - `getUserMedia`, `MediaRecorder` и `speechSynthesis` пока только запланированы, не подключены.
 
@@ -31,6 +35,7 @@ npm run dev
 ```bash
 npm run lint
 npm run build
+npm run test
 ```
 
 ## Docker
@@ -46,6 +51,7 @@ docker compose -f ../docker-compose.dev.yml up --build
 - `NEXT_PUBLIC_BACKEND_URL` используется браузером
 - `BACKEND_INTERNAL_URL` используется frontend-контейнером для server-side проверки backend
 - оба значения задаются через `frontend/.env`
+- bearer session MVP-уровня хранится в browser storage через `frontend/lib/auth.ts`
 
 ## Зависимости и образ
 
@@ -55,6 +61,6 @@ docker compose -f ../docker-compose.dev.yml up --build
 
 ## Дальше
 
-- Собрать recruiter dashboard заново.
+- Расширить recruiter dashboard после auth bootstrap.
+- Заменить recruiter-assigned temporary password flow на invite/self-setup, когда появится email delivery.
 - Реализовать candidate interview UI на browser APIs.
-- Подключить frontend к новому backend API.

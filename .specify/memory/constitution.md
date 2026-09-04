@@ -86,6 +86,17 @@ current plan. A change is not complete until the verification steps defined in
 Rationale: minimal solutions are easier to validate, easier to revise, and less likely
 to create accidental complexity.
 
+## UI Identity
+
+The frontend MUST follow the existing design system defined in
+`frontend/styles/tokens.css`,
+`frontend/styles/app.css`,
+and `frontend/styles/design-system.md`.
+
+New UI MUST reuse existing semantic tokens and component patterns.
+Arbitrary colors, radii, spacing systems, shadows, and visual styles
+must not be introduced without explicit justification.
+
 ## Technology Constraints
 
 This constitution governs `frontend/`, `backend/`, `live-agent/`, and `evaluation-agent/`.

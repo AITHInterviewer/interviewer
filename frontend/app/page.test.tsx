@@ -1,8 +1,8 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// next/link не рендерится синхронно вне рантайма Next.js (app-router prefetch/Suspense) —
-// стандартный приём для изолированных юнит-тестов: подменить на простой <a>.
+const replace = vi.fn();
+
 vi.mock("next/link", () => ({
   default: ({ href, children, ...props }: React.ComponentProps<"a">) => (
     <a href={href as string} {...props}>
@@ -11,23 +11,41 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace, push: vi.fn() }),
+}));
+
+vi.mock("@/lib/auth", () => ({
+  getSession: vi.fn(),
+  getRolePath: vi.fn(() => "/internal/recruiter"),
+}));
+
+import { getRolePath, getSession } from "@/lib/auth";
 import HomePage from "./page";
 
 describe("HomePage", () => {
-  it("renders the landing heading and link to the interview demo page", async () => {
-    // HomePage — async Server Component (делает fetch backend health на сервере) —
-    // React DOM (client-only renderer) не умеет рендерить async-компоненты напрямую,
-    // поэтому вызываем функцию и рендерим уже resolved JSX (тот же приём, что для
-    // InterviewPage). В тестовом окружении BACKEND_INTERNAL_URL не задан — getBackendHealth
-    // короткоживущий, без реального fetch.
-    const ui = await HomePage();
-    render(ui);
+  beforeEach(() => {
+    replace.mockReset();
+  });
 
-    expect(screen.getByRole("heading", { level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /открыть страницу интервью/i })).toHaveAttribute(
-      "href",
-      "/interview/demo",
-    );
-    expect(screen.getByText(/needs attention/i)).toBeInTheDocument();
+  it("redirects unauthenticated users to login", async () => {
+    vi.mocked(getSession).mockReturnValue(null);
+
+    render(<HomePage />);
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+    expect(screen.getByText(/preparing your workspace/i)).toBeInTheDocument();
+  });
+
+  it("redirects an existing session to the role area", async () => {
+    vi.mocked(getSession).mockReturnValue({
+      token: "token-1",
+      user: { id: "1", name: "Recruiter", email: "recruiter@example.com", role: "recruiter" },
+    });
+
+    render(<HomePage />);
+
+    await waitFor(() => expect(getRolePath).toHaveBeenCalledWith("recruiter"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/internal/recruiter"));
   });
 });

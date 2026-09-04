@@ -9,7 +9,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 WORKDIR /app
 
 COPY --from=ghcr.io/astral-sh/uv:0.8.15 /uv /uvx /bin/
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock alembic.ini ./
 
 FROM base AS dev
 RUN uv sync --locked --extra dev
