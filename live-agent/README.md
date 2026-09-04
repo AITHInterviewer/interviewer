@@ -159,7 +159,7 @@ python scripts/simulate.py --real         # настоящий Claude Agent SDK 
 
 # 2) Полный голосовой цикл — нужен Docker + подписка:
 cp .env.example .env
-docker compose up -d                      # поднимает STT (порт 8001) и TTS (порт 8002)
+docker compose up -d                      # поднимает STT (порт 3905) и TTS (порт 3906)
 python -m ainterviewer.agent console      # локальный голосовой режим (мик/динамики)
 ```
 
@@ -189,7 +189,7 @@ docker exec agent-tts-1 uvx speaches-cli model download speaches-ai/piper-ru_RU-
 Затем сам синтез:
 
 ```bash
-curl http://localhost:8002/v1/audio/speech \
+curl http://localhost:3906/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{"model":"speaches-ai/piper-ru_RU-irina-medium","voice":"irina","input":"Привет, это проверка синтеза речи.","response_format":"mp3"}' \
   --output out/tts_check.mp3

@@ -51,17 +51,21 @@ jobs:
 
       - name: Ensure firewall rules for all service ports
         run: |
+          # Ports 3901-3908 are this project's dedicated pool (see root README.md,
+          # "Порты проекта") — picked specifically to avoid clashing with other
+          # unrelated projects' default ports (postgres/redis/minio/etc.) on this
+          # shared runner, the way react-agent-stt collided with our minio on 9000.
           $rules = @{
             "ainterviewer-3000" = @{ Port = 3000; Proto = "TCP" }
             "ainterviewer-8000" = @{ Port = 8000; Proto = "TCP" }
-            "ainterviewer-8001" = @{ Port = 8001; Proto = "TCP" }
-            "ainterviewer-8002" = @{ Port = 8002; Proto = "TCP" }
-            "ainterviewer-5432" = @{ Port = 5432; Proto = "TCP" }
-            "ainterviewer-6379" = @{ Port = 6379; Proto = "TCP" }
-            "ainterviewer-9000" = @{ Port = 9000; Proto = "TCP" }
-            "ainterviewer-9001" = @{ Port = 9001; Proto = "TCP" }
-            "ainterviewer-7880" = @{ Port = 7880; Proto = "TCP" }
-            "ainterviewer-7881" = @{ Port = 7881; Proto = "TCP" }
+            "ainterviewer-3901" = @{ Port = 3901; Proto = "TCP" } # postgres
+            "ainterviewer-3902" = @{ Port = 3902; Proto = "TCP" } # redis
+            "ainterviewer-3903" = @{ Port = 3903; Proto = "TCP" } # minio API
+            "ainterviewer-3904" = @{ Port = 3904; Proto = "TCP" } # minio console
+            "ainterviewer-3905" = @{ Port = 3905; Proto = "TCP" } # live-agent stt
+            "ainterviewer-3906" = @{ Port = 3906; Proto = "TCP" } # live-agent tts
+            "ainterviewer-3907" = @{ Port = 3907; Proto = "TCP" } # livekit signaling
+            "ainterviewer-3908" = @{ Port = 3908; Proto = "TCP" } # livekit tcp fallback
             "ainterviewer-livekit-udp" = @{ Port = "50000-50100"; Proto = "UDP" }
           }
           foreach ($name in $rules.Keys) {
@@ -101,7 +105,7 @@ jobs:
           MINIO_ROOT_PASSWORD=ainterviewer123
           MINIO_BUCKET=ainterviewer-resumes
           S3_ENDPOINT_URL=http://minio:9000
-          S3_PUBLIC_ENDPOINT_URL=http://26.67.31.6:9000
+          S3_PUBLIC_ENDPOINT_URL=http://26.67.31.6:3903
           S3_ACCESS_KEY=ainterviewer
           S3_SECRET_KEY=ainterviewer123
           S3_BUCKET=ainterviewer-resumes
@@ -128,7 +132,7 @@ jobs:
           TTS_MODEL=speaches-ai/piper-ru_RU-irina-medium
           TTS_VOICE=irina
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
-          LIVEKIT_URL=ws://host.docker.internal:7880
+          LIVEKIT_URL=ws://host.docker.internal:3907
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret
           '@
@@ -186,7 +190,7 @@ jobs:
           $ok = $false
           for ($i = 0; $i -lt 24; $i++) {
             try {
-              Invoke-WebRequest -Uri http://localhost:9000/minio/health/live -UseBasicParsing -TimeoutSec 3 | Out-Null
+              Invoke-WebRequest -Uri http://localhost:3903/minio/health/live -UseBasicParsing -TimeoutSec 3 | Out-Null
               $ok = $true
               break
             } catch { Start-Sleep -Seconds 5 }
@@ -208,15 +212,16 @@ jobs:
           docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml ps
 
       - name: Print URLs
+        # Plain ASCII only in this step (no apostrophes/em-dashes): this runner's
+        # PowerShell choked on a curly-quote-adjacent apostrophe inside a double-quoted
+        # string here before (TerminatorExpectedAtEndOfString), likely an encoding quirk.
         run: |
           Write-Output "frontend:        http://26.67.31.6:3000"
           Write-Output "backend health:  http://26.67.31.6:8000/health"
-          Write-Output "stt (live):      http://26.67.31.6:8001/v1/models"
-          Write-Output "tts (live):      http://26.67.31.6:8002"
-          Write-Output "minio console:   http://26.67.31.6:9001"
-          Write-Output "postgres:        26.67.31.6:5432"
-          Write-Output "NOTE: livekit-server is NOT running this pass (UDP port-range"
-          Write-Output "conflict on this Windows host, see the build step comment) —"
-          Write-Output "live-agent's job-worker mode has nothing to connect to yet."
-          Write-Output "NOTE: live-agent LLM calls need 'claude login' run once on this"
-          Write-Output "machine under the runner service account — not done by this workflow."
+          Write-Output "stt (live):      http://26.67.31.6:3905/v1/models"
+          Write-Output "tts (live):      http://26.67.31.6:3906"
+          Write-Output "minio console:   http://26.67.31.6:3904"
+          Write-Output "postgres:        26.67.31.6:3901"
+          Write-Output "NOTE: livekit-server is not running this pass, see build step comment."
+          Write-Output "NOTE: live-agent LLM calls need claude login run once on this machine"
+          Write-Output "under the runner service account, not done by this workflow."

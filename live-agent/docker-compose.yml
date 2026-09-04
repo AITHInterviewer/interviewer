@@ -35,7 +35,7 @@ services:
   stt:
     image: fedirz/faster-whisper-server:latest-cpu
     ports:
-      - "8001:8000"
+      - "3905:8000"
     environment:
       # small — быстро, но реальная жалоба на качество техтерминов ("очень плохо").
       # medium — компромисс: заметно точнее, инференс на CPU всё ещё в единицы секунд
@@ -47,7 +47,7 @@ services:
   tts:
     image: ghcr.io/speaches-ai/speaches:latest-cpu
     ports:
-      - "8002:8000"
+      - "3906:8000"
     # Без volume для кэша моделей — реальная проверка показала PermissionError: именованный
     # volume создаётся Docker'ом от root, а образ работает под непривилегированным ubuntu
     # (uid 1000) и не может в него писать. Можно было бы chown'ить volume отдельным init-шагом,

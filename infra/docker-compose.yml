@@ -15,7 +15,7 @@ services:
       - POSTGRES_PASSWORD=ainterviewer
       - POSTGRES_DB=ainterviewer
     ports:
-      - "5432:5432"
+      - "3901:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -27,7 +27,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "3902:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -41,8 +41,8 @@ services:
       - MINIO_ROOT_USER=ainterviewer
       - MINIO_ROOT_PASSWORD=ainterviewer123
     ports:
-      - "9000:9000" # S3 API
-      - "9001:9001" # веб-консоль
+      - "3903:9000" # S3 API
+      - "3904:9001" # веб-консоль
     volumes:
       - minio-data:/data
     healthcheck:
@@ -55,8 +55,8 @@ services:
     image: livekit/livekit-server:latest
     command: --dev --bind 0.0.0.0
     ports:
-      - "7880:7880" # HTTP/WS сигналинг
-      - "7881:7881" # TCP fallback для ICE/TURN
+      - "3907:7880" # HTTP/WS сигналинг
+      - "3908:7881" # TCP fallback для ICE/TURN
       - "50000-50100:50000-50100/udp" # RTC-медиа (диапазон урезан для локали; в проде — шире)
     environment:
       - "LIVEKIT_KEYS=devkey: secret" # YAML: без кавычек двоеточие в значении ломает парсинг (нашла на docker compose config)
