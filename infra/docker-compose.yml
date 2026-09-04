@@ -63,8 +63,14 @@ services:
     # Полный конфиг вместо --dev — см. livekit.yaml (там же объяснение use_external_ip
     # и почему ручной --node-ip не решал проблему ICE между live-agent и этим сервером).
     command: --config /etc/livekit.yaml
+    # ./infra/livekit.yaml, не ./livekit.yaml: этот compose-файл всегда запускается как
+    # `docker compose --project-directory . -f infra/docker-compose.yml ...` (из корня
+    # репо, см. деплой-workflow) — относительные пути в volumes резолвятся от
+    # --project-directory, НЕ от папки самого этого файла. С `./livekit.yaml` Docker не
+    # находил файл в корне репо и молча монтировал пустую директорию вместо файла
+    # ("read /etc/livekit.yaml: is a directory", livekit-server не стартовал).
     volumes:
-      - ./livekit.yaml:/etc/livekit.yaml:ro
+      - ./infra/livekit.yaml:/etc/livekit.yaml:ro
     ports:
       - "3907:7880" # HTTP/WS сигналинг
       - "3908:7881" # TCP fallback для ICE/TURN
