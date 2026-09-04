@@ -18,7 +18,7 @@ jobs:
         run: |
           $adapter = Get-NetAdapter | Where-Object { $_.InterfaceDescription -like "*Radmin*" -or $_.Name -like "*Radmin*" }
           if (-not $adapter) {
-            Write-Output "Radmin adapter not found by name match — see adapter list above, aborting without disabling anything"
+            Write-Output "Radmin adapter not found by name match - see adapter list above, aborting without disabling anything"
             exit 1
           }
           Write-Output "Found adapter: $($adapter.Name) / $($adapter.InterfaceDescription)"
