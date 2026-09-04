@@ -10,6 +10,14 @@ jobs:
       run:
         shell: powershell
     steps:
+      - name: Inspect container for uv/uvx/speaches-cli location
+        run: |
+          docker exec live-agent-tts-1 sh -c "which uvx || true"
+          docker exec live-agent-tts-1 sh -c "which uv || true"
+          docker exec live-agent-tts-1 sh -c "which speaches-cli || true"
+          docker exec live-agent-tts-1 sh -c "env | grep -i path || true"
+          docker exec live-agent-tts-1 sh -c "find / -maxdepth 4 -iname '*speaches*' -o -iname 'uvx' 2>/dev/null | head -30"
+
       - name: Download Russian voice into the tts container
         run: docker exec live-agent-tts-1 uvx speaches-cli model download speaches-ai/piper-ru_RU-irina-medium
 
