@@ -1,0 +1,25 @@
+name: diagnose ws close + agent logs (self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: backend logs
+        run: |
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs backend --tail 200
+
+      - name: live-agent logs
+        if: always()
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent --tail 200
+
+      - name: livekit-server logs
+        if: always()
+        run: |
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server --tail 100
