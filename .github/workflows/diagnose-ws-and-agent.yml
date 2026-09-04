@@ -10,16 +10,35 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: try BITS transfer (resumable, handles flaky connections better)
+      - name: list network adapters (find Radmin VPN)
         run: |
-          Remove-Item "$env:TEMP\model.onnx" -ErrorAction SilentlyContinue
+          Get-NetAdapter | Format-Table Name, InterfaceDescription, Status, ifIndex -AutoSize
+
+      - name: disable Radmin VPN adapter, try the download, then always re-enable it
+        run: |
+          $adapter = Get-NetAdapter | Where-Object { $_.InterfaceDescription -like "*Radmin*" -or $_.Name -like "*Radmin*" }
+          if (-not $adapter) {
+            Write-Output "Radmin adapter not found by name match — see adapter list above, aborting without disabling anything"
+            exit 1
+          }
+          Write-Output "Found adapter: $($adapter.Name) / $($adapter.InterfaceDescription)"
           try {
-            $sw = [Diagnostics.Stopwatch]::StartNew()
-            Start-BitsTransfer -Source "https://huggingface.co/speaches-ai/piper-ru_RU-irina-medium/resolve/main/model.onnx" `
-              -Destination "$env:TEMP\model.onnx" -ErrorAction Stop
-            $sw.Stop()
-            $size = (Get-Item "$env:TEMP\model.onnx").Length
-            Write-Output "OK: downloaded $size bytes in $($sw.Elapsed)"
-          } catch {
-            Write-Output "FAILED: $($_.Exception.Message)"
+            Disable-NetAdapter -Name $adapter.Name -Confirm:$false
+            Write-Output "Disabled. Waiting 5s for routes to settle..."
+            Start-Sleep -Seconds 5
+
+            Remove-Item "$env:TEMP\model.onnx" -ErrorAction SilentlyContinue
+            try {
+              $sw = [Diagnostics.Stopwatch]::StartNew()
+              Invoke-WebRequest -Uri "https://huggingface.co/speaches-ai/piper-ru_RU-irina-medium/resolve/main/model.onnx" `
+                -OutFile "$env:TEMP\model.onnx" -TimeoutSec 120
+              $sw.Stop()
+              $size = (Get-Item "$env:TEMP\model.onnx").Length
+              Write-Output "DOWNLOAD OK: $size bytes in $($sw.Elapsed)"
+            } catch {
+              Write-Output "DOWNLOAD FAILED: $($_.Exception.Message)"
+            }
+          } finally {
+            Enable-NetAdapter -Name $adapter.Name -Confirm:$false
+            Write-Output "Re-enabled $($adapter.Name)"
           }
