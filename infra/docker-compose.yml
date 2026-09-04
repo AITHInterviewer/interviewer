@@ -33,6 +33,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # ainterviewer-shared — чтобы live-agent (отдельный compose-проект/сеть, см.
+    # live-agent/docker-compose.yml) мог достучаться по имени сервиса "redis", не через
+    # хостовый порт. default нужно перечислить явно — явный список networks: на сервисе
+    # заменяет неявное членство в default, а не дополняет его.
+    networks:
+      default:
+      ainterviewer-shared:
 
   minio:
     image: minio/minio:latest
@@ -53,22 +60,23 @@ services:
 
   livekit-server:
     image: livekit/livekit-server:latest
-    # --node-ip — какой IP livekit-server объявляет ICE-кандидатам как адрес для медиа
-    # (WebRTC/RTP), НЕ то же самое, что сигнальный WS (порт 3907, который просто
-    # port-forward и работает всегда). В --dev режиме livekit-server по умолчанию
-    # объявляет собственный внутренний Docker-адрес (например 172.19.0.5) — недостижим
-    # ни снаружи (браузер кандидата), ни из другого docker-compose проекта (live-agent,
-    # отдельная сеть) — сигнализация подключается, а сама аудио/видео-передача зависает
-    # без единой ошибки в логах. LIVEKIT_NODE_IP пустой по умолчанию (для обычной
-    # локальной разработки — там livekit-server и клиент на одной машине, эта проблема
-    # не возникает); деплой-workflow задаёт его в LIVEKIT_NODE_IP явно.
-    command: --dev --bind 0.0.0.0 ${LIVEKIT_NODE_IP:+--node-ip=${LIVEKIT_NODE_IP}}
+    # Полный конфиг вместо --dev — см. livekit.yaml (там же объяснение use_external_ip
+    # и почему ручной --node-ip не решал проблему ICE между live-agent и этим сервером).
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
     ports:
       - "3907:7880" # HTTP/WS сигналинг
       - "3908:7881" # TCP fallback для ICE/TURN
       - "50000-50100:50000-50100/udp" # RTC-медиа (диапазон урезан для локали; в проде — шире)
-    environment:
-      - "LIVEKIT_KEYS=devkey: secret" # YAML: без кавычек двоеточие в значении ломает парсинг (нашла на docker compose config)
+    # ainterviewer-shared — чтобы live-agent (отдельный compose-проект/сеть) видел этот
+    # контейнер напрямую по имени "livekit-server" и получал host ICE-кандидат вместо
+    # похода через внешний IP хоста (см. livekit.yaml). default — иначе теряется связь
+    # с backend/frontend внутри основного проекта (явный networks: заменяет default, не
+    # дополняет).
+    networks:
+      default:
+      ainterviewer-shared:
 
   livekit-egress:
     image: livekit/egress:latest
@@ -84,3 +92,13 @@ services:
 volumes:
   postgres-data:
   minio-data:
+
+networks:
+  # Общая сеть между этим compose-проектом и live-agent/docker-compose.yml (отдельный
+  # проект — своя сеть по умолчанию). external: true — сеть создаётся один раз явной
+  # командой `docker network create` до `up` обоих проектов (см. деплой-workflow), а не
+  # компоузом здесь: если оба compose-файла управляют одноимённой сетью без external,
+  # второй `up` падает с "network already exists".
+  ainterviewer-shared:
+    name: ainterviewer-net
+    external: true

@@ -36,6 +36,14 @@ services:
     depends_on:
       - stt
       - tts
+    # ainterviewer-shared — общая сеть с infra/docker-compose.yml (livekit-server, redis),
+    # отдельный compose-проект по умолчанию сидит в своей сети. Позволяет обращаться к
+    # ним по имени сервиса (livekit-server:7880, redis:6379) напрямую, без похода через
+    # опубликованные хостовые порты — раньше это было причиной "wait_pc_connection timed
+    # out" (см. infra/livekit.yaml). default — иначе теряется связь с stt/tts.
+    networks:
+      default:
+      ainterviewer-shared:
     # Реальный деплой — LiveKit-воркер, слушает job'ы по сети (см. Dockerfile, CMD
     # "start"), не привязан к портам. Не проверено вживую (нужен реальный livekit-server).
 
@@ -72,3 +80,10 @@ services:
 
 volumes:
   stt-cache:
+
+networks:
+  # Создаётся один раз (`docker network create ainterviewer-net`) до `up` обоих
+  # compose-проектов — см. infra/docker-compose.yml для объяснения external: true.
+  ainterviewer-shared:
+    name: ainterviewer-net
+    external: true

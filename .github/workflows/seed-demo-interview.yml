@@ -89,18 +89,22 @@ jobs:
           NEXT_DEV_ALLOWED_ORIGINS=26.67.31.6
           '@
 
+      - name: Ensure shared Docker network between this stack and live-agent
+        # ainterviewer-net — общая сеть между двумя отдельными compose-проектами (этот
+        # стек и live-agent/docker-compose.yml), объявлена как external: true в обоих
+        # compose-файлах (сам Compose её не создаёт). Идемпотентно: игнорируем ошибку,
+        # если уже существует с прошлого запуска.
+        run: |
+          docker network create ainterviewer-net
+          $global:LASTEXITCODE = 0
+          Write-Output "ok"
+
       - name: Build and (re)start postgres + redis + backend + frontend + livekit-server
         # livekit-server: deploy-full.yml исключает его из-за конфликта фиксированного
         # UDP-диапазона 50000-50100 с портами, которые Docker Desktop/WSL2 на Windows
         # резервирует динамически (см. комментарий в том файле) — пробуем всё равно
         # здесь, читаем реальную ошибку, если она есть, вместо того чтобы гадать заранее.
-        # LIVEKIT_NODE_IP — какой адрес livekit-server объявляет ICE-кандидатам для
-        # медиа (WebRTC/RTP), не то же самое, что сигнальный WS. Без этого --dev режим
-        # объявляет собственный внутренний Docker-адрес контейнера — недостижим ни
-        # снаружи (браузер кандидата), ни из другого compose-проекта (live-agent) —
-        # сигнализация подключается, а медиа зависает без единой ошибки в логах.
         run: |
-          $env:LIVEKIT_NODE_IP = "26.67.31.6"
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
@@ -166,10 +170,12 @@ jobs:
           Write-Output "frontend healthy"
 
       - name: Write live-agent/.env
-        # REDIS_URL/LIVEKIT_URL — через host.docker.internal, не имя сервиса: live-agent
-        # это ОТДЕЛЬНЫЙ compose-проект/сеть от postgres+redis+livekit-server (см.
-        # docker-compose.yml, комментарий deploy-full.yml про раздельные сети). claude
-        # login НЕ делается здесь — разово на хосте, см. docker-compose.yml volume mount.
+        # REDIS_URL/LIVEKIT_URL — по именам сервисов (livekit-server:7880, redis:6379),
+        # не host.docker.internal: live-agent теперь в общей сети ainterviewer-net с
+        # postgres+redis+livekit-server (см. docker-compose.yml обоих проектов) — прямой
+        # путь внутри Docker, без похода через опубликованные хостовые порты (это и было
+        # причиной "wait_pc_connection timed out", см. infra/livekit.yaml). claude login
+        # НЕ делается здесь — разово на хосте, см. docker-compose.yml volume mount.
         run: |
           Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
           LLM_MODEL=claude-haiku-4-5
@@ -180,10 +186,10 @@ jobs:
           TTS_MODEL=speaches-ai/piper-ru_RU-irina-medium
           TTS_VOICE=irina
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
-          LIVEKIT_URL=ws://host.docker.internal:3907
+          LIVEKIT_URL=ws://livekit-server:7880
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret
-          REDIS_URL=redis://host.docker.internal:3902
+          REDIS_URL=redis://redis:6379/0
           '@
 
       - name: Build and (re)start live-agent (+ its stt/tts)
