@@ -228,6 +228,19 @@ jobs:
           $env:CLAUDE_CONFIG_DIR = "$env:USERPROFILE\.claude"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --remove-orphans
 
+      - name: Ensure TTS voice model is actually usable (retries flaky HF download)
+        # Реальный найденный баг (2026-09-04): у tts (speaches) нет volume под кэш моделей
+        # (см. docker-compose.yml) — модель перекачивается заново при каждом пересоздании
+        # контейнера, а скачивание бинарника (model.onnx) с HuggingFace периодически рвётся
+        # SSLEOFError на их CDN (us.aws.cdn.hf.co/xet-bridge) — /v1/models после этого
+        # показывает модель "установленной" (остальные файлы докачались), но
+        # /v1/audio/speech падает 500 (model.onnx физически не на диске). Агент вызывал
+        # session.say() без ошибок (SpeechHandle не дожидается реальной синтезации), кандидат
+        # просто ничего не слышал. См. live-agent/ensure_tts_model.py — ретраит и ПРОВЕРЯЕТ
+        # реальным вызовом синтеза, а не просто наличием модели в списке.
+        run: |
+          Get-Content live-agent/ensure_tts_model.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 - http://tts:8000 speaches-ai/piper-ru_RU-irina-medium irina
+
       - name: Report live-agent status
         if: always()
         run: |
