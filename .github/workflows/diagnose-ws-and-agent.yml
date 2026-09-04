@@ -10,16 +10,31 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: live-agent logs (full, no tail limit)
+      - name: write tts probe scripts
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
+          Set-Content -Path probe_speech.py -Encoding utf8 -Value @'
+          import json, urllib.request, urllib.error
+          body = json.dumps({"model": "speaches-ai/piper-ru_RU-irina-medium", "voice": "irina", "input": "privet"}).encode()
+          req = urllib.request.Request("http://tts:8000/v1/audio/speech", data=body, headers={"Content-Type": "application/json"})
+          try:
+              r = urllib.request.urlopen(req, timeout=15)
+              print("STATUS", r.status)
+              print(r.read()[:2000])
+          except urllib.error.HTTPError as e:
+              print("STATUS", e.code)
+              print(e.read().decode("utf-8", "replace"))
+          '@
+          Set-Content -Path probe_models.py -Encoding utf8 -Value @'
+          import urllib.request
+          r = urllib.request.urlopen("http://tts:8000/v1/models", timeout=10)
+          print(r.read().decode("utf-8", "replace")[:4000])
+          '@
 
-      - name: tts logs
+      - name: curl tts directly to see the real error body
+        run: |
+          Get-Content probe_speech.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
+
+      - name: list available models/voices
         if: always()
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs tts --tail 200
-
-      - name: stt logs
-        if: always()
-        run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 100
+          Get-Content probe_models.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
