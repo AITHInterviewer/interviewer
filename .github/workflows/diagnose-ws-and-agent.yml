@@ -10,6 +10,16 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: tts logs (traceback for the 500)
+      - name: try downloading the same HF model file directly from the runner host (not container)
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs tts --tail 80
+          $ProgressPreference = 'SilentlyContinue'
+          try {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            Invoke-WebRequest -Uri "https://huggingface.co/speaches-ai/piper-ru_RU-irina-medium/resolve/main/model.onnx" `
+              -OutFile "$env:TEMP\model.onnx" -TimeoutSec 120
+            $sw.Stop()
+            $size = (Get-Item "$env:TEMP\model.onnx").Length
+            Write-Output "OK: downloaded $size bytes in $($sw.Elapsed)"
+          } catch {
+            Write-Output "FAILED: $($_.Exception.Message)"
+          }
