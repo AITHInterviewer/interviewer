@@ -1,0 +1,21 @@
+name: stop react-agent-stt (self-hosted)
+
+# One-off: react-agent-stt (unrelated project on this shared runner) was holding
+# 127.0.0.1:9000, blocking our infra's minio from binding. `stop`, not `rm` — reversible
+# if it turns out to still be needed by whoever set it up.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  stop:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Stop the container
+        run: docker stop react-agent-stt
+
+      - name: Confirm port 9000 is free
+        run: Get-NetTCPConnection -LocalPort 9000 -ErrorAction SilentlyContinue | Format-Table LocalAddress, LocalPort, State
