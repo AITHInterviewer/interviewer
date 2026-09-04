@@ -10,8 +10,8 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: TTS container logs (tail)
-        run: docker logs live-agent-tts-1 --tail 100
+      - name: Confirm env var is actually set in the running container
+        run: docker exec live-agent-tts-1 sh -c "env | grep -i xet || echo NOT_SET"
 
-      - name: List models known to the server
-        run: (Invoke-WebRequest -Uri http://localhost:3906/v1/models -UseBasicParsing).Content
+      - name: TTS container logs (tail)
+        run: docker logs live-agent-tts-1 --tail 150
