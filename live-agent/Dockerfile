@@ -4,6 +4,19 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# claude_agent_sdk (llm_client.py) на деле запускает `claude` CLI отдельным подпроцессом
+# (SubprocessCLITransport) — не только Python-пакет. CLI — Node-приложение
+# (@anthropic-ai/claude-code), поэтому нужен Node.js в образе. Сама авторизация (claude
+# login, подписка, не API-ключ — CLAUDE.md правило 8) сюда не входит: контейнер читает
+# существующие креды хоста через volume-mount на `~/.claude` (см. docker-compose.yml),
+# сам `claude login` в образе не делается — это на хосте, разово, интерактивно.
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g @anthropic-ai/claude-code \
+    && apt-get purge -y curl && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml ./
 COPY src ./src
 COPY mock_data ./mock_data

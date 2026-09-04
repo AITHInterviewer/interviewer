@@ -159,6 +159,38 @@ jobs:
           }
           Write-Output "frontend healthy"
 
+      - name: Write live-agent/.env
+        # REDIS_URL/LIVEKIT_URL — через host.docker.internal, не имя сервиса: live-agent
+        # это ОТДЕЛЬНЫЙ compose-проект/сеть от postgres+redis+livekit-server (см.
+        # docker-compose.yml, комментарий deploy-full.yml про раздельные сети). claude
+        # login НЕ делается здесь — разово на хосте, см. docker-compose.yml volume mount.
+        run: |
+          Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
+          LLM_MODEL=claude-haiku-4-5
+          STT_API_KEY=not-needed
+          TTS_API_KEY=not-needed
+          STT_MODEL=whisper-1
+          STT_LANGUAGE=ru
+          TTS_MODEL=speaches-ai/piper-ru_RU-irina-medium
+          TTS_VOICE=irina
+          MOCK_INTERVIEW_PATH=mock_data/interview_example.json
+          LIVEKIT_URL=ws://host.docker.internal:3907
+          LIVEKIT_API_KEY=devkey
+          LIVEKIT_API_SECRET=secret
+          REDIS_URL=redis://host.docker.internal:3902
+          '@
+
+      - name: Build and (re)start live-agent (+ its stt/tts)
+        run: |
+          $env:CLAUDE_CONFIG_DIR = "$env:USERPROFILE\.claude"
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --remove-orphans
+
+      - name: Report live-agent status
+        if: always()
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent --tail 80
+
       - name: Report livekit-server status
         if: always()
         run: |

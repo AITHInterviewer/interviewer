@@ -26,6 +26,13 @@ services:
       # локальном запуске .venv-процессом на хосте, см. .env.example).
       - STT_BASE_URL=http://stt:8000/v1
       - TTS_BASE_URL=http://tts:8000/v1
+    volumes:
+      # Claude Agent SDK запускает `claude` CLI подпроцессом (см. Dockerfile) — креды
+      # подписки (`claude login`, разово на хосте, НЕ в образе) читает отсюда.
+      # CLAUDE_CONFIG_DIR — путь к `~/.claude` того пользователя, под которым логинились;
+      # без переопределения — обычный домашний `~/.claude` (типично для локальной
+      # разработки на Linux/Mac).
+      - ${CLAUDE_CONFIG_DIR:-~/.claude}:/root/.claude:ro
     depends_on:
       - stt
       - tts
