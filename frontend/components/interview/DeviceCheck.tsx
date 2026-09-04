@@ -4,24 +4,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
-export type DeviceCheckStatus = "checking" | "granted" | "denied";
+export type DeviceCheckStatus = "idle" | "checking" | "granted" | "denied";
 
 type DeviceCheckProps = {
   /** Вызывается один раз, когда кандидат явно подтвердил выбор устройств кнопкой
-   * «Продолжить» — сигнал наверх, что можно переходить к интервью
+   * «Начать интервью» — сигнал наверх, что можно переходить к интервью
    * (specs/004-candidate-interview-flow/spec.md, US1, Acceptance Scenario 2). */
   onGranted: (stream: MediaStream) => void;
 };
 
 /**
- * Живая проверка камеры/микрофона на welcome-экране (FR-002/FR-013): запрашивает
- * getUserMedia сразу при монтировании, показывает превью видео + индикатор уровня
- * микрофона через Web Audio AnalyserNode + выбор конкретного устройства (если их
- * несколько), при отказе показывает блокирующий экран с повторным запросом (US1,
- * Acceptance Scenario 3) — без перехода дальше, пока доступ не выдан.
+ * Проверка камеры/микрофона (FR-002/FR-013) — на том же экране, что и согласие
+ * (см. `InterviewFlow.tsx`), не отдельный шаг: запрашивает доступ только по явному
+ * клику «Разрешить доступ» (FR-001 — camera/mic не запрашиваются до подтверждения
+ * согласия), показывает превью видео + индикатор уровня микрофона через Web Audio
+ * AnalyserNode + выбор конкретного устройства (если их несколько). При отказе — вместо
+ * повторного авто-запроса (браузер после явного Block больше не показывает системный
+ * диалог из JS вообще) объясняет, что доступ нужно вернуть в настройках сайта в самом
+ * браузере — «Запросить снова» пробует, но чаще всего сработает только после этого.
  */
 export function DeviceCheck({ onGranted }: DeviceCheckProps) {
-  const [status, setStatus] = useState<DeviceCheckStatus>("checking");
+  const [status, setStatus] = useState<DeviceCheckStatus>("idle");
   const [micLevel, setMicLevel] = useState(0);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
@@ -80,10 +83,9 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     setMicrophones(devices.filter((d) => d.kind === "audioinput"));
   }, []);
 
-  /** Собственно запрос доступа. Не трогает `status` синхронно — только в асинхронном
-   * продолжении, чтобы вызов из эффекта не порождал каскадный ре-рендер
-   * (react-hooks/set-state-in-effect). Начальное состояние и так `checking`. */
+  /** Собственно запрос доступа — только по явному вызову (клик), не при монтировании. */
   const acquire = useCallback(async () => {
+    setStatus("checking");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: { echoCancellation: true } });
       streamRef.current = stream;
@@ -134,31 +136,30 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     [startMicLevelLoop],
   );
 
-  /** Повторный запрос после отказа (US1, Acceptance Scenario 3) — здесь `checking`
-   * выставляется явно, т.к. приходим из состояния `denied`. */
-  const retry = useCallback(() => {
-    setStatus("checking");
-    void acquire();
-  }, [acquire]);
-
   const confirm = useCallback(() => {
     if (streamRef.current) onGranted(streamRef.current);
   }, [onGranted]);
 
-  useEffect(() => {
-    // react-hooks/set-state-in-effect срабатывает статически на «функция, вызывающая
-    // setState, вызвана из эффекта». Здесь setState происходит только в асинхронном
-    // продолжении после `await getUserMedia(...)` — каскадного ре-рендера в теле эффекта
-    // нет. Сам запрос разрешения при монтировании — ровно тот случай, для которого эффект
-    // и предназначен: синхронизация с внешней системой (браузерные media-разрешения).
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void acquire();
-    return () => {
+  useEffect(
+    () => () => {
       stopMicLevelLoop();
       streamRef.current?.getTracks().forEach((track) => track.stop());
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- запрашиваем доступ один раз при монтировании
-  }, []);
+    },
+    [stopMicLevelLoop],
+  );
+
+  if (status === "idle") {
+    return (
+      <div className="space-y-3 rounded-xl border bg-muted/30 p-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          Понадобится доступ к камере и микрофону — без него интервью пройти нельзя.
+        </p>
+        <Button type="button" onClick={() => void acquire()}>
+          Разрешить доступ к камере и микрофону
+        </Button>
+      </div>
+    );
+  }
 
   if (status === "denied") {
     return (
@@ -168,10 +169,11 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       >
         <h2 className="text-lg font-medium">Нет доступа к камере или микрофону</h2>
         <p className="text-sm text-muted-foreground">
-          Без доступа к камере и микрофону интервью пройти нельзя — вся запись служит доказательством
-          для рекрутёра. Разрешите доступ в настройках браузера и попробуйте снова.
+          Похоже, доступ уже был отклонён раньше — из кода браузер больше не показывает системный запрос
+          повторно. Разрешите камеру и микрофон для этого сайта в настройках браузера (обычно значок
+          замка/камеры слева от адресной строки) и нажмите «Запросить снова».
         </p>
-        <Button type="button" onClick={retry}>
+        <Button type="button" onClick={() => void acquire()}>
           Запросить доступ снова
         </Button>
       </div>
@@ -242,7 +244,7 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
 
       {status === "granted" && (
         <Button type="button" onClick={confirm}>
-          Продолжить
+          Начать интервью
         </Button>
       )}
     </div>

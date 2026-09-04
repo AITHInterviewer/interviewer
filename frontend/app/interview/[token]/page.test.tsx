@@ -45,11 +45,11 @@ describe("InterviewPage", () => {
     expect(await screen.findByRole("heading", { name: /перед началом интервью/i })).toBeInTheDocument();
     expect(screen.getByText(/backend-разработчик/i)).toBeInTheDocument();
     expect(screen.getByText(/25–40 минут/)).toBeInTheDocument();
-    // Device-check не должен запрашивать доступ, пока кандидат явно не нажал «Начать».
+    // Device-check не должен запрашивать доступ, пока кандидат явно не нажал кнопку разрешения.
     expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("requests camera/mic access after clicking «Начать» and shows a live preview once granted", async () => {
+  it("requests camera/mic access after clicking the permission button and shows a live preview once granted", async () => {
     mockFetchOnce(CONSENT_INFO);
     const fakeStream = {
       getTracks: () => [],
@@ -61,7 +61,7 @@ describe("InterviewPage", () => {
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
 
-    fireEvent.click(await screen.findByRole("button", { name: /начать/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /разрешить доступ/i }));
 
     await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
       video: true,
@@ -79,7 +79,7 @@ describe("InterviewPage", () => {
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
 
-    fireEvent.click(await screen.findByRole("button", { name: /начать/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /разрешить доступ/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/нет доступа к камере или микрофону/i);
     expect(screen.queryByText(/камера и микрофон готовы/i)).not.toBeInTheDocument();
@@ -92,7 +92,7 @@ describe("InterviewPage", () => {
     render(ui);
 
     expect(await screen.findByText(/уже пройдено/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /начать/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /разрешить доступ/i })).not.toBeInTheDocument();
   });
 
   it("shows an invalid-link message for an unknown token", async () => {

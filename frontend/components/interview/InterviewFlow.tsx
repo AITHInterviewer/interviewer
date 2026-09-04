@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 
 import { DeviceCheck } from "@/components/interview/DeviceCheck";
 import { InterviewRoom } from "@/components/interview/InterviewRoom";
-import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 
 type ConsentInfo = {
@@ -15,14 +14,14 @@ type ConsentInfo = {
   estimated_duration_min: { min: number; max: number };
 };
 
-type FlowStep = "loading" | "not_found" | "already_completed" | "consent" | "device_check" | "ready";
+type FlowStep = "loading" | "not_found" | "already_completed" | "setup" | "ready";
 
 /**
- * Оркестрирует US1 (specs/004-candidate-interview-flow/spec.md): согласие → проверка
- * устройств → готовность к интервью. Дальше (US2/US3 — сам interview-room) не входит в
- * этот компонент — на момент реализации US1 backend ещё не поднял control-канал/LiveKit
- * (см. tasks.md, Foundational, заблокировано на 003), поэтому шаг "ready" — конечная
- * точка этой итерации, не заглушка "на будущее без причины".
+ * Оркестрирует US1 (specs/004-candidate-interview-flow/spec.md): согласие и проверка
+ * устройств — один экран (`setup`), не два последовательных шага — камера/микрофон
+ * запрашиваются только по явному клику внутри `DeviceCheck` (FR-001: до подтверждения
+ * согласия — доступ не запрашивается), но кандидату не нужно отдельно "переходить"
+ * между согласием и проверкой устройств. Дальше — сам interview-room ("ready").
  */
 export function InterviewFlow({ token }: { token: string }) {
   const [step, setStep] = useState<FlowStep>("loading");
@@ -35,7 +34,7 @@ export function InterviewFlow({ token }: { token: string }) {
       .then((data) => {
         if (cancelled) return;
         setInfo(data);
-        setStep(data.status === "completed" ? "already_completed" : "consent");
+        setStep(data.status === "completed" ? "already_completed" : "setup");
       })
       .catch(() => {
         if (!cancelled) setStep("not_found");
@@ -69,7 +68,7 @@ export function InterviewFlow({ token }: { token: string }) {
 
   if (!info) return null;
 
-  if (step === "consent") {
+  if (step === "setup") {
     const { min, max } = info.estimated_duration_min;
     return (
       <div className="space-y-6 rounded-xl border bg-card p-6">
@@ -94,17 +93,6 @@ export function InterviewFlow({ token }: { token: string }) {
             {min}–{max} минут.
           </li>
         </ul>
-        <Button type="button" onClick={() => setStep("device_check")}>
-          Начать
-        </Button>
-      </div>
-    );
-  }
-
-  if (step === "device_check") {
-    return (
-      <div className="space-y-4 rounded-xl border bg-card p-6">
-        <h2 className="text-lg font-medium">Проверка камеры и микрофона</h2>
         <DeviceCheck
           onGranted={(granted) => {
             setStream(granted);
