@@ -2,11 +2,12 @@ name: seed demo interview (self-hosted)
 
 # Разовая ручная джоба — не полагается на то, что deploy-full.yml уже поднял стек в ТОМ
 # ЖЕ workspace (проверено на практике: backend/.env не был записан там, где ждал этот
-# workflow, — контейнеры оказались подняты из другого места/вручную). Поэтому сам пишет
-# .env-файлы (тем же содержимым, что deploy-full.yml) и сам гарантирует, что
-# postgres/redis/backend подняты и пересобраны (--build — подхватит недавний фикс
-# Dockerfile, который добавил scripts/+alembic.ini в dev-образ), прежде чем выполнять
-# миграцию и сид внутри контейнера.
+# workflow, — контейнеры оказались подняты из другого места/вручную, с устаревшим
+# frontend node_modules — livekit-client не резолвился). Поэтому сам пишет .env-файлы
+# (тем же содержимым, что deploy-full.yml), поднимает postgres/redis/backend/frontend
+# (--build — подхватит недавний фикс Dockerfile с scripts/+alembic.ini), переустанавливает
+# frontend-зависимости (node_modules — именованный volume, `--build` его не обновляет) и
+# только затем прогоняет миграцию и сид внутри backend-контейнера.
 
 on:
   workflow_dispatch: {}
@@ -55,22 +56,30 @@ jobs:
           '@
 
       - name: Write frontend/.env
-        # Не запускаем frontend в этой джобе, но docker-compose.dev.yml объявляет для
-        # него env_file — compose парсит его для ЛЮБОЙ команды по этим -f файлам, даже
-        # если реально стартуют только postgres/redis/backend.
         run: |
           Set-Content -Path frontend/.env -Encoding utf8 -Value @'
           NEXT_PUBLIC_BACKEND_URL=http://26.67.31.6:8000
           BACKEND_INTERNAL_URL=http://backend:8000
           '@
 
-      - name: Build and (re)start postgres + redis + backend
+      - name: Build and (re)start postgres + redis + backend + frontend
         run: |
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
             up -d --build `
-            postgres redis backend
+            postgres redis backend frontend
+
+      - name: Reinstall frontend deps (node_modules is a named volume, --build alone doesn't refresh it)
+        run: |
+          docker compose --project-directory . `
+            -f docker-compose.dev.yml `
+            -f infra/docker-compose.yml `
+            exec -T frontend npm install
+          docker compose --project-directory . `
+            -f docker-compose.dev.yml `
+            -f infra/docker-compose.yml `
+            restart frontend
 
       - name: Wait for backend health
         run: |
@@ -88,6 +97,27 @@ jobs:
             exit 1
           }
           Write-Output "backend healthy"
+
+      - name: Wait for frontend health
+        # Проверяет только "/" (пустая стартовая страница, не тянет livekit-client) — Next
+        # dev компилирует страницы по запросу, так что этот чек не гарантирует, что именно
+        # /interview/[token] соберётся без ошибок после npm install. Минимальная проверка
+        # "процесс жив", не полноценный e2e-гейт.
+        run: |
+          $ok = $false
+          for ($i = 0; $i -lt 24; $i++) {
+            try {
+              Invoke-WebRequest -Uri http://localhost:3000 -UseBasicParsing -TimeoutSec 3 | Out-Null
+              $ok = $true
+              break
+            } catch { Start-Sleep -Seconds 5 }
+          }
+          if (-not $ok) {
+            Write-Error "frontend did not become healthy in time"
+            docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs frontend --tail 100
+            exit 1
+          }
+          Write-Output "frontend healthy"
 
       - name: Run migration + seed script inside the backend container
         run: |
