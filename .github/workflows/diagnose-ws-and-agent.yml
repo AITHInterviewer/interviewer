@@ -10,21 +10,18 @@ jobs:
       run:
         shell: powershell
     steps:
+      - uses: actions/checkout@v4
+
       - name: list all downloadable piper ru voices via speaches registry
         run: |
           Get-Content live-agent\probe_registry.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
 
-      - name: test download of a small known HF file to see if size matters
+      - name: list files in the model repo on HF (find the actual small metadata file name)
         if: always()
         run: |
-          Remove-Item "$env:TEMP\small.bin" -ErrorAction SilentlyContinue
           try {
-            $sw = [Diagnostics.Stopwatch]::StartNew()
-            Invoke-WebRequest -Uri "https://huggingface.co/speaches-ai/piper-ru_RU-irina-medium/resolve/main/voices.json" `
-              -OutFile "$env:TEMP\small.bin" -TimeoutSec 60
-            $sw.Stop()
-            $size = (Get-Item "$env:TEMP\small.bin").Length
-            Write-Output "SMALL FILE OK: $size bytes in $($sw.Elapsed)"
+            $r = Invoke-WebRequest -Uri "https://huggingface.co/api/models/speaches-ai/piper-ru_RU-irina-medium" -TimeoutSec 30
+            Write-Output $r.Content
           } catch {
-            Write-Output "SMALL FILE FAILED: $($_.Exception.Message)"
+            Write-Output "FAILED: $($_.Exception.Message)"
           }
