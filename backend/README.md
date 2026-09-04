@@ -43,11 +43,13 @@ uv run pytest -q
 ## Миграции
 
 ```bash
-uv run alembic upgrade head
+docker compose exec backend uv run alembic upgrade head
 ```
 
-Требует `infra/docker-compose.yml` (сервис `postgres`) поднятым отдельно — `docker-compose.dev.yml`
-в корне репозитория Postgres не поднимает. `app/migrations/versions/0001_initial.py`
+(или `uv run alembic upgrade head` локально с `DATABASE_URL`, переопределённым на
+host-порт Postgres — см. «Dev-данные» выше за тем же приёмом). Требует
+`infra/docker-compose.yml` (сервис `postgres`) поднятым — `docker-compose.dev.yml` в
+корне репозитория Postgres не поднимает сам. `app/migrations/versions/0001_initial.py`
 написана вручную (не `alembic revision --autogenerate`) — на первом реальном Postgres
 сверить `alembic check` на пусто, прежде чем полагаться на неё дальше.
 
@@ -73,10 +75,18 @@ docker compose -f ../docker-compose.dev.yml up --build
 ## Dev-данные
 
 Нет CRUD рекрутёра — единственный способ получить реальный `access_token` для ручной
-проверки:
+проверки. В контейнере (env уже настроен на compose-хостнеймы `postgres`/`redis`):
 
 ```bash
-uv run python scripts/seed_demo_interview.py
+docker compose exec backend uv run python scripts/seed_demo_interview.py
+```
+
+Локально (вне контейнера) — переопределить `DATABASE_URL` на host-порт из
+`infra/docker-compose.yml` (`postgres` → `localhost:3901`):
+
+```bash
+cd backend
+DATABASE_URL=postgresql+asyncpg://ainterviewer:ainterviewer@localhost:3901/ainterviewer uv run python scripts/seed_demo_interview.py
 ```
 
 Печатает `access_token` и готовую ссылку `http://localhost:3000/interview/<token>`.
