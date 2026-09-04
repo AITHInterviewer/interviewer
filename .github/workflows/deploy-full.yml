@@ -58,9 +58,38 @@ jobs:
           }
 
       - name: Write backend/.env
+        # backend/app/config.py requires all of these (no defaults) — without them
+        # Settings() raises ValidationError at import and backend won't start. Here
+        # (unlike deploy-dev.yml) infra/docker-compose.yml really does bring up
+        # postgres/redis/minio under these exact service names, so these point at
+        # live services, not placeholders.
         run: |
           Set-Content -Path backend/.env -Encoding utf8 -Value @'
           CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
+          APP_ENV=development
+          APP_DEBUG=true
+          APP_HOST=0.0.0.0
+          APP_PORT=8000
+          SECRET_KEY=dev-secret-change-me
+          POSTGRES_DB=ainterviewer
+          POSTGRES_HOST=postgres
+          POSTGRES_USER=ainterviewer
+          POSTGRES_PASSWORD=ainterviewer
+          DATABASE_URL=postgresql+asyncpg://ainterviewer:ainterviewer@postgres:5432/ainterviewer
+          REDIS_HOST=redis
+          REDIS_PORT=6379
+          REDIS_URL=redis://redis:6379/0
+          CELERY_BROKER_URL=redis://redis:6379/1
+          CELERY_RESULT_BACKEND=redis://redis:6379/2
+          MINIO_ROOT_USER=ainterviewer
+          MINIO_ROOT_PASSWORD=ainterviewer123
+          MINIO_BUCKET=ainterviewer-resumes
+          S3_ENDPOINT_URL=http://minio:9000
+          S3_PUBLIC_ENDPOINT_URL=http://26.67.31.6:9000
+          S3_ACCESS_KEY=ainterviewer
+          S3_SECRET_KEY=ainterviewer123
+          S3_BUCKET=ainterviewer-resumes
+          S3_REGION=us-east-1
           '@
 
       - name: Write frontend/.env
