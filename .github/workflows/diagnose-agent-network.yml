@@ -1,0 +1,24 @@
+name: diagnose agent network (self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Test reachability from inside the live-agent container
+        run: |
+          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q live-agent
+          Write-Output "container: $containerId"
+          Write-Output "--- can reach external IP:3907 (TCP, signaling port) ---"
+          docker exec $containerId python3 -c "import socket; s=socket.create_connection(('26.67.31.6', 3907), timeout=5); print('OK connected'); s.close()"
+          Write-Output "--- can reach host.docker.internal:3907 ---"
+          docker exec $containerId python3 -c "import socket; s=socket.create_connection(('host.docker.internal', 3907), timeout=5); print('OK connected'); s.close()"
+          Write-Output "--- can reach external IP UDP port 50000 (best-effort, UDP has no handshake) ---"
+          docker exec $containerId python3 -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(3); s.sendto(b'x', ('26.67.31.6', 50000)); print('sent, no error')"
+          Write-Output "--- container's own network / routes ---"
+          docker exec $containerId sh -c "cat /etc/resolv.conf; ip route 2>/dev/null || echo no-ip-cmd"
