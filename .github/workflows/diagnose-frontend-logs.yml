@@ -1,0 +1,15 @@
+name: diagnose frontend logs (self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Frontend container logs (last 200 lines)
+        run: |
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs frontend --tail 200
