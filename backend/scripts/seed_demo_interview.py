@@ -8,8 +8,12 @@ tasks.md`, T004, «Known Gaps»). Вопросы совпадают по тек�
 `live-agent/mock_data/interview_example.json` — вакансия/вопросы намеренно захардкожены
 (решение пользователя от 2026-09-04), это не попытка выдать за настоящий CRUD.
 
-Запуск (нужен доступный Postgres — см. backend/README.md, «Миграции»):
-    uv run python scripts/seed_demo_interview.py
+Запуск (нужен доступный Postgres — см. backend/README.md, «Миграции»). Именно как модуль
+(`-m`), не `python scripts/seed_demo_interview.py` напрямую — иначе `sys.path[0]`
+оказывается `scripts/`, а не `/app` (WORKDIR контейнера), и `import app.db` падает с
+`ModuleNotFoundError: No module named 'app'` (найдено на практике при первом реальном
+прогоне на self-hosted раннере):
+    uv run python -m scripts.seed_demo_interview
 """
 
 from __future__ import annotations

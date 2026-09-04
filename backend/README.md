@@ -78,7 +78,7 @@ docker compose -f ../docker-compose.dev.yml up --build
 проверки. В контейнере (env уже настроен на compose-хостнеймы `postgres`/`redis`):
 
 ```bash
-docker compose exec backend uv run python scripts/seed_demo_interview.py
+docker compose exec backend uv run python -m scripts.seed_demo_interview
 ```
 
 Локально (вне контейнера) — переопределить `DATABASE_URL` на host-порт из
@@ -86,7 +86,7 @@ docker compose exec backend uv run python scripts/seed_demo_interview.py
 
 ```bash
 cd backend
-DATABASE_URL=postgresql+asyncpg://ainterviewer:ainterviewer@localhost:3901/ainterviewer uv run python scripts/seed_demo_interview.py
+DATABASE_URL=postgresql+asyncpg://ainterviewer:ainterviewer@localhost:3901/ainterviewer uv run python -m scripts.seed_demo_interview
 ```
 
 Печатает `access_token` и готовую ссылку `http://localhost:3000/interview/<token>`.

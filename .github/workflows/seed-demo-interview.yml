@@ -98,4 +98,4 @@ jobs:
           docker compose --project-directory . `
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
-            exec -T backend uv run python scripts/seed_demo_interview.py
+            exec -T backend uv run python -m scripts.seed_demo_interview
