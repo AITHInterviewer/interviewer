@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import AnyHttpUrl, Field
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -53,6 +53,29 @@ class Settings(BaseSettings):
     # Media
     media_chunk_duration_seconds: int = Field(default=10, gt=0)
     max_upload_size_mb: int = Field(default=100, gt=0)
+
+    # LiveKit (specs/004-candidate-interview-flow, contracts/livekit-token.md) — backend
+    # выпускает access token кандидату, secret никогда не уходит на frontend. Dev-значения
+    # по умолчанию совпадают с infra/docker-compose.yml (LIVEKIT_KEYS=devkey: secret) —
+    # НЕ для прода, см. комментарий в том файле.
+    livekit_api_key: str = "devkey"
+    livekit_api_secret: str = "secret"
+    livekit_ws_url: str = "ws://localhost:3907"
+
+    # STT/TTS — те же self-hosted сервисы, что у live-контура
+    # (live-agent/docker-compose.yml). Используются только mock-контуром
+    # (app/routers/mock_interview.py) для ручной проверки голосового цикла; боевой путь
+    # ходит в них из live-agent напрямую, не через backend.
+    stt_base_url: str = "http://localhost:3905/v1"
+    stt_model: str = "Systran/faster-whisper-medium"
+    stt_language: str = "ru"
+    tts_base_url: str = "http://localhost:3906/v1"
+    tts_model: str = "speaches-ai/piper-ru_RU-irina-medium"
+    tts_voice: str = "irina"
+
+    # HTTP-драйвер графа live-контура (live-agent/src/ainterviewer/mock_driver.py) —
+    # источник решений о переходах для mock-флоу. Backend только проксирует к нему.
+    live_agent_driver_url: str = "http://localhost:3909"
 
     # CORS
     cors_origins: list[str] = []

@@ -17,12 +17,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class EventType(str, Enum):
@@ -48,14 +51,30 @@ class Event(BaseModel):
         return self.model_dump_json(exclude_none=True)
 
 
+class EventSink(Protocol):
+    """Контракт для дополнительных получателей событий рядом с файловым EventLog — см.
+    `control_bridge.RedisEventSink` (specs/004-candidate-interview-flow). НЕ заменяет
+    файловый протокол (`out/*.jsonl` остаётся источником истины для batch-контура,
+    `live-agent/CLAUDE.md` правило 5) — только дублирует те же `Event` параллельно, для
+    control-канала кандидатского UI ([[001-live-interview-contour]] в терминах спеков)."""
+
+    def publish(self, event: Event) -> None: ...
+
+
 class EventLog:
     """Пишет события в JSONL-файл по мере появления (append), плюс держит их в памяти
-    для удобства локальной отладки/тестов (`EventLog.events`)."""
+    для удобства локальной отладки/тестов (`EventLog.events`).
 
-    def __init__(self, path: Path):
+    Опциональные `sinks` — доп. получатели того же `Event`, вызываются ПОСЛЕ записи в
+    файл, тем же вызовом `emit()` (не отдельный call site) — это гарантирует, что файл и
+    доп. sink'и никогда не разойдутся по набору событий. Формат файла/`Event`/`EventType`
+    от наличия sink'ов не меняется — это аддитивный механизм, не альтернативный протокол."""
+
+    def __init__(self, path: Path, sinks: list[EventSink] | None = None):
         self.path = path
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.events: list[Event] = []
+        self.sinks = sinks or []
         # 'w' — новый файл на каждый запуск интервью; путь должен быть уникален на interview_id.
         self._fh = self.path.open("w", encoding="utf-8")
 
@@ -64,6 +83,14 @@ class EventLog:
         self.events.append(event)
         self._fh.write(event.to_jsonl() + "\n")
         self._fh.flush()
+        for sink in self.sinks:
+            try:
+                sink.publish(event)
+            except Exception:
+                # Sink — вспомогательный канал (control-плоскость для UI), не источник
+                # истины. Его сбой не должен ронять сам живой опрос кандидата/файловый
+                # протокол — только залогировать.
+                logger.exception("EventSink.publish() упал на событии %s — файловый EventLog не затронут", type)
         return event
 
     def close(self) -> None:
