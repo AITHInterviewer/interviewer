@@ -18,7 +18,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/auth", () => ({
   getSession: vi.fn(),
-  getRolePath: vi.fn(() => "/internal/recruiter"),
+  resolveLandingPath: vi.fn(() => Promise.resolve("/internal/recruiter")),
   signUpRecruiter: vi.fn(),
 }));
 
@@ -32,11 +32,11 @@ describe("RegisterPage", () => {
     vi.mocked(getSession).mockReturnValue(null);
   });
 
-  it("submits recruiter registration and redirects to recruiter area", async () => {
+  it("submits recruiter registration and redirects to the landing default path", async () => {
     vi.mocked(signUpRecruiter).mockResolvedValue({
       access_token: "token-1",
       token_type: "bearer",
-      user: { id: "1", name: "Recruiter", email: "recruiter@example.com", role: "recruiter" },
+      user: { id: "1", name: "Recruiter", email: "recruiter@example.com", roles: ["recruiter"] },
     });
 
     render(<RegisterPage />);
@@ -53,11 +53,11 @@ describe("RegisterPage", () => {
   it("redirects an existing session away from the page", async () => {
     vi.mocked(getSession).mockReturnValue({
       token: "token-1",
-      user: { id: "1", name: "Recruiter", email: "recruiter@example.com", role: "recruiter" },
+      user: { id: "1", name: "Recruiter", email: "recruiter@example.com", roles: ["recruiter"] },
     });
 
     render(<RegisterPage />);
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/internal/recruiter"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/internal"));
   });
 });

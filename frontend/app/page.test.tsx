@@ -17,10 +17,9 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/auth", () => ({
   getSession: vi.fn(),
-  getRolePath: vi.fn(() => "/internal/recruiter"),
 }));
 
-import { getRolePath, getSession } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 import HomePage from "./page";
 
 describe("HomePage", () => {
@@ -37,15 +36,14 @@ describe("HomePage", () => {
     expect(screen.getByText(/preparing your workspace/i)).toBeInTheDocument();
   });
 
-  it("redirects an existing session to the role area", async () => {
+  it("redirects an existing session to the internal landing resolver", async () => {
     vi.mocked(getSession).mockReturnValue({
       token: "token-1",
-      user: { id: "1", name: "Recruiter", email: "recruiter@example.com", role: "recruiter" },
+      user: { id: "1", name: "Recruiter", email: "recruiter@example.com", roles: ["recruiter"] },
     });
 
     render(<HomePage />);
 
-    await waitFor(() => expect(getRolePath).toHaveBeenCalledWith("recruiter"));
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/internal/recruiter"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/internal"));
   });
 });

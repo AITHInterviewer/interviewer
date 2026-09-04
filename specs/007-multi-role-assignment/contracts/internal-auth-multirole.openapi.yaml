@@ -1,0 +1,343 @@
+openapi: 3.1.0
+info:
+  title: Internal Auth Multi-Role Contract
+  version: 0.2.0
+  description: >-
+    Contract for the extensible multi-role internal users model. Role codes are
+    validated against the declarative role registry (not a closed enum).
+    Landing data (available_areas, available_actions, default_path) is derived
+    from the registry capability mapping as the union across the user's
+    assigned roles. Includes the role registry snapshot endpoint for
+    data-driven clients.
+paths:
+  /api/v1/auth/register:
+    post:
+      summary: Register the first recruiter account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecruiterRegisterRequest'
+      responses:
+        '201':
+          description: Recruiter account created and signed in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '409':
+          description: Email already exists
+
+  /api/v1/auth/login:
+    post:
+      summary: Sign in an existing internal user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLoginRequest'
+      responses:
+        '200':
+          description: Signed-in internal user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthTokenResponse'
+        '401':
+          description: Invalid credentials
+
+  /api/v1/auth/me:
+    get:
+      summary: Return the current internal user and assigned roles
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalUserResponse'
+        '401':
+          description: Authentication required or token invalid
+
+  /api/v1/internal-users:
+    get:
+      summary: List recruiter-managed internal users with full role sets
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Managed internal users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalUserListResponse'
+        '403':
+          description: Recruiter access required
+    post:
+      summary: Create a managed internal user with one or more initial roles
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InternalUserCreateRequest'
+      responses:
+        '201':
+          description: Managed internal user created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalUserResponse'
+        '400':
+          description: Unknown or non-assignable role code, or empty role list
+        '403':
+          description: Recruiter access required
+        '409':
+          description: Email already exists
+
+  /api/v1/internal-users/{user_id}/roles:
+    patch:
+      summary: Add or remove role assignments for an existing internal user
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleAssignmentUpdateRequest'
+      responses:
+        '200':
+          description: Updated internal user role set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalUserResponse'
+        '400':
+          description: Unknown or non-assignable role code, or empty resulting role set
+        '403':
+          description: Actor cannot manage this user or role change
+        '404':
+          description: Internal user not found
+
+  /api/v1/internal-users/me/landing:
+    get:
+      summary: Return combined landing data for the signed-in internal user
+      description: >-
+        available_areas, available_actions, and default_path are derived from
+        the role registry capability mapping as the union across the user's
+        assigned roles. Clients MUST rely on this payload for navigation
+        instead of hardcoded role-to-route logic.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Multi-role landing profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LandingResponse'
+        '401':
+          description: Authentication required or token invalid
+
+  /api/v1/internal/roles:
+    get:
+      summary: Return the assignable role registry snapshot
+      description: >-
+        Returns the assignable entries of the declarative role registry
+        (code, title, sort_order) so clients can render role labels, ordering,
+        and assignment options without hardcoding role codes. Content changes
+        only when the registry definition changes. Capability mappings are not
+        exposed; clients discover effective access through the landing
+        response.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Assignable role registry snapshot, ordered by sort_order
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoleRegistrySnapshotResponse'
+        '401':
+          description: Authentication required or token invalid
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    RoleCode:
+      type: string
+      pattern: '^[a-z][a-z0-9_]*$'
+      description: >-
+        Canonical role identifier present in the role registry. The built-in
+        roles are recruiter, hiring_manager, and expert; any registry-defined
+        assignable code is accepted. Unknown or non-assignable codes are
+        rejected with 400.
+    RecruiterRegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+    UserLoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+    InternalUserCreateRequest:
+      type: object
+      required: [name, email, roles, temporary_password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        roles:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RoleCode'
+        temporary_password:
+          type: string
+          minLength: 8
+    RoleAssignmentUpdateRequest:
+      type: object
+      properties:
+        add_roles:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RoleCode'
+        remove_roles:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RoleCode'
+      description: At least one change must be provided; resulting user must still have at least one role; all codes must exist in the registry and be assignable.
+    InternalUserResponse:
+      type: object
+      required: [id, name, email, roles]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        roles:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RoleCode'
+        created_by_user_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+    AuthTokenResponse:
+      type: object
+      required: [access_token, token_type, user]
+      properties:
+        access_token:
+          type: string
+        token_type:
+          type: string
+          const: bearer
+        user:
+          $ref: '#/components/schemas/InternalUserResponse'
+    InternalUserListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InternalUserResponse'
+    LandingArea:
+      type: object
+      required: [id, label, path]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        path:
+          type: string
+    LandingResponse:
+      type: object
+      required: [roles, default_path, available_areas, available_actions]
+      properties:
+        roles:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/RoleCode'
+        default_path:
+          type: string
+        available_areas:
+          type: array
+          items:
+            $ref: '#/components/schemas/LandingArea'
+        available_actions:
+          type: array
+          items:
+            type: string
+    RoleRegistryEntry:
+      type: object
+      required: [code, title, sort_order]
+      properties:
+        code:
+          $ref: '#/components/schemas/RoleCode'
+        title:
+          type: string
+        sort_order:
+          type: integer
+      description: Assignable role definition snapshot from the declarative registry.
+    RoleRegistrySnapshotResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoleRegistryEntry'
+
+# Error contract: all errors are JSON { "detail": string }.
+# Registry guard: removing/deactivating a registry role code while assignments
+# for it exist is rejected by the backend role guard (FR-024); since the
+# registry is shipped as code/config, this guard is enforced in service-layer
+# role-management operations and by startup validation in dev/test fixtures.

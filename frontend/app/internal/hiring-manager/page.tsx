@@ -3,5 +3,9 @@
 import { ProtectedRolePage } from "@/components/auth/protected-role-page";
 
 export default function HiringManagerPage() {
-  return <ProtectedRolePage expectedRole="hiring_manager" />;
+  return (
+    <ProtectedRolePage requiredArea="area.hiring_manager_review">
+      <p>Hiring manager workspace is reserved for vacancy review workflows.</p>
+    </ProtectedRolePage>
+  );
 }

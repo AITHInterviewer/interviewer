@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-03
 
-**Status**: Implemented
+**Status**: Implemented (superseded by `specs/007-multi-role-assignment` — see note below)
 
 **Input**: User description: "Update the current feature specification. еще необходимо добавить разные роли. потому что в идеале надо сделать следующее. сначала рекрутером создается аккаунт, он в него входит. потом рекрутер может еще создать аккаунты для: нанимающего менеджера и для эксперта(экспертом будет человек который будет валидировать вакансии и прояснять технические вопросы(прояснять тех вопросы и тд будет потом,)). сейчас важно заложить этот функционал чтобы в системе было сразу несколько ролей, они потом будут нужны для всего этого"
 
@@ -21,6 +21,14 @@ async DB/session слой, репозиторий, auth/user-admin сервис�
 role-aware redirects и recruiter tabbed workspace. Во вкладке `Users` recruiter видит только
 созданные им internal accounts. Candidate route `/interview/[token]` сохранён отдельно и не
 зависит от внутренней auth-сессии.
+
+> **Superseded (2026-09-04)**: ролевая модель этой спеки заменена фичей
+> `specs/007-multi-role-assignment` (extensible multi-role model). Актуальное состояние:
+> колонка `internal_users.role` удалена в пользу таблицы `internal_role_assignments`,
+> проверки доступа идут через capability-реестр (`backend/app/roles/`), landing и
+> навигация выводятся из реестра, добавлен endpoint `GET /api/v1/internal/roles`.
+> Эта спека сохраняется как описание исходного single-role поведения и истории изменений.
+
 
 ## Clarifications
 

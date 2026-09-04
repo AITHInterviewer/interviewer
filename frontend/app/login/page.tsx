@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 
 import { AuthShell } from "@/components/auth/auth-shell";
 import { ApiError } from "@/lib/api";
-import { getRolePath, getSession, signIn } from "@/lib/auth";
+import { getSession, resolveLandingPath, signIn } from "@/lib/auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,7 +18,7 @@ export default function LoginPage() {
   useEffect(() => {
     const session = getSession();
     if (session) {
-      router.replace(getRolePath(session.user.role));
+      router.replace("/internal");
     }
   }, [router]);
 
@@ -29,7 +29,7 @@ export default function LoginPage() {
 
     try {
       const response = await signIn({ email, password });
-      router.push(getRolePath(response.user.role));
+      router.push(await resolveLandingPath(response.access_token));
     } catch (caughtError) {
       if (caughtError instanceof ApiError) {
         setError(caughtError.message);

@@ -4,12 +4,15 @@ import {
   createInternalUser,
   fetchCurrentUser,
   fetchLanding,
+  fetchRoleRegistry,
   listInternalUsers,
   loginUser,
   registerRecruiter,
+  updateRoleAssignments,
   type AuthResponse,
-  type InternalRole,
   type InternalUser,
+  type LandingResponse,
+  type RoleRegistryEntry,
 } from "@/lib/api";
 
 export const AUTH_STORAGE_KEY = "ainterviewer-auth";
@@ -54,15 +57,13 @@ export function clearSession() {
   window.localStorage.removeItem(AUTH_STORAGE_KEY);
 }
 
-export function getRolePath(role: InternalRole) {
-  switch (role) {
-    case "recruiter":
-      return "/internal/recruiter";
-    case "hiring_manager":
-      return "/internal/hiring-manager";
-    case "expert":
-      return "/internal/expert";
-  }
+export function getLandingPath(landing: LandingResponse): string {
+  return landing.default_path;
+}
+
+export async function resolveLandingPath(token: string): Promise<string> {
+  const landing = await fetchLanding(token);
+  return getLandingPath(landing);
 }
 
 export async function signUpRecruiter(input: { name: string; email: string; password: string }) {
@@ -104,10 +105,20 @@ export async function loadLanding() {
   return { session, landing };
 }
 
+export async function loadRoleRegistry(): Promise<RoleRegistryEntry[]> {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  const snapshot = await fetchRoleRegistry(session.token);
+  return snapshot.items;
+}
+
 export async function createManagedInternalUser(input: {
   name: string;
   email: string;
-  role: Exclude<InternalRole, "recruiter">;
+  roles: string[];
   temporaryPassword: string;
 }) {
   const session = getSession();
@@ -118,8 +129,23 @@ export async function createManagedInternalUser(input: {
   return createInternalUser(session.token, {
     name: input.name,
     email: input.email,
-    role: input.role,
+    roles: input.roles,
     temporary_password: input.temporaryPassword,
+  });
+}
+
+export async function updateManagedUserRoles(
+  userId: string,
+  changes: { addRoles?: string[]; removeRoles?: string[] },
+) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return updateRoleAssignments(session.token, userId, {
+    add_roles: changes.addRoles,
+    remove_roles: changes.removeRoles,
   });
 }
 

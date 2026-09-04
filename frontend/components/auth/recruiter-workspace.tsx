@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 
 import { InternalUserForm } from "@/components/auth/internal-user-form";
 import { ApiError, type InternalUser } from "@/lib/api";
-import { loadInternalUsers } from "@/lib/auth";
+import { loadInternalUsers, loadRoleRegistry } from "@/lib/auth";
+import { formatRoleList, type RoleRegistryEntry } from "@/lib/roles";
 
 const tabs = [
   { id: "vacancies", label: "Vacancies", state: "placeholder" },
@@ -14,20 +15,10 @@ const tabs = [
 
 type RecruiterTabId = (typeof tabs)[number]["id"];
 
-function formatRole(role: InternalUser["role"]) {
-  switch (role) {
-    case "recruiter":
-      return "Recruiter";
-    case "hiring_manager":
-      return "Hiring manager";
-    case "expert":
-      return "Expert";
-  }
-}
-
 export function RecruiterWorkspace() {
   const [activeTab, setActiveTab] = useState<RecruiterTabId>("users");
   const [users, setUsers] = useState<InternalUser[]>([]);
+  const [roleRegistry, setRoleRegistry] = useState<RoleRegistryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
@@ -56,13 +47,14 @@ export function RecruiterWorkspace() {
   useEffect(() => {
     let cancelled = false;
 
-    loadInternalUsers()
-      .then((response) => {
+    Promise.all([loadInternalUsers(), loadRoleRegistry()])
+      .then(([usersResponse, registryEntries]) => {
         if (cancelled) {
           return;
         }
 
-        setUsers(response.items);
+        setUsers(usersResponse.items);
+        setRoleRegistry(registryEntries);
       })
       .catch((caughtError: unknown) => {
         if (cancelled) {
@@ -137,7 +129,7 @@ export function RecruiterWorkspace() {
                           <strong>{user.name}</strong>
                           <span className="field-hint inline-code">{user.email}</span>
                         </div>
-                        <span className="status">{formatRole(user.role)}</span>
+                        <span className="status">{formatRoleList(roleRegistry, user.roles)}</span>
                       </div>
                       <div className="candidate-card__meta recruiter-user-card__meta">
                         <span>Recruiter-created</span>

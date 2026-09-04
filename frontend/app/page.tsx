@@ -4,19 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
-import { getRolePath, getSession } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 
 export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
     const session = getSession();
-    if (session) {
-      router.replace(getRolePath(session.user.role));
-      return;
-    }
-
-    router.replace("/login");
+    router.replace(session ? "/internal" : "/login");
   }, [router]);
 
   return (

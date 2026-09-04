@@ -18,7 +18,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/auth", () => ({
   getSession: vi.fn(),
-  getRolePath: vi.fn(() => "/internal/expert"),
+  resolveLandingPath: vi.fn(() => Promise.resolve("/internal/expert")),
   signIn: vi.fn(),
 }));
 
@@ -32,11 +32,11 @@ describe("LoginPage", () => {
     vi.mocked(getSession).mockReturnValue(null);
   });
 
-  it("submits login and redirects to the role area", async () => {
+  it("submits login and redirects to the landing default path", async () => {
     vi.mocked(signIn).mockResolvedValue({
       access_token: "token-1",
       token_type: "bearer",
-      user: { id: "1", name: "Expert", email: "expert@example.com", role: "expert" },
+      user: { id: "1", name: "Expert", email: "expert@example.com", roles: ["expert"] },
     });
 
     render(<LoginPage />);
@@ -52,11 +52,11 @@ describe("LoginPage", () => {
   it("redirects an existing session away from login", async () => {
     vi.mocked(getSession).mockReturnValue({
       token: "token-1",
-      user: { id: "1", name: "Expert", email: "expert@example.com", role: "expert" },
+      user: { id: "1", name: "Expert", email: "expert@example.com", roles: ["expert"] },
     });
 
     render(<LoginPage />);
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/internal/expert"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/internal"));
   });
 });

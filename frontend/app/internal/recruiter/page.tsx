@@ -5,7 +5,7 @@ import { ProtectedRolePage } from "@/components/auth/protected-role-page";
 
 export default function RecruiterInternalPage() {
   return (
-    <ProtectedRolePage expectedRole="recruiter">
+    <ProtectedRolePage requiredArea="area.recruiter_workspace">
       <RecruiterWorkspace />
     </ProtectedRolePage>
   );

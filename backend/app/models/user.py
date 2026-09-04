@@ -1,21 +1,10 @@
-import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
-
-
-def enum_values(enum_cls: type[enum.Enum]) -> list[str]:
-    return [member.value for member in enum_cls]
-
-
-class InternalUserRole(str, enum.Enum):
-    RECRUITER = "recruiter"
-    HIRING_MANAGER = "hiring_manager"
-    EXPERT = "expert"
 
 
 class InternalUser(Base):
@@ -25,13 +14,6 @@ class InternalUser(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255))
     password_hash: Mapped[str] = mapped_column(String(255))
-    role: Mapped[InternalUserRole] = mapped_column(
-        Enum(
-            InternalUserRole,
-            name="internal_user_role",
-            values_callable=enum_values,
-        )
-    )
     created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("internal_users.id"), nullable=True
     )

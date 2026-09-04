@@ -4,15 +4,15 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { RoleArea } from "@/components/auth/role-area";
-import { getRolePath, loadLanding, type StoredSession } from "@/lib/auth";
-import type { InternalRole, LandingResponse } from "@/lib/api";
+import { loadLanding, type StoredSession } from "@/lib/auth";
+import type { LandingResponse } from "@/lib/api";
 
 type ProtectedRolePageProps = {
-  expectedRole?: InternalRole;
+  requiredArea?: string;
   children?: React.ReactNode;
 };
 
-export function ProtectedRolePage({ expectedRole, children }: ProtectedRolePageProps) {
+export function ProtectedRolePage({ requiredArea, children }: ProtectedRolePageProps) {
   const router = useRouter();
   const [state, setState] = useState<{
     session: StoredSession;
@@ -34,8 +34,11 @@ export function ProtectedRolePage({ expectedRole, children }: ProtectedRolePageP
         return;
       }
 
-      if (expectedRole && result.session.user.role !== expectedRole) {
-        router.replace(getRolePath(result.session.user.role));
+      if (
+        requiredArea &&
+        !result.landing.available_areas.some((area) => area.id === requiredArea)
+      ) {
+        router.replace(result.landing.default_path);
         return;
       }
 
@@ -48,7 +51,7 @@ export function ProtectedRolePage({ expectedRole, children }: ProtectedRolePageP
     return () => {
       cancelled = true;
     };
-  }, [expectedRole, router]);
+  }, [requiredArea, router]);
 
   if (loading || !state) {
     return (

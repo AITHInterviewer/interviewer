@@ -5,8 +5,10 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.config import settings
-from app.models.user import InternalUser, InternalUserRole
+from app.models.user import InternalUser
 from app.repositories.user_repository import UserRepository
+
+RECRUITER_ROLE_CODE = "recruiter"
 
 
 class DuplicateEmailError(Exception):
@@ -32,10 +34,14 @@ class AuthService:
             name=name,
             email=email.lower(),
             password_hash=self.hash_password(password),
-            role=InternalUserRole.RECRUITER,
             must_rotate_password=False,
         )
         await self.user_repository.create(user)
+        await self.user_repository.add_role_assignment(
+            user.id,
+            RECRUITER_ROLE_CODE,
+            assigned_by_user_id=user.id,
+        )
         await self.user_repository.commit()
         return user
 
@@ -67,7 +73,6 @@ class AuthService:
         now = datetime.now(UTC)
         payload = {
             "sub": str(user.id),
-            "role": user.role.value,
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(minutes=settings.jwt_access_token_expire_minutes)).timestamp()),
         }

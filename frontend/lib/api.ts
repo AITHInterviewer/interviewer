@@ -1,10 +1,8 @@
-export type InternalRole = "recruiter" | "hiring_manager" | "expert";
-
 export type InternalUser = {
   id: string;
   name: string;
   email: string;
-  role: InternalRole;
+  roles: string[];
   created_by_user_id?: string | null;
 };
 
@@ -14,15 +12,31 @@ export type AuthResponse = {
   user: InternalUser;
 };
 
+export type LandingArea = {
+  id: string;
+  label: string;
+  path: string;
+};
+
 export type LandingResponse = {
-  role: InternalRole;
-  title: string;
-  description: string;
+  roles: string[];
+  default_path: string;
+  available_areas: LandingArea[];
   available_actions: string[];
 };
 
 export type InternalUserListResponse = {
   items: InternalUser[];
+};
+
+export type RoleRegistryEntry = {
+  code: string;
+  title: string;
+  sort_order: number;
+};
+
+export type RoleRegistrySnapshot = {
+  items: RoleRegistryEntry[];
 };
 
 type RequestOptions = {
@@ -76,9 +90,17 @@ export function fetchCurrentUser(token: string) {
 
 export function createInternalUser(
   token: string,
-  body: { name: string; email: string; role: Exclude<InternalRole, "recruiter">; temporary_password: string },
+  body: { name: string; email: string; roles: string[]; temporary_password: string },
 ) {
   return request<InternalUser>("/api/v1/internal-users", { method: "POST", token, body });
+}
+
+export function updateRoleAssignments(
+  token: string,
+  userId: string,
+  body: { add_roles?: string[]; remove_roles?: string[] },
+) {
+  return request<InternalUser>(`/api/v1/internal-users/${userId}/roles`, { method: "PATCH", token, body });
 }
 
 export function listInternalUsers(token: string) {
@@ -87,4 +109,12 @@ export function listInternalUsers(token: string) {
 
 export function fetchLanding(token: string) {
   return request<LandingResponse>("/api/v1/internal-users/me/landing", { token });
+}
+
+export function fetchRoleRegistry(token: string) {
+  return request<RoleRegistrySnapshot>("/api/v1/internal/roles", { token });
+}
+
+export function createQuestion(token: string, body: { text: string }) {
+  return request<{ id: string; text: string }>("/api/v1/questions", { method: "POST", token, body });
 }

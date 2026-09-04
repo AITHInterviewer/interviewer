@@ -11,11 +11,18 @@ vi.mock("@/lib/auth", async () => {
     ...actual,
     createManagedInternalUser: vi.fn(),
     loadInternalUsers: vi.fn(),
+    loadRoleRegistry: vi.fn(),
   };
 });
 
-import { createManagedInternalUser, loadInternalUsers } from "@/lib/auth";
+import { createManagedInternalUser, loadInternalUsers, loadRoleRegistry } from "@/lib/auth";
 import RecruiterInternalPage from "./page";
+
+const registryEntries = [
+  { code: "recruiter", title: "Recruiter", sort_order: 0 },
+  { code: "hiring_manager", title: "Hiring manager", sort_order: 1 },
+  { code: "expert", title: "Expert", sort_order: 2 },
+];
 
 describe("RecruiterInternalPage", () => {
   beforeEach(() => {
@@ -23,6 +30,7 @@ describe("RecruiterInternalPage", () => {
     vi.mocked(loadInternalUsers).mockResolvedValue({
       items: [],
     });
+    vi.mocked(loadRoleRegistry).mockResolvedValue(registryEntries);
   });
 
   it("shows the users tab and submits the internal-user creation form", async () => {
@@ -30,7 +38,7 @@ describe("RecruiterInternalPage", () => {
       id: "2",
       name: "Manager One",
       email: "manager@example.com",
-      role: "hiring_manager",
+      roles: ["hiring_manager"],
       created_by_user_id: "1",
     });
 
@@ -44,12 +52,17 @@ describe("RecruiterInternalPage", () => {
     fireEvent.change(screen.getByLabelText(/full name/i), { target: { value: "Manager One" } });
     fireEvent.change(screen.getByLabelText(/work email/i), { target: { value: "manager@example.com" } });
     fireEvent.change(screen.getByLabelText(/temporary password/i), { target: { value: "TempPass123" } });
+
+    // First registry entry is preselected by default; choose hiring manager instead.
+    fireEvent.click(screen.getByRole("checkbox", { name: /recruiter/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /^hiring manager$/i }));
+
     fireEvent.submit(screen.getByRole("button", { name: /create internal user/i }).closest("form")!);
 
     await waitFor(() => expect(createManagedInternalUser).toHaveBeenCalledWith({
       name: "Manager One",
       email: "manager@example.com",
-      role: "hiring_manager",
+      roles: ["hiring_manager"],
       temporaryPassword: "TempPass123",
     }));
     await waitFor(() => expect(screen.getByText(/manager one \(hiring_manager\) created/i)).toBeInTheDocument());
