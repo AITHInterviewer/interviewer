@@ -48,6 +48,12 @@ services:
     image: ghcr.io/speaches-ai/speaches:latest-cpu
     ports:
       - "3906:8000"
+    environment:
+      # Модель скачивает сам сервер (в ответ на запрос от speaches-cli, не CLI-процесс) —
+      # переменная нужна именно тут, `docker exec -e` на отдельный exec-процесс не влияет
+      # на уже запущенный сервер. Новый xet-транспорт huggingface_hub падал с TLS handshake
+      # eof / CAS service error на этой сети — принудительно классический HTTP-download.
+      - HF_HUB_DISABLE_XET=1
     # Без volume для кэша моделей — реальная проверка показала PermissionError: именованный
     # volume создаётся Docker'ом от root, а образ работает под непривилегированным ubuntu
     # (uid 1000) и не может в него писать. Можно было бы chown'ить volume отдельным init-шагом,
