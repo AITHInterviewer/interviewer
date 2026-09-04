@@ -27,6 +27,7 @@ export function InterviewFlow({ token }: { token: string }) {
   const [step, setStep] = useState<FlowStep>("loading");
   const [info, setInfo] = useState<ConsentInfo | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
+  const [speakerId, setSpeakerId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,8 +95,9 @@ export function InterviewFlow({ token }: { token: string }) {
           </li>
         </ul>
         <DeviceCheck
-          onGranted={(granted) => {
+          onGranted={(granted, speaker) => {
             setStream(granted);
+            setSpeakerId(speaker);
             setStep("ready");
           }}
         />
@@ -103,5 +105,5 @@ export function InterviewFlow({ token }: { token: string }) {
     );
   }
 
-  return <InterviewRoom sessionId={token} stream={stream} />;
+  return <InterviewRoom sessionId={token} stream={stream} initialSpeakerId={speakerId} />;
 }

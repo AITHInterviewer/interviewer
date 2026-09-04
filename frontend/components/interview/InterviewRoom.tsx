@@ -18,8 +18,17 @@ type LiveKitTokenResponse = { token: string; room_name: string; ws_url: string; 
  * этой итерации (см. tasks.md, T020/T021, T033-T036) — вакансия/вопросы для первого
  * сквозного прогона захардкожены на стороне live-agent, все вопросы формата `voice`.
  */
-export function InterviewRoom({ sessionId, stream }: { sessionId: string; stream: MediaStream | null }) {
+export function InterviewRoom({
+  sessionId,
+  stream,
+  initialSpeakerId,
+}: {
+  sessionId: string;
+  stream: MediaStream | null;
+  initialSpeakerId?: string | null;
+}) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const liveKitRef = useRef<LiveKitSession | null>(null);
   const [channelState, setChannelState] = useState<ChannelState>({ status: "connecting" });
   const [agentPresence, setAgentPresence] = useState<AgentPresence>("absent");
   const [candidateSpeaking, setCandidateSpeaking] = useState(false);
@@ -36,6 +45,7 @@ export function InterviewRoom({ sessionId, stream }: { sessionId: string; stream
     let cancelled = false;
     const channel = new ControlChannel(sessionId);
     const liveKit = new LiveKitSession();
+    liveKitRef.current = liveKit;
     let unsubscribePresence: (() => void) | null = null;
     let unsubscribeSpeaking: (() => void) | null = null;
 
@@ -45,7 +55,7 @@ export function InterviewRoom({ sessionId, stream }: { sessionId: string; stream
     apiFetch<LiveKitTokenResponse>(`/interview/${sessionId}/livekit-token`, { method: "POST" })
       .then((tokenResponse) => {
         if (cancelled) return undefined;
-        return liveKit.connect(tokenResponse.ws_url, tokenResponse.token, stream);
+        return liveKit.connect(tokenResponse.ws_url, tokenResponse.token, stream, initialSpeakerId);
       })
       .then(() => {
         if (cancelled) return;
@@ -58,12 +68,16 @@ export function InterviewRoom({ sessionId, stream }: { sessionId: string; stream
 
     return () => {
       cancelled = true;
+      liveKitRef.current = null;
       unsubscribeChannel();
       unsubscribePresence?.();
       unsubscribeSpeaking?.();
       channel.close();
       liveKit.disconnect();
     };
+    // initialSpeakerId применяется только при первом подключении — дальше устройство
+    // меняется через DeviceSettings (switchDevice), не пересозданием соединения.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, stream]);
 
   const questionText =
@@ -95,6 +109,7 @@ export function InterviewRoom({ sessionId, stream }: { sessionId: string; stream
           >
             {agentPresence === "speaking" ? "Интервьюер говорит…" : agentPresence === "present" ? "Интервьюер" : "Ожидаем интервьюера…"}
           </div>
+          <DeviceSettings liveKitRef={liveKitRef} />
         </div>
       </div>
     </div>
@@ -114,4 +129,88 @@ function StatusLine({ channelState }: { channelState: ChannelState }) {
     case "question_active":
       return <p className="text-sm text-muted-foreground">Слушаем вас — говорите свободно.</p>;
   }
+}
+
+const CAN_SELECT_OUTPUT_DEVICE =
+  typeof window !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
+
+/** Переключение камеры/микрофона/динамика прямо во время звонка — как в Zoom/Meet, не
+ * только на экране подготовки. Список устройств — тот же `enumerateDevices`, доступ уже
+ * выдан (`DeviceCheck`), лейблы у устройств не пустые. */
+function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSession | null> }) {
+  const [open, setOpen] = useState(false);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
+  const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    navigator.mediaDevices.enumerateDevices().then((devices) => {
+      setCameras(devices.filter((d) => d.kind === "videoinput"));
+      setMicrophones(devices.filter((d) => d.kind === "audioinput"));
+      setSpeakers(devices.filter((d) => d.kind === "audiooutput"));
+    });
+  }, [open]);
+
+  const switchDevice = (kind: MediaDeviceKind, deviceId: string) => {
+    void liveKitRef.current?.switchDevice(kind, deviceId);
+  };
+
+  return (
+    <div className="rounded-xl border bg-card p-3 text-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-between text-muted-foreground"
+      >
+        <span>Настройки устройств</span>
+        <span>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-2">
+          <label className="block space-y-1">
+            <span className="text-muted-foreground">Камера</span>
+            <select
+              className="w-full rounded-md border bg-background px-2 py-1.5"
+              onChange={(event) => switchDevice("videoinput", event.target.value)}
+            >
+              {cameras.map((camera) => (
+                <option key={camera.deviceId} value={camera.deviceId}>
+                  {camera.label || "Камера"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block space-y-1">
+            <span className="text-muted-foreground">Микрофон</span>
+            <select
+              className="w-full rounded-md border bg-background px-2 py-1.5"
+              onChange={(event) => switchDevice("audioinput", event.target.value)}
+            >
+              {microphones.map((mic) => (
+                <option key={mic.deviceId} value={mic.deviceId}>
+                  {mic.label || "Микрофон"}
+                </option>
+              ))}
+            </select>
+          </label>
+          {CAN_SELECT_OUTPUT_DEVICE && (
+            <label className="block space-y-1">
+              <span className="text-muted-foreground">Динамики</span>
+              <select
+                className="w-full rounded-md border bg-background px-2 py-1.5"
+                onChange={(event) => switchDevice("audiooutput", event.target.value)}
+              >
+                {speakers.map((speaker) => (
+                  <option key={speaker.deviceId} value={speaker.deviceId}>
+                    {speaker.label || "Динамики"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

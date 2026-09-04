@@ -9,9 +9,15 @@ export type DeviceCheckStatus = "idle" | "checking" | "granted" | "denied";
 type DeviceCheckProps = {
   /** Вызывается один раз, когда кандидат явно подтвердил выбор устройств кнопкой
    * «Начать интервью» — сигнал наверх, что можно переходить к интервью
-   * (specs/004-candidate-interview-flow/spec.md, US1, Acceptance Scenario 2). */
-  onGranted: (stream: MediaStream) => void;
+   * (specs/004-candidate-interview-flow/spec.md, US1, Acceptance Scenario 2).
+   * `speakerId` — выбранное устройство вывода (колонки/наушники), `null` если браузер
+   * не поддерживает выбор (нет `HTMLMediaElement.setSinkId`, например Safari) или
+   * устройство одно. */
+  onGranted: (stream: MediaStream, speakerId: string | null) => void;
 };
+
+const CAN_SELECT_OUTPUT_DEVICE =
+  typeof window !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
 
 /**
  * Проверка камеры/микрофона (FR-002/FR-013) — на том же экране, что и согласие
@@ -29,8 +35,10 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
   const [micLevel, setMicLevel] = useState(0);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
+  const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([]);
   const [cameraId, setCameraId] = useState<string>("");
   const [microphoneId, setMicrophoneId] = useState<string>("");
+  const [speakerId, setSpeakerId] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -82,6 +90,11 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     const devices = await navigator.mediaDevices.enumerateDevices();
     setCameras(devices.filter((d) => d.kind === "videoinput"));
     setMicrophones(devices.filter((d) => d.kind === "audioinput"));
+    if (CAN_SELECT_OUTPUT_DEVICE) {
+      const outputs = devices.filter((d) => d.kind === "audiooutput");
+      setSpeakers(outputs);
+      setSpeakerId((current) => current || outputs[0]?.deviceId || "");
+    }
   }, []);
 
   /** Собственно запрос доступа — только по явному вызову (клик), не при монтировании. */
@@ -154,14 +167,24 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     [startMicLevelLoop],
   );
 
+  const handedOffRef = useRef(false);
+
   const confirm = useCallback(() => {
-    if (streamRef.current) onGranted(streamRef.current);
-  }, [onGranted]);
+    if (!streamRef.current) return;
+    // Стрим уходит в интервью дальше жить — размонтирование этого компонента (которое
+    // сейчас и произойдёт) не должно останавливать его треки, иначе камера/микрофон
+    // гаснут прямо в момент перехода (индикатор записи браузера пропадает, агент не
+    // получает аудио).
+    handedOffRef.current = true;
+    onGranted(streamRef.current, CAN_SELECT_OUTPUT_DEVICE ? speakerId || null : null);
+  }, [onGranted, speakerId]);
 
   useEffect(
     () => () => {
       stopMicLevelLoop();
-      streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (!handedOffRef.current) {
+        streamRef.current?.getTracks().forEach((track) => track.stop());
+      }
     },
     [stopMicLevelLoop],
   );

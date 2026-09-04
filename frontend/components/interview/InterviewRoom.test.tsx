@@ -40,6 +40,8 @@ vi.mock("@/lib/livekit-client", () => ({
       connect: vi.fn().mockResolvedValue(undefined),
       disconnect: vi.fn(),
       onAgentPresenceChange: vi.fn().mockReturnValue(() => {}),
+      onLocalSpeakingChange: vi.fn().mockReturnValue(() => {}),
+      switchDevice: vi.fn().mockResolvedValue(undefined),
     };
     liveKitInstances.push(instance);
     return instance;
@@ -72,7 +74,9 @@ describe("InterviewRoom", () => {
 
     await waitFor(() => expect(channelInstances).toHaveLength(1));
     expect(channelInstances[0].connect).toHaveBeenCalled();
-    await waitFor(() => expect(liveKitInstances[0].connect).toHaveBeenCalledWith("ws://localhost:3907", "jwt", fakeStream));
+    await waitFor(() =>
+      expect(liveKitInstances[0].connect).toHaveBeenCalledWith("ws://localhost:3907", "jwt", fakeStream, undefined),
+    );
   });
 
   it("показывает текст вопроса по приходу ControlEvent, без локальной логики перехода", async () => {

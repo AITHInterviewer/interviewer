@@ -29,12 +29,23 @@ export class LiveKitSession {
   }
 
   /** Публикует камеру/микрофон из уже полученного `DeviceCheck`-стрима — не запрашивает
-   * `getUserMedia` повторно. */
-  async connect(wsUrl: string, token: string, localStream: MediaStream): Promise<void> {
+   * `getUserMedia` повторно. `speakerId` — устройство вывода, выбранное там же, если
+   * браузер это поддерживает (см. `DeviceCheck.tsx`, `CAN_SELECT_OUTPUT_DEVICE`). */
+  async connect(wsUrl: string, token: string, localStream: MediaStream, speakerId?: string | null): Promise<void> {
     await this.room.connect(wsUrl, token);
     for (const track of localStream.getTracks()) {
       await this.room.localParticipant.publishTrack(track);
     }
+    if (speakerId) {
+      await this.room.switchActiveDevice("audiooutput", speakerId).catch(() => {});
+    }
+  }
+
+  /** Переключение устройства прямо во время звонка (как в Zoom/Meet) — LiveKit сам
+   * заменяет опубликованный трек (camera/mic) или sinkId у уже подключённых audio-
+   * элементов (speaker), без пересоздания соединения. */
+  async switchDevice(kind: MediaDeviceKind, deviceId: string): Promise<void> {
+    await this.room.switchActiveDevice(kind, deviceId);
   }
 
   /** Индикация присутствия агента (US2, FR-014) — по наличию remote-участника и его
