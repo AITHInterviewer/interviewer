@@ -1,0 +1,152 @@
+name: deploy full stack (self-hosted)
+
+# Расширение deploy-dev.yml: помимо frontend+backend поднимает общую инфру (postgres,
+# redis, minio, livekit) и live-agent (+ его self-hosted stt/tts). evaluation-agent
+# намеренно НЕ включает сам воркер — worker.py падает на NotImplementedError (см.
+# evaluation-agent/README.md, раздел «Статус»), это ожидаемо, не баг — поднимается только
+# его STT (stt-accurate), самостоятельная часть.
+#
+# Ручной запуск (workflow_dispatch) — в отличие от deploy-dev.yml это не часть core
+# happy path (см. specs/002-docker-dev-baseline/spec.md, FR-003: AI-сервисы явно
+# исключены из основного baseline), поднимается по требованию.
+#
+# ВАЖНО про live-agent: LLM-часть требует `claude login` (Claude Agent SDK на подписке,
+# см. live-agent/CLAUDE.md, п.8) — выполненного ПОД ТЕМ ЖЕ пользователем, из-под которого
+# работает раннер (сейчас это bdtss). Это разовый интерактивный шаг (открывает браузер
+# для логина), который эта джоба выполнить не может — до него граф диалога поднимется,
+# но реальные LLM-вызовы будут падать с ошибкой авторизации.
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-full
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure firewall rules for all service ports
+        run: |
+          $rules = @{
+            "ainterviewer-3000" = @{ Port = 3000; Proto = "TCP" }
+            "ainterviewer-8000" = @{ Port = 8000; Proto = "TCP" }
+            "ainterviewer-8001" = @{ Port = 8001; Proto = "TCP" }
+            "ainterviewer-8002" = @{ Port = 8002; Proto = "TCP" }
+            "ainterviewer-5432" = @{ Port = 5432; Proto = "TCP" }
+            "ainterviewer-6379" = @{ Port = 6379; Proto = "TCP" }
+            "ainterviewer-9000" = @{ Port = 9000; Proto = "TCP" }
+            "ainterviewer-9001" = @{ Port = 9001; Proto = "TCP" }
+            "ainterviewer-7880" = @{ Port = 7880; Proto = "TCP" }
+            "ainterviewer-7881" = @{ Port = 7881; Proto = "TCP" }
+            "ainterviewer-livekit-udp" = @{ Port = "50000-50100"; Proto = "UDP" }
+          }
+          foreach ($name in $rules.Keys) {
+            $existing = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
+            if (-not $existing) {
+              New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol $rules[$name].Proto -LocalPort $rules[$name].Port -Action Allow | Out-Null
+              Write-Output "created: $name"
+            } else {
+              Write-Output "already exists: $name"
+            }
+          }
+
+      - name: Write backend/.env
+        run: |
+          Set-Content -Path backend/.env -Encoding utf8 -Value @'
+          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
+          '@
+
+      - name: Write frontend/.env
+        run: |
+          Set-Content -Path frontend/.env -Encoding utf8 -Value @'
+          NEXT_PUBLIC_BACKEND_URL=http://26.67.31.6:8000
+          BACKEND_INTERNAL_URL=http://backend:8000
+          '@
+
+      - name: Write live-agent/.env
+        run: |
+          Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
+          LLM_MODEL=claude-haiku-4-5
+          STT_BASE_URL=http://stt:8000/v1
+          TTS_BASE_URL=http://tts:8000/v1
+          STT_API_KEY=not-needed
+          TTS_API_KEY=not-needed
+          STT_MODEL=whisper-1
+          STT_LANGUAGE=ru
+          TTS_MODEL=speaches-ai/piper-ru_RU-irina-medium
+          TTS_VOICE=irina
+          MOCK_INTERVIEW_PATH=mock_data/interview_example.json
+          LIVEKIT_URL=ws://livekit-server:7880
+          LIVEKIT_API_KEY=devkey
+          LIVEKIT_API_SECRET=secret
+          '@
+
+      - name: Build and (re)start full stack
+        run: |
+          docker compose `
+            -f infra/docker-compose.yml `
+            -f docker-compose.dev.yml `
+            -f live-agent/docker-compose.yml `
+            -f evaluation-agent/docker-compose.yml `
+            up -d --build --remove-orphans `
+            postgres redis minio livekit-server livekit-egress `
+            backend frontend `
+            stt tts live-agent `
+            stt-accurate
+
+      - name: Wait for backend health
+        run: |
+          $ok = $false
+          for ($i = 0; $i -lt 24; $i++) {
+            try {
+              Invoke-WebRequest -Uri http://localhost:8000/health -UseBasicParsing -TimeoutSec 3 | Out-Null
+              $ok = $true
+              break
+            } catch { Start-Sleep -Seconds 5 }
+          }
+          if (-not $ok) {
+            Write-Error "backend did not become healthy in time"
+            docker compose -f docker-compose.dev.yml logs backend --tail 100
+            exit 1
+          }
+          Write-Output "backend healthy"
+
+      - name: Wait for minio health
+        run: |
+          $ok = $false
+          for ($i = 0; $i -lt 24; $i++) {
+            try {
+              Invoke-WebRequest -Uri http://localhost:9000/minio/health/live -UseBasicParsing -TimeoutSec 3 | Out-Null
+              $ok = $true
+              break
+            } catch { Start-Sleep -Seconds 5 }
+          }
+          if (-not $ok) {
+            Write-Error "minio did not become healthy in time"
+            exit 1
+          }
+          Write-Output "minio healthy"
+
+      - name: Report container status
+        if: always()
+        run: |
+          docker compose -f infra/docker-compose.yml -f docker-compose.dev.yml -f live-agent/docker-compose.yml -f evaluation-agent/docker-compose.yml ps
+
+      - name: Print URLs
+        run: |
+          Write-Output "frontend:        http://26.67.31.6:3000"
+          Write-Output "backend health:  http://26.67.31.6:8000/health"
+          Write-Output "stt (live):      http://26.67.31.6:8001/v1/models"
+          Write-Output "tts (live):      http://26.67.31.6:8002"
+          Write-Output "minio console:   http://26.67.31.6:9001"
+          Write-Output "livekit signal:  ws://26.67.31.6:7880"
+          Write-Output "postgres:        26.67.31.6:5432"
+          Write-Output "NOTE: live-agent LLM calls need 'claude login' run once on this"
+          Write-Output "machine under the runner service account — not done by this workflow."
