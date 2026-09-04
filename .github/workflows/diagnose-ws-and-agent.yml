@@ -20,7 +20,7 @@ jobs:
         if: always()
         run: |
           try {
-            $r = Invoke-WebRequest -Uri "https://huggingface.co/api/models/speaches-ai/piper-ru_RU-irina-medium" -TimeoutSec 30
+            $r = Invoke-WebRequest -Uri "https://huggingface.co/api/models/speaches-ai/piper-ru_RU-irina-medium" -TimeoutSec 30 -UseBasicParsing
             Write-Output $r.Content
           } catch {
             Write-Output "FAILED: $($_.Exception.Message)"
