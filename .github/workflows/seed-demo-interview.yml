@@ -15,7 +15,14 @@ jobs:
       run:
         shell: powershell
     steps:
+      # clean: false — по умолчанию checkout делает `git clean -ffdx`, что стирает
+      # untracked `backend/.env`/`frontend/.env` (не закоммичены, пишутся отдельным шагом
+      # в deploy-full.yml в ТОМ ЖЕ workspace на self-hosted раннере). `docker compose`
+      # парсит env_file всех сервисов в -f файлах даже для простого `exec`, а не только
+      # тех, что реально запускаются — без .env падает ещё до старта команды в контейнере.
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Run migration + seed script inside the backend container
         run: |
