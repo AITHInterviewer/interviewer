@@ -226,7 +226,7 @@ export function respond(pathname) {
   }
   if (/^\/api\/interview\/[^/]+\/(consent|progress)$/.test(p)) return { product_state: "consented" };
   if (/^\/api\/interview\/[^/]+\/extra\/[^/]+$/.test(p))
-    return { id: "c1", status: "open", extra_token: "extra-lida" };
+    return { id: "c1", status: "requested", extra_token: "extra-lida" };
   if (p.endsWith("/auth/me")) return fixtures.user;
   if (p.endsWith("/internal-users/me/landing")) return fixtures.landing;
   if (p.endsWith("/internal-users"))
@@ -365,7 +365,7 @@ export function respond(pathname) {
           id: "cl-audit",
           interview_id: "i-lida",
           type: "expert_audit",
-          status: "open",
+          status: "requested",
           close_reason: null,
           extra_token: null,
         },

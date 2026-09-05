@@ -39,4 +39,16 @@ describe("interviewColumn", () => {
       ),
     ).toBe("done");
   });
+
+  it("keeps report_ready in decide while recruiter awaits — even if clarifications are open server-side", () => {
+    expect(
+      interviewColumn(
+        interview({
+          status: "completed",
+          product_state: "report_ready",
+          recruiter_decision: "awaiting",
+        }),
+      ),
+    ).toBe("decide");
+  });
 });

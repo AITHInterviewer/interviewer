@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { auditRowContext } from "./page";
+import { auditRowContext } from "@/lib/audit";
 
 describe("auditRowContext", () => {
   const base = {

@@ -16,6 +16,8 @@ import {
   loadInterviewEvents,
   requestManagedExtra,
 } from "@/lib/auth";
+import { auditSubjectContext } from "@/lib/audit";
+import { isClarificationOpen } from "@/lib/clarifications";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, expertAuditBreadcrumbs } from "@/lib/nav";
 
@@ -26,6 +28,9 @@ export default function AuditCandidatePage() {
   const { landing, loading } = useProtectedLanding({ requiredArea: EXPERT_AREA });
   const [interview, setInterview] = useState<Interview | null>(null);
   const [vacancyTitle, setVacancyTitle] = useState<string | null>(null);
+  const [auditContext, setAuditContext] = useState<{ requirement: string; reason: string; combined: string } | null>(
+    null,
+  );
   const [events, setEvents] = useState<InterviewEventsResponse | null>(null);
   const [auditInQueue, setAuditInQueue] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,12 +39,18 @@ export default function AuditCandidatePage() {
   const [verdictBusy, setVerdictBusy] = useState<"enough" | "extra" | null>(null);
   const [verdict, setVerdict] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [extraOrdered, setExtraOrdered] = useState(false);
 
-  const openAudit = clarifications.find((item) => item.type === "expert_audit" && item.status === "open");
+  const openAudit = clarifications.find(
+    (item) => item.type === "expert_audit" && isClarificationOpen(item.status),
+  );
+  const hasOpenExtra = clarifications.some(
+    (item) => item.type === "extra" && isClarificationOpen(item.status),
+  );
 
-  /** «Данных хватает»: закрываем запрос рекрутера с причиной. */
+  /** «Данных хватает»: закрываем запрос рекрутера — это не вердикт по вакансии. */
   async function markEnough() {
-    if (!openAudit) return;
+    if (!openAudit || verdictBusy) return;
     setVerdictBusy("enough");
     setError(null);
     try {
@@ -56,13 +67,15 @@ export default function AuditCandidatePage() {
 
   /** «Нужен доп. вопрос»: заказываем точечное уточнение кандидату. */
   async function askExtra() {
+    if (hasOpenExtra || extraOrdered || verdictBusy) return;
     setVerdictBusy("extra");
     setError(null);
     try {
       await requestManagedExtra(params.candidateId);
       const fresh = await loadClarifications(params.candidateId);
       setClarifications(fresh.items);
-      setVerdict("Доп. вопрос заказан. Ссылку кандидату отправляет рекрутер.");
+      setExtraOrdered(true);
+      setVerdict("Доп. вопрос заказан. Ссылку кандидату отправляет рекрутер самостоятельно.");
     } catch (caughtError) {
       setError(normalizeError(caughtError, "Не удалось заказать доп. вопрос."));
     } finally {
@@ -91,6 +104,7 @@ export default function AuditCandidatePage() {
         }
         setInterview(match.interview);
         setVacancyTitle(match.vacancy_title);
+        setAuditContext(auditSubjectContext(match));
         setAuditInQueue(true);
         const [eventsPayload, clarificationList] = await Promise.all([
           loadInterviewEvents(params.candidateId).catch(() => null),
@@ -142,6 +156,25 @@ export default function AuditCandidatePage() {
               description="Просмотр для эксперта: смотрите ответы и решайте, хватает ли данных. Приглашать и передавать менеджеру отсюда нельзя."
             />
             <section className="plain-section">
+              <h2>Предмет аудита</h2>
+              {auditContext ? (
+                <>
+                  <p>
+                    <strong>Требование:</strong> {auditContext.requirement}
+                  </p>
+                  <p>
+                    <strong>Причина запроса:</strong> {auditContext.reason}
+                  </p>
+                  <p className="muted-copy">
+                    Результат фиксируется закрытием запроса. Дальше решает рекрутер: передать менеджеру или
+                    закрыть процесс.
+                  </p>
+                </>
+              ) : (
+                <p className="muted-copy">Контекст запроса в очереди не найден.</p>
+              )}
+            </section>
+            <section className="plain-section">
               <h2>Ваш ответ рекрутеру</h2>
               <p>
                 {auditInQueue
@@ -175,12 +208,15 @@ export default function AuditCandidatePage() {
                       variant="secondary"
                       loading={verdictBusy === "extra"}
                       loadingLabel="Заказываю…"
-                      disabled={verdictBusy !== null}
+                      disabled={verdictBusy !== null || hasOpenExtra || extraOrdered}
                       onClick={() => void askExtra()}
                     >
                       Нужен доп. вопрос
                     </Button>
                   </div>
+                  {hasOpenExtra || extraOrdered ? (
+                    <p className="disabled-hint">Доп. вопрос уже заказан — повторно не создаём.</p>
+                  ) : null}
                 </>
               ) : (
                 <p className="muted-copy">

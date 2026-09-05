@@ -34,6 +34,7 @@ function ExtraBody({ token, extraId }: { token: string; extraId: string }) {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +69,7 @@ function ExtraBody({ token, extraId }: { token: string; extraId: string }) {
     try {
       const result = await submitCandidateExtra(token, extraId, text);
       setStatus(result.status);
+      setSubmitted(true);
     } catch {
       setError("Не получилось отправить ответ. Проверьте соединение и попробуйте ещё раз.");
     } finally {
@@ -110,8 +112,11 @@ function ExtraBody({ token, extraId }: { token: string; extraId: string }) {
         уточните перед отправкой.
       </p>
       <p>Срок письменного ответа в этой ссылке не указан.</p>
-      {alreadyIn ? (
-        <p>Ответ уже принят. Новый текст с этой страницы отправлять не нужно.</p>
+      {alreadyIn || submitted ? (
+        <>
+          <p className="success-message">Ответ принят.</p>
+          <p>Новый текст с этой страницы отправлять не нужно — сохранённый ответ на сервере не показываем.</p>
+        </>
       ) : (
         <form onSubmit={handleSubmit}>
           <Field label="Ваш ответ" error={error ?? undefined}>

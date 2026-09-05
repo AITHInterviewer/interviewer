@@ -125,9 +125,39 @@ export function uncoveredRequirements(rows: RequirementRow[]): RequirementRow[] 
   return rows.filter((row) => row.coverage === "not-covered");
 }
 
+/** Обязательные требования без ответа с расшифровкой — пробел для решения человека. */
+export function mandatoryGapRows(rows: RequirementRow[]): RequirementRow[] {
+  return rows.filter((row) => row.mandatory && row.coverage !== "answered");
+}
+
+/** Желательные пробелы — отдельно от обязательных, не считаются провалом. */
+export function optionalGapRows(rows: RequirementRow[]): RequirementRow[] {
+  return rows.filter((row) => !row.mandatory && row.coverage !== "answered");
+}
+
+/** Честная подпись источника разбора: без analysis — явно «недоступен». */
+export function analysisSourceLabel(analysis?: unknown): string {
+  if (explicitConfirmedSkills(analysis) != null) {
+    return "Источник разбора: автоматический анализ ответов.";
+  }
+  return "Источник разбора: анализ ответов пока недоступен — вывод по навыку не сформирован.";
+}
+
+/** Предупреждение по обязательному пробелу. null — если предупреждать не о чём. */
+export function mandatoryGapWarning(rows: RequirementRow[]): string | null {
+  const gaps = mandatoryGapRows(rows);
+  if (gaps.length === 0) {
+    return null;
+  }
+  const skills = gaps.map((row) => `«${row.skill}»`).join(", ");
+  return `По требованию ${skills} ответ не получен. Можно задать доп. вопрос или запросить аудит.`;
+}
+
 /** Отчёт ещё собирается: цифры покрытия нельзя читать как итоговый пробел. */
 export function isReportProcessing(
   interview: Pick<Interview, "report_status" | "product_state">,
 ): boolean {
   return interview.report_status === "processing" || interview.product_state === "report_processing";
 }
+
+export const PROCESSING_COPY = "Интервью завершено, отчёт собирается";

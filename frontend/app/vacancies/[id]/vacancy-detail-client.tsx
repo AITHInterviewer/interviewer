@@ -17,15 +17,17 @@ import {
   createManagedInterview,
   generateVacancyQuestions,
   loadAnonymizedStats,
+  loadClarifications,
   loadInterviews,
   loadVacancy,
   pauseManagedVacancy,
   resumeManagedVacancy,
   sendManagedVacancyToExpert,
 } from "@/lib/auth";
+import { openClarifications } from "@/lib/clarifications";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
-import { groupInterviews, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
+import { DONE_COLUMN_HINT, groupInterviews, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 
@@ -38,6 +40,14 @@ const COLUMN_EMPTY: Record<string, string> = {
   done: "Решений пока не было",
 };
 const STAGE_EMPTY_NOW = "Сейчас в этой стадии никого нет";
+
+function stageLabel(interview: Interview, openClarification: boolean): string {
+  const base = interviewStageLabel(interview);
+  if (openClarification) {
+    return `${base} · открыто уточнение`;
+  }
+  return base;
+}
 
 function emptyColumnCopy(columnId: string, totalInterviews: number): string {
   if (columnId === "invited" && totalInterviews > 0) {
@@ -86,6 +96,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copyDone, setCopyDone] = useState(false);
+  const [openClarificationIds, setOpenClarificationIds] = useState<Set<string>>(new Set());
 
   const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
   const isHiringManager = landing?.available_areas.some((area) => area.id === HIRING_MANAGER_AREA) ?? false;
@@ -110,6 +121,21 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     try {
       const response = await loadInterviews(vacancyId);
       setInterviews(response.items);
+      if (canManage && response.items.length > 0) {
+        const flags = await Promise.all(
+          response.items.map(async (item) => {
+            try {
+              const clarifications = await loadClarifications(item.id);
+              return openClarifications(clarifications.items).length > 0 ? item.id : null;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        setOpenClarificationIds(new Set(flags.filter((id): id is string => id != null)));
+      } else {
+        setOpenClarificationIds(new Set());
+      }
     } catch (caughtError) {
       setInterviewsError(normalizeError(caughtError, "Не удалось загрузить интервью."));
     } finally {
@@ -421,6 +447,9 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                               <h2>{column.title}</h2>
                               <span>{items.length}</span>
                             </div>
+                            {column.id === "done" ? (
+                              <p className="kanban-column__hint muted-copy">{DONE_COLUMN_HINT}</p>
+                            ) : null}
                             <div className="candidate-stack">
                               {items.length === 0 ? (
                                 <p className="kanban-column__empty">
@@ -433,7 +462,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                                     <CandidateCard
                                       key={interview.id}
                                       name={name}
-                                      stage={interviewStageLabel(interview)}
+                                      stage={stageLabel(interview, openClarificationIds.has(interview.id))}
                                       href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
                                       action={`Открыть ${name}`}
                                     />

@@ -10,6 +10,10 @@ export const KANBAN_COLUMNS: Array<{ id: KanbanColumnId; title: string }> = [
   { id: "done", title: "Завершены" },
 ];
 
+/** Подсказка к колонке «Завершены»: работа рекрутера на этапе закончена, не финальный оффер. */
+export const DONE_COLUMN_HINT =
+  "Работа рекрутера на этом этапе завершена. Это не означает финальное решение по всем кандидатам.";
+
 const PRODUCT_COLUMN: Record<InterviewProductState, KanbanColumnId> = {
   invited: "invited",
   opened: "invited",
