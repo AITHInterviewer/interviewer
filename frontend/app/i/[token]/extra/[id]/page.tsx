@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { CandidateDeadline } from "@/components/chrome/CandidateDeadline";
 import { CandidateGate } from "@/components/chrome/CandidateGate";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
@@ -17,9 +18,9 @@ export default function ExtraPage() {
 
   return (
     <CandidateGate token={token} current="Интервью">
-      {(_info, accessToken) =>
+      {(info, accessToken) =>
         extraId ? (
-          <ExtraBody token={accessToken} extraId={extraId} />
+          <ExtraBody token={accessToken} extraId={extraId} deadline={info.deadline} />
         ) : (
           <ScreenState kind="error" title="Такого уточнения нет" text="Проверьте ссылку целиком." />
         )
@@ -28,7 +29,15 @@ export default function ExtraPage() {
   );
 }
 
-function ExtraBody({ token, extraId }: { token: string; extraId: string }) {
+function ExtraBody({
+  token,
+  extraId,
+  deadline,
+}: {
+  token: string;
+  extraId: string;
+  deadline?: string | null;
+}) {
   const [loadState, setLoadState] = useState<"loading" | "ready" | "missing" | "error">("loading");
   const [status, setStatus] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
@@ -109,6 +118,7 @@ function ExtraBody({ token, extraId }: { token: string; extraId: string }) {
         Рекрутер просит дополнить интервью. Текста вопроса в ссылке нет — напишите ответ на то, о чём
         вас просили отдельно.
       </p>
+      <CandidateDeadline deadline={deadline} />
       {alreadyIn ? (
         <p>Ответ уже принят. Новый текст с этой страницы отправлять не нужно.</p>
       ) : (

@@ -205,6 +205,7 @@ export function respond(pathname) {
       estimated_duration_min: { min: 20, max: 25 },
       product_state: state,
       consented: state !== "opened",
+      deadline: "2026-09-12T18:00:00Z",
     };
   }
   if (/^\/api\/interview\/[^/]+\/(consent|progress)$/.test(p)) return { product_state: "consented" };

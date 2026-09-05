@@ -444,6 +444,8 @@ export type CandidateInterviewInfo = {
   estimated_duration_min: { min: number; max: number };
   product_state?: InterviewProductState;
   consented?: boolean;
+  /** ISO-дата, до которой кандидату нужно действовать. Может отсутствовать. */
+  deadline?: string | null;
 };
 
 export function fetchCandidateInterview(accessToken: string) {

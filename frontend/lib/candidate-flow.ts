@@ -6,6 +6,18 @@ export function routeParam(value: string | string[] | undefined): string | undef
   return typeof value === "string" && value !== "" ? value : undefined;
 }
 
+/** Дата дедлайна из API. Пустая или битая строка → null, без заглушки. */
+export function formatDeadlineDate(value?: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+}
+
 export const CANDIDATE_STEPS = [
   "Приглашение",
   "Согласие",

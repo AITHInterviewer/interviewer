@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
+import { CandidateDeadline } from "@/components/chrome/CandidateDeadline";
 import { CandidateGate } from "@/components/chrome/CandidateGate";
 import { Button } from "@/components/ui/button";
 import { routeParam } from "@/lib/candidate-flow";
@@ -20,6 +21,7 @@ export default function DonePage() {
             Интервью по вакансии «{info.vacancy_title}» записано. Дальше ответы смотрит рекрутер и
             связывается с вами сам.
           </p>
+          <CandidateDeadline deadline={info.deadline} />
           <p>
             Пока можно свериться с расшифровкой своих ответов или написать рекрутеру, если что-то
             нужно уточнить.
