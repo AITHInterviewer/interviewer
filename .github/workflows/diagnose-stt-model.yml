@@ -15,22 +15,13 @@ jobs:
       - name: List local assets dir
         run: Get-ChildItem "C:\ai-interviewer-assets\" | Format-Table Name, Length
 
-      - name: Copy local large-v3 model file into the known snapshot dir (if present)
+      - name: Copy local large-v3 model file into the known snapshot dir
         run: |
           $snapshotDir = "/root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3/snapshots/edaa852ec7e145841d8ffdb056a99866b5f0a478"
-          $candidates = @("large-v3.bin", "model.bin", "faster-whisper-large-v3.bin", "ggml-large-v3.bin")
-          $found = $null
-          foreach ($name in $candidates) {
-            $p = "C:\ai-interviewer-assets\$name"
-            if (Test-Path $p) { $found = $p; break }
-          }
-          if ($found) {
-            Write-Output "found: $found"
-            docker cp $found "live-agent-stt-1:${snapshotDir}/model.bin"
-            docker exec live-agent-stt-1 ls -la $snapshotDir
-          } else {
-            Write-Output "none of the candidate filenames exist - see the directory listing above for the real name"
-          }
+          $found = "C:\ai-interviewer-assets\Systranfaster-whisper-large-v3.bin"
+          Write-Output "found: $found"
+          docker cp $found "live-agent-stt-1:${snapshotDir}/model.bin"
+          docker exec live-agent-stt-1 ls -la $snapshotDir
 
       - name: Trigger a real transcription to verify large-v3 now works
         continue-on-error: true
