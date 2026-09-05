@@ -1,8 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/components/auth/protected-role-page", () => ({
-  ProtectedRolePage: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+const replace = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace, push: vi.fn() }),
+  usePathname: () => "/internal/users",
 }));
 
 vi.mock("@/lib/auth", async () => {
@@ -13,12 +16,20 @@ vi.mock("@/lib/auth", async () => {
     loadInternalUsers: vi.fn(),
     loadRoleRegistry: vi.fn(),
     loadLanding: vi.fn(),
-    loadVacancies: vi.fn(),
   };
 });
 
-import { createManagedInternalUser, loadInternalUsers, loadLanding, loadRoleRegistry, loadVacancies } from "@/lib/auth";
-import RecruiterInternalPage from "./page";
+import { createManagedInternalUser, loadInternalUsers, loadLanding, loadRoleRegistry } from "@/lib/auth";
+import { ThemeProvider } from "@/lib/theme";
+import InternalUsersPage from "./page";
+
+function renderPage() {
+  return render(
+    <ThemeProvider>
+      <InternalUsersPage />
+    </ThemeProvider>,
+  );
+}
 
 const registryEntries = [
   { code: "recruiter", title: "Recruiter", sort_order: 0 },
@@ -26,26 +37,40 @@ const registryEntries = [
   { code: "expert", title: "Expert", sort_order: 2 },
 ];
 
-describe("RecruiterInternalPage", () => {
+describe("InternalUsersPage", () => {
   beforeEach(() => {
+    replace.mockReset();
     vi.mocked(createManagedInternalUser).mockReset();
-    vi.mocked(loadInternalUsers).mockResolvedValue({
-      items: [],
-    });
+    vi.mocked(loadInternalUsers).mockResolvedValue({ items: [] });
     vi.mocked(loadRoleRegistry).mockResolvedValue(registryEntries);
     vi.mocked(loadLanding).mockResolvedValue({
       session: { token: "token", user: { id: "1", name: "Recruiter", email: "r@example.com", roles: ["recruiter"] } },
       landing: {
         roles: ["recruiter"],
-        default_path: "/internal/recruiter",
-        available_areas: [{ id: "area.recruiter_workspace", label: "Recruiter", path: "/internal/recruiter" }],
-        available_actions: [],
+        default_path: "/vacancies",
+        available_areas: [{ id: "area.recruiter_workspace", label: "Recruiter workspace", path: "/vacancies" }],
+        available_actions: ["action.internal_users.manage"],
       },
     });
-    vi.mocked(loadVacancies).mockResolvedValue({ items: [] });
   });
 
-  it("shows the users tab and submits the internal-user creation form", async () => {
+  it("redirects away when the user cannot manage internal users", async () => {
+    vi.mocked(loadLanding).mockResolvedValue({
+      session: { token: "token", user: { id: "1", name: "Expert", email: "e@example.com", roles: ["expert"] } },
+      landing: {
+        roles: ["expert"],
+        default_path: "/vacancies",
+        available_areas: [{ id: "area.expert_questions", label: "Expert workspace", path: "/vacancies" }],
+        available_actions: ["action.questions.edit"],
+      },
+    });
+
+    renderPage();
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/vacancies"));
+  });
+
+  it("shows the empty state and submits the internal-user creation form", async () => {
     vi.mocked(createManagedInternalUser).mockResolvedValue({
       id: "2",
       name: "Manager One",
@@ -54,12 +79,9 @@ describe("RecruiterInternalPage", () => {
       created_by_user_id: "1",
     });
 
-    render(<RecruiterInternalPage />);
+    renderPage();
 
-    fireEvent.click((await screen.findAllByRole("tab", { name: /users/i }))[0]);
-
-    expect(screen.getByRole("tab", { name: /users/i })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText(/no managed users yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no managed users yet/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /add new user/i }));
 
@@ -73,29 +95,14 @@ describe("RecruiterInternalPage", () => {
 
     fireEvent.submit(screen.getByRole("button", { name: /create internal user/i }).closest("form")!);
 
-    await waitFor(() => expect(createManagedInternalUser).toHaveBeenCalledWith({
-      name: "Manager One",
-      email: "manager@example.com",
-      roles: ["hiring_manager"],
-      temporaryPassword: "TempPass123",
-    }));
+    await waitFor(() =>
+      expect(createManagedInternalUser).toHaveBeenCalledWith({
+        name: "Manager One",
+        email: "manager@example.com",
+        roles: ["hiring_manager"],
+        temporaryPassword: "TempPass123",
+      }),
+    );
     await waitFor(() => expect(screen.getByText(/manager one \(hiring_manager\) created/i)).toBeInTheDocument());
-  });
-
-  it("shows placeholder copy on future tabs", async () => {
-    render(<RecruiterInternalPage />);
-
-    fireEvent.click((await screen.findAllByRole("tab", { name: /candidates/i }))[0]);
-
-    expect(screen.getByText(/placeholder/i)).toBeInTheDocument();
-    expect(screen.getByText(/candidates tab is reserved/i)).toBeInTheDocument();
-  });
-
-  it("shows the vacancies tab with no vacancies yet", async () => {
-    render(<RecruiterInternalPage />);
-
-    fireEvent.click((await screen.findAllByRole("tab", { name: /vacancies/i }))[0]);
-
-    expect(await screen.findByText(/no vacancies yet/i)).toBeInTheDocument();
   });
 });

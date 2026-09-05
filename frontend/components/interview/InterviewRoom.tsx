@@ -24,10 +24,14 @@ export function InterviewRoom({
   sessionId,
   stream,
   initialSpeakerId,
+  onRoadmapChange,
 }: {
   sessionId: string;
   stream: MediaStream | null;
   initialSpeakerId?: string | null;
+  /** Поднимает роадмап наверх (InterviewFlow → CandidateShell), чтобы им управлял
+   * реальный `<Stepper>` в шапке кандидатского флоу, а не дублирующийся визуал здесь. */
+  onRoadmapChange?: (roadmap: { index: number; total: number } | null) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const liveKitRef = useRef<LiveKitSession | null>(null);
@@ -55,6 +59,10 @@ export function InterviewRoom({
       setRoadmap({ index: event.question_index, total: event.questions_total });
     }
   }
+
+  useEffect(() => {
+    onRoadmapChange?.(roadmap);
+  }, [roadmap, onRoadmapChange]);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -104,20 +112,28 @@ export function InterviewRoom({
       ? channelState.event.text
       : null;
 
+  if (channelState.status === "completed") {
+    return (
+      <div className="completion-stage">
+        <Check size={40} />
+        <h1>Интервью завершено</h1>
+        <p>Спасибо, ответы отправлены на обработку.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      {roadmap && <Roadmap index={roadmap.index} total={roadmap.total} />}
-
       {/* 260px справа — камера кандидата + плашка интервьюера, симметричный пустой
           спейсер слева той же ширины, чтобы центральная колонка с вопросом была
           визуально центрирована в viewport, а не просто занимала оставшийся `1fr`. */}
       <div className="grid gap-4 sm:grid-cols-[260px_1fr_260px]">
         <div className="hidden sm:block" aria-hidden="true" />
 
-        <div className="flex min-h-[220px] flex-col items-center justify-center gap-4 rounded-xl border bg-card p-6 text-center">
+        <div className="flex min-h-[220px] flex-col items-center justify-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] p-6 text-center">
           <p className="text-xl font-medium leading-snug">{questionText ?? "Подключаемся к интервью…"}</p>
           <StatusLine channelState={channelState} />
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
         </div>
 
         <div className="space-y-3">
@@ -126,17 +142,19 @@ export function InterviewRoom({
               будучи абсолютно спозиционированным поверх неё. */}
           <div className="relative">
             <div
-              className={`aspect-video overflow-hidden rounded-xl border-4 bg-muted/30 transition-colors duration-150 ${
-                candidateSpeaking ? "border-primary shadow-[0_0_0_4px_hsl(var(--primary)/0.25)]" : "border-transparent"
+              className={`aspect-video overflow-hidden rounded-xl border-4 bg-[var(--surface-muted)] transition-colors duration-150 ${
+                candidateSpeaking
+                  ? "border-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_25%,transparent)]"
+                  : "border-transparent"
               }`}
             >
               <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
               <div
-                className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-white transition-opacity ${
-                  candidateSpeaking ? "bg-primary opacity-100" : "opacity-0"
+                className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-medium text-[var(--accent-ink)] transition-opacity ${
+                  candidateSpeaking ? "opacity-100" : "opacity-0"
                 }`}
               >
-                <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--accent-ink)]" />
                 Вы говорите
               </div>
             </div>
@@ -146,7 +164,9 @@ export function InterviewRoom({
           </div>
           <div
             className={`flex aspect-video items-center justify-center rounded-xl border text-sm ${
-              agentPresence === "speaking" ? "border-primary bg-primary/10 text-primary" : "bg-muted/30 text-muted-foreground"
+              agentPresence === "speaking"
+                ? "border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] text-[var(--accent)]"
+                : "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--ink-secondary)]"
             }`}
           >
             {agentPresence === "speaking" ? "Интервьюер говорит…" : agentPresence === "present" ? "Интервьюер" : "Ожидаем интервьюера…"}
@@ -157,50 +177,19 @@ export function InterviewRoom({
   );
 }
 
-/** US2 — прогресс по ОРИГИНАЛЬНЫМ вопросам, роадмапом сверху. Адаптивные/чек-ин вопросы
- * сюда намеренно не попадают (см. control-channel.ts) — только `total` кружков-шагов на
- * оригинальные вопросы вакансии, текущий выделен, пройденные помечены галочкой. */
-function Roadmap({ index, total }: { index: number; total: number }) {
-  return (
-    <div className="flex items-center justify-center gap-2">
-      {Array.from({ length: total }, (_, i) => {
-        const isDone = i < index;
-        const isCurrent = i === index;
-        return (
-          <div key={i} className="flex items-center gap-2">
-            <div
-              className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-medium transition-colors ${
-                isCurrent
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : isDone
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-muted-foreground/30 text-muted-foreground"
-              }`}
-            >
-              {isDone ? <Check className="h-3.5 w-3.5" /> : i + 1}
-            </div>
-            {i < total - 1 && (
-              <div className={`h-0.5 w-6 rounded-full sm:w-10 ${isDone ? "bg-primary/40" : "bg-muted-foreground/20"}`} />
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function StatusLine({ channelState }: { channelState: ChannelState }) {
   switch (channelState.status) {
     case "connecting":
-      return <p className="text-sm text-muted-foreground">Подключаемся…</p>;
+      return <p className="text-sm text-[var(--ink-secondary)]">Подключаемся…</p>;
     case "reconnecting":
-      return <p className="text-sm text-destructive">Потеряна связь — переподключаемся…</p>;
+      return <p className="text-sm text-[var(--danger)]">Потеряна связь — переподключаемся…</p>;
     case "completed":
-      return <p className="text-sm text-muted-foreground">Интервью завершено. Спасибо, ответы отправлены на обработку.</p>;
+      // Недостижимо: InterviewRoom рендерит .completion-stage раньше StatusLine (см. выше).
+      return null;
     case "closed":
-      return <p className="text-sm text-muted-foreground">Соединение закрыто.</p>;
+      return <p className="text-sm text-[var(--ink-secondary)]">Соединение закрыто.</p>;
     case "question_active":
-      return <p className="text-sm text-muted-foreground">Слушаем вас — говорите свободно.</p>;
+      return <p className="text-sm text-[var(--ink-secondary)]">Слушаем вас — говорите свободно.</p>;
   }
 }
 
@@ -266,13 +255,13 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
         type="button"
         onClick={() => setOpen((value) => !value)}
         aria-label="Настройки устройств"
-        className="flex h-9 w-9 items-center justify-center rounded-full border bg-card text-muted-foreground hover:bg-muted"
+        className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-raised)] text-[var(--ink-secondary)] hover:bg-[var(--surface)]"
       >
         <MoreVertical className="h-4 w-4" />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-10 w-72 overflow-hidden rounded-xl border bg-popover text-sm shadow-lg">
+        <div className="absolute right-0 top-11 z-10 w-72 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] text-sm shadow-lg">
           {view === "main" ? (
             <div className="py-1">
               {rows.map((row, index) => {
@@ -283,16 +272,16 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
                     key={row.kind}
                     type="button"
                     onClick={() => setView(row.kind)}
-                    className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted ${
-                      index > 0 ? "border-t" : ""
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[var(--surface)] ${
+                      index > 0 ? "border-t border-[var(--border)]" : ""
                     }`}
                   >
-                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <Icon className="h-4 w-4 shrink-0 text-[var(--ink-secondary)]" />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-muted-foreground">{row.label}</span>
+                      <span className="block text-[var(--ink-secondary)]">{row.label}</span>
                       <span className="block truncate">{current?.label || "По умолчанию"}</span>
                     </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <ChevronRight className="h-4 w-4 shrink-0 text-[var(--ink-secondary)]" />
                   </button>
                 );
               })}
@@ -302,7 +291,7 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
               <button
                 type="button"
                 onClick={() => setView("main")}
-                className="flex w-full items-center gap-3 border-b px-4 py-3 text-left font-medium hover:bg-muted"
+                className="flex w-full items-center gap-3 border-b border-[var(--border)] px-4 py-3 text-left font-medium hover:bg-[var(--surface)]"
               >
                 <ChevronLeft className="h-4 w-4 shrink-0" />
                 {rows.find((row) => row.kind === view)?.label}
@@ -314,7 +303,7 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
                     key={device.deviceId}
                     type="button"
                     onClick={() => switchDevice(view as MediaDeviceKind, device.deviceId)}
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-muted"
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--surface)]"
                   >
                     <Check
                       className={`h-4 w-4 shrink-0 ${

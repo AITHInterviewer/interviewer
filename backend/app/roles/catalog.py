@@ -10,9 +10,9 @@ ACTION_QUESTIONS_EDIT = "action.questions.edit"
 # Paths are frontend routing metadata for landing areas; they live next to the
 # capability catalog so new areas declare their route in one place.
 AREA_PATHS: dict[str, str] = {
-    AREA_RECRUITER_WORKSPACE: "/internal/recruiter",
+    AREA_RECRUITER_WORKSPACE: "/vacancies",
     AREA_HIRING_MANAGER_REVIEW: "/internal/hiring-manager",
-    AREA_EXPERT_QUESTIONS: "/internal/expert",
+    AREA_EXPERT_QUESTIONS: "/vacancies",
 }
 
 BUILTIN_CAPABILITIES: tuple[Capability, ...] = (

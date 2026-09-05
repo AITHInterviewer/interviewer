@@ -48,7 +48,7 @@ export default function RegisterPage() {
       title="Create the first recruiter account"
       description="Create a recruiter account to get started."
     >
-      <form className="auth-form" onSubmit={handleSubmit}>
+      <form className="form-surface" onSubmit={handleSubmit}>
         <label>
           Full name
           <input name="name" value={name} onChange={(event) => setName(event.target.value)} required />
@@ -74,7 +74,7 @@ export default function RegisterPage() {
             required
           />
         </label>
-        {error ? <p className="field-error">{error}</p> : null}
+        {error ? <p className="form-error">{error}</p> : null}
         <div className="form-actions">
           <button className="button button--primary" type="submit" disabled={submitting}>
             {submitting ? "Creating account..." : "Create recruiter account"}

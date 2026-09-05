@@ -2,9 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
 
 export type DeviceCheckStatus = "idle" | "checking" | "granted" | "denied";
+
+/** Число полос в реальном уровнемере (визуал `.wave-bars`, см. product.css) — высота
+ * каждой берётся из настоящего `AnalyserNode.getByteFrequencyData`, не анимируется
+ * декоративно. */
+const BAR_COUNT = 12;
 
 type DeviceCheckProps = {
   /** Вызывается один раз, когда кандидат явно подтвердил выбор устройств кнопкой
@@ -33,6 +39,7 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
   const [status, setStatus] = useState<DeviceCheckStatus>("idle");
   const [errorReason, setErrorReason] = useState<string | null>(null);
   const [micLevel, setMicLevel] = useState(0);
+  const [barLevels, setBarLevels] = useState<number[]>(() => Array(BAR_COUNT).fill(0));
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([]);
@@ -68,6 +75,9 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       source.connect(analyser);
 
       const data = new Uint8Array(analyser.frequencyBinCount);
+      // Отдельный буфер для реального спектра — рисует `.wave-bars` тем же анализатором,
+      // что и RMS-уровень выше, вместо декоративной фейковой анимации.
+      const freqData = new Uint8Array(analyser.frequencyBinCount);
       const tick = () => {
         analyser.getByteTimeDomainData(data);
         let sumSquares = 0;
@@ -77,6 +87,10 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
         }
         const rms = Math.sqrt(sumSquares / data.length);
         setMicLevel(Math.min(1, rms * 4));
+        analyser.getByteFrequencyData(freqData);
+        setBarLevels(
+          Array.from({ length: BAR_COUNT }, (_, i) => freqData[Math.min(freqData.length - 1, i * 8)] / 255),
+        );
         rafRef.current = requestAnimationFrame(tick);
       };
       rafRef.current = requestAnimationFrame(tick);
@@ -191,69 +205,71 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
 
   if (status === "idle") {
     return (
-      <div className="space-y-3 rounded-xl border bg-muted/30 p-6 text-center">
-        <p className="text-sm text-muted-foreground">
-          Понадобится доступ к камере и микрофону — без него интервью пройти нельзя.
-        </p>
-        <Button type="button" onClick={() => void acquire()}>
-          Разрешить доступ к камере и микрофону
-        </Button>
-      </div>
+      <ScreenState
+        kind="empty"
+        title="Нужен доступ к камере и микрофону"
+        text="Без него интервью пройти нельзя."
+        action={
+          <Button type="button" onClick={() => void acquire()}>
+            Разрешить доступ к камере и микрофону
+          </Button>
+        }
+      />
     );
   }
 
   if (status === "denied") {
     return (
-      <div
-        role="alert"
-        className="space-y-4 rounded-xl border border-destructive/40 bg-destructive/5 p-6 text-center"
-      >
-        <h2 className="text-lg font-medium">Нет доступа к камере или микрофону</h2>
-        <p className="text-sm text-muted-foreground">
-          {errorReason ??
-            "Похоже, доступ уже был отклонён раньше — из кода браузер больше не показывает системный " +
-              "запрос повторно. Разрешите камеру и микрофон для этого сайта в настройках браузера " +
-              "(обычно значок замка/камеры слева от адресной строки) и нажмите «Запросить снова»."}
-        </p>
-        <Button type="button" onClick={() => void acquire()}>
-          Запросить доступ снова
-        </Button>
-      </div>
+      <ScreenState
+        kind="error"
+        title="Нет доступа к камере или микрофону"
+        text={
+          errorReason ??
+          "Похоже, доступ уже был отклонён раньше — из кода браузер больше не показывает системный " +
+            "запрос повторно. Разрешите камеру и микрофон для этого сайта в настройках браузера " +
+            "(обычно значок замка/камеры слева от адресной строки) и нажмите «Запросить снова»."
+        }
+        action={
+          <Button type="button" onClick={() => void acquire()}>
+            Запросить доступ снова
+          </Button>
+        }
+      />
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="aspect-video overflow-hidden rounded-xl border bg-muted/30">
+      <div className="aspect-video w-full overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface-muted)]">
         {/* Превью собственной камеры кандидата — без субтитров: контент не несёт информации для восприятия. */}
         <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
       </div>
-      <div className="space-y-1">
-        <p className="text-sm text-muted-foreground">
-          {status === "checking" ? "Запрашиваем доступ к камере и микрофону…" : "Камера и микрофон готовы"}
-        </p>
+
+      <div className="device-check">
         <div
+          className="wave-bars"
           role="meter"
           aria-label="Уровень микрофона"
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(micLevel * 100)}
-          className="h-2 w-full overflow-hidden rounded-full bg-muted"
         >
-          <div
-            className="h-full bg-primary transition-[width] duration-75"
-            style={{ width: `${Math.round(micLevel * 100)}%` }}
-          />
+          {barLevels.map((level, index) => (
+            <i key={index} style={{ height: `${Math.max(4, Math.round(level * 54))}px` }} />
+          ))}
         </div>
+        <span className="text-[13px] text-[var(--ink-secondary)]">
+          {status === "checking" ? "Запрашиваем доступ к камере и микрофону…" : "Камера и микрофон готовы"}
+        </span>
       </div>
 
       {status === "granted" && (cameras.length > 1 || microphones.length > 1) && (
         <div className="grid gap-3 sm:grid-cols-2">
           {cameras.length > 1 && (
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Камера</span>
+            <label className="field-block">
+              <span className="text-[12px] text-[var(--ink-secondary)]">Камера</span>
               <select
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                className="min-h-[42px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--ink)]"
                 value={cameraId}
                 onChange={(event) => void switchDevice("video", event.target.value)}
               >
@@ -266,10 +282,10 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
             </label>
           )}
           {microphones.length > 1 && (
-            <label className="space-y-1 text-sm">
-              <span className="text-muted-foreground">Микрофон</span>
+            <label className="field-block">
+              <span className="text-[12px] text-[var(--ink-secondary)]">Микрофон</span>
               <select
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                className="min-h-[42px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--ink)]"
                 value={microphoneId}
                 onChange={(event) => void switchDevice("audio", event.target.value)}
               >

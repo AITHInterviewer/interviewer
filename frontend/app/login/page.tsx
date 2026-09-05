@@ -47,7 +47,7 @@ export default function LoginPage() {
       title="Sign in to the internal workspace"
       description="Use your internal account."
     >
-      <form className="auth-form" onSubmit={handleSubmit}>
+      <form className="form-surface" onSubmit={handleSubmit}>
         <label>
           Work email
           <input
@@ -69,7 +69,7 @@ export default function LoginPage() {
             required
           />
         </label>
-        {error ? <p className="field-error">{error}</p> : null}
+        {error ? <p className="form-error">{error}</p> : null}
         <div className="form-actions">
           <button className="button button--primary" type="submit" disabled={submitting}>
             {submitting ? "Signing in..." : "Sign in"}

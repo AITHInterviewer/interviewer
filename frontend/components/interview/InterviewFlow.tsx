@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 
+import { Check } from "@phosphor-icons/react";
+
+import { CandidateShell } from "@/components/chrome/CandidateShell";
+import { ScreenState } from "@/components/chrome/ScreenState";
 import { DeviceCheck } from "@/components/interview/DeviceCheck";
 import { InterviewRoom } from "@/components/interview/InterviewRoom";
 import { apiFetch } from "@/lib/api";
@@ -28,6 +32,10 @@ export function InterviewFlow({ token }: { token: string }) {
   const [info, setInfo] = useState<ConsentInfo | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [speakerId, setSpeakerId] = useState<string | null>(null);
+  // Роадмап по оригинальным вопросам поднимается сюда из InterviewRoom (единственное
+  // место, где он реально известен — см. InterviewRoom.tsx, ControlEvent.type ===
+  // "question") — чтобы им управлял Stepper в CandidateShell.
+  const [roadmap, setRoadmap] = useState<{ index: number; total: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,64 +54,97 @@ export function InterviewFlow({ token }: { token: string }) {
   }, [token]);
 
   if (step === "loading") {
-    return <p className="text-sm text-muted-foreground">Загружаем интервью…</p>;
+    return (
+      <main className="workspace">
+        <ScreenState kind="loading" title="Загружаем интервью…" text="Это займёт пару секунд." />
+      </main>
+    );
   }
 
   if (step === "not_found") {
     return (
-      <div role="alert" className="rounded-xl border border-destructive/40 bg-destructive/5 p-6">
-        <h1 className="text-lg font-medium">Ссылка недействительна</h1>
-        <p className="text-sm text-muted-foreground">Проверьте, что ссылка скопирована полностью.</p>
-      </div>
+      <main className="workspace">
+        <ScreenState
+          kind="error"
+          title="Ссылка недействительна"
+          text="Проверьте, что ссылка скопирована полностью."
+        />
+      </main>
     );
   }
 
   if (step === "already_completed") {
     return (
-      <div className="rounded-xl border bg-card p-6">
-        <h1 className="text-lg font-medium">Это интервью уже пройдено</h1>
-        <p className="text-sm text-muted-foreground">Повторное прохождение по этой ссылке недоступно.</p>
-      </div>
+      <main className="workspace">
+        <ScreenState
+          kind="empty"
+          title="Это интервью уже пройдено"
+          text="Повторное прохождение по этой ссылке недоступно."
+        />
+      </main>
     );
   }
 
   if (!info) return null;
 
+  // Пока роадмап ещё не известен (сетап или начало комнаты до первого вопроса) — простой
+  // двухшаговый индикатор вместо статического списка шагов фиксированного сценария:
+  // реальный флоу кандидата не фрагментирован на отдельные роуты (см. call-out 1 плана).
+  const steps = roadmap
+    ? Array.from({ length: roadmap.total }, (_, i) => `Вопрос ${i + 1}`)
+    : ["Настройка", "Интервью"];
+  const current = roadmap ? `Вопрос ${roadmap.index + 1}` : step === "setup" ? "Настройка" : "Интервью";
+
   if (step === "setup") {
     const { min, max } = info.estimated_duration_min;
     return (
-      <div className="space-y-6 rounded-xl border bg-card p-6">
-        <div className="space-y-2">
-          <p className="text-sm uppercase tracking-[0.2em] text-muted-foreground">{info.vacancy_title}</p>
-          <h1 className="text-2xl font-semibold tracking-tight">Перед началом интервью</h1>
-        </div>
-        <ul className="space-y-3 text-sm text-muted-foreground">
-          <li>
-            <strong className="text-foreground">Запись.</strong> Видео и аудио звонка, а также текстовый ответ
-            (если формат вопроса требует ввода), записываются целиком.
-          </li>
-          <li>
-            <strong className="text-foreground">Автоматизированная обработка.</strong> Ответы транскрибируются и
-            оцениваются алгоритмически — без анализа лица, эмоций или голосовых характеристик.
-          </li>
-          <li>
-            <strong className="text-foreground">Кто увидит результат.</strong> Рекрутёр, разместивший вакансию.
-          </li>
-          <li>
-            <strong className="text-foreground">Вопросов:</strong> {info.questions_total}, ожидаемая длительность —{" "}
-            {min}–{max} минут.
-          </li>
-        </ul>
-        <DeviceCheck
-          onGranted={(granted, speaker) => {
-            setStream(granted);
-            setSpeakerId(speaker);
-            setStep("ready");
-          }}
-        />
-      </div>
+      <CandidateShell vacancyTitle={info.vacancy_title} steps={steps} current={current}>
+        <section className="setup-stage" style={{ width: "100%" }}>
+          <h1>Перед началом интервью</h1>
+          <ul className="check-list" style={{ marginTop: 0 }}>
+            <li>
+              <Check size={17} />
+              <span>
+                <strong>Запись.</strong> Видео и аудио звонка, а также текстовый ответ (если формат
+                вопроса требует ввода), записываются целиком.
+              </span>
+            </li>
+            <li>
+              <Check size={17} />
+              <span>
+                <strong>Автоматизированная обработка.</strong> Ответы транскрибируются и оцениваются
+                алгоритмически — без анализа лица, эмоций или голосовых характеристик.
+              </span>
+            </li>
+            <li>
+              <Check size={17} />
+              <span>
+                <strong>Кто увидит результат.</strong> Рекрутёр, разместивший вакансию.
+              </span>
+            </li>
+            <li>
+              <Check size={17} />
+              <span>
+                <strong>Вопросов:</strong> {info.questions_total}, ожидаемая длительность — {min}–{max}{" "}
+                минут.
+              </span>
+            </li>
+          </ul>
+          <DeviceCheck
+            onGranted={(granted, speaker) => {
+              setStream(granted);
+              setSpeakerId(speaker);
+              setStep("ready");
+            }}
+          />
+        </section>
+      </CandidateShell>
     );
   }
 
-  return <InterviewRoom sessionId={token} stream={stream} initialSpeakerId={speakerId} />;
+  return (
+    <CandidateShell vacancyTitle={info.vacancy_title} steps={steps} current={current}>
+      <InterviewRoom sessionId={token} stream={stream} initialSpeakerId={speakerId} onRoadmapChange={setRoadmap} />
+    </CandidateShell>
+  );
 }

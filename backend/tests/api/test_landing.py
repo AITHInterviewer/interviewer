@@ -23,7 +23,7 @@ async def test_landing_for_recruiter_plus_expert_contains_both_areas(client) -> 
     assert "area.recruiter_workspace" in area_ids
     assert "area.expert_questions" in area_ids
     assert "action.questions.edit" in landing["available_actions"]
-    assert landing["default_path"] == "/internal/recruiter"
+    assert landing["default_path"] == "/vacancies"
     assert landing["default_path"] in {area["path"] for area in landing["available_areas"]}
 
 
@@ -42,5 +42,5 @@ async def test_landing_for_single_role_user_is_role_scoped(client) -> None:
     landing = response.json()
     assert landing["roles"] == ["expert"]
     assert [area["id"] for area in landing["available_areas"]] == ["area.expert_questions"]
-    assert landing["default_path"] == "/internal/expert"
+    assert landing["default_path"] == "/vacancies"
     assert "action.questions.edit" in landing["available_actions"]

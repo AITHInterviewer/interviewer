@@ -1,23 +1,65 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const protectedRolePage = vi.fn(({ children }: { children?: React.ReactNode }) => <div>{children}</div>);
+const replace = vi.fn();
 
-vi.mock("@/components/auth/protected-role-page", () => ({
-  ProtectedRolePage: (props: { children?: React.ReactNode; requiredArea?: string }) => protectedRolePage(props),
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace, push: vi.fn() }),
+  usePathname: () => "/internal/hiring-manager",
 }));
 
+vi.mock("@/lib/auth", () => ({
+  loadLanding: vi.fn(),
+}));
+
+import { loadLanding } from "@/lib/auth";
+import { ThemeProvider } from "@/lib/theme";
 import HiringManagerPage from "./page";
 
+function renderPage() {
+  return render(
+    <ThemeProvider>
+      <HiringManagerPage />
+    </ThemeProvider>,
+  );
+}
+
 describe("HiringManagerPage", () => {
-  it("renders the protected hiring manager page gated by the hiring manager area", () => {
-    protectedRolePage.mockClear();
+  beforeEach(() => {
+    replace.mockReset();
+  });
 
-    render(<HiringManagerPage />);
+  it("redirects away when the user lacks the hiring manager area", async () => {
+    vi.mocked(loadLanding).mockResolvedValue({
+      session: { token: "token", user: { id: "1", name: "Recruiter", email: "r@example.com", roles: ["recruiter"] } },
+      landing: {
+        roles: ["recruiter"],
+        default_path: "/vacancies",
+        available_areas: [{ id: "area.recruiter_workspace", label: "Recruiter workspace", path: "/vacancies" }],
+        available_actions: [],
+      },
+    });
 
-    expect(screen.getByText(/hiring manager workspace is reserved/i)).toBeInTheDocument();
-    expect(protectedRolePage).toHaveBeenCalledWith(
-      expect.objectContaining({ requiredArea: "area.hiring_manager_review" }),
-    );
+    renderPage();
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/vacancies"));
+  });
+
+  it("renders the placeholder workspace for hiring managers", async () => {
+    vi.mocked(loadLanding).mockResolvedValue({
+      session: { token: "token", user: { id: "1", name: "Manager", email: "m@example.com", roles: ["hiring_manager"] } },
+      landing: {
+        roles: ["hiring_manager"],
+        default_path: "/internal/hiring-manager",
+        available_areas: [
+          { id: "area.hiring_manager_review", label: "Hiring manager workspace", path: "/internal/hiring-manager" },
+        ],
+        available_actions: [],
+      },
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/hiring manager workspace is reserved/i)).toBeInTheDocument();
   });
 });

@@ -98,7 +98,7 @@ async def test_recruiter_creates_internal_accounts_and_landing(client) -> None:
     assert landing_response.status_code == 200
     landing = landing_response.json()
     assert landing["roles"] == ["recruiter"]
-    assert landing["default_path"] == "/internal/recruiter"
+    assert landing["default_path"] == "/vacancies"
     assert [area["id"] for area in landing["available_areas"]] == ["area.recruiter_workspace"]
     assert "action.internal_users.manage" in landing["available_actions"]
 

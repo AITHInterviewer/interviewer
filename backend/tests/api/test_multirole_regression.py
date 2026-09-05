@@ -77,5 +77,5 @@ async def test_recruiter_landing_keeps_management_access(client) -> None:
     )
 
     assert landing.status_code == 200
-    assert landing.json()["default_path"] == "/internal/recruiter"
+    assert landing.json()["default_path"] == "/vacancies"
     assert "action.internal_users.manage" in landing.json()["available_actions"]
