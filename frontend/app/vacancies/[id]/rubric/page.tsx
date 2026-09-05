@@ -8,6 +8,7 @@ import { AppShell } from "@/components/chrome/AppShell";
 import { CalibrationSubnav } from "@/components/chrome/CalibrationSubnav";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SkeletonText } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { RubricVersion, VacancyDetail } from "@/lib/api";
 import { loadRubricVersions, loadVacancy } from "@/lib/auth";
@@ -77,16 +78,20 @@ function RubricInner() {
   return (
     <AppShell nav={buildNav(landing)} title="Рубрика">
       <div className="workspace">
-        {fromRecruiter ? null : <CalibrationSubnav vacancyId={vacancyId} />}
-        {vacancyLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем требования…" /> : null}
+        {vacancyLoading ? <SkeletonText lines={4} label="Загружаю требования" /> : null}
         {error ? <ScreenState kind="error" title="Нет рубрики" text={error} /> : null}
         {vacancy ? (
           <>
             <PageHeader
               path={`Вакансии / ${vacancy.title}`}
               title="Требования"
-              description={fromRecruiter ? "Только просмотр." : "Калибровка версии."}
+              description={
+                fromRecruiter
+                  ? "Только просмотр: версию собирает и утверждает эксперт."
+                  : "Требование закрывается вопросом комплекта. Где вопроса нет, в отчёте будет пробел."
+              }
             />
+            {fromRecruiter ? null : <CalibrationSubnav vacancyId={vacancyId} />}
             {gaps.length > 0 ? (
               <p className="report-gap">
                 Ни один вопрос комплекта не закрывает: {gaps.map((row) => row.skill).join(", ")}. Пока
