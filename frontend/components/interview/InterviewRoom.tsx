@@ -24,14 +24,10 @@ export function InterviewRoom({
   sessionId,
   stream,
   initialSpeakerId,
-  onRoadmapChange,
 }: {
   sessionId: string;
   stream: MediaStream | null;
   initialSpeakerId?: string | null;
-  /** Поднимает роадмап наверх (InterviewFlow → CandidateShell), чтобы им управлял
-   * реальный `<Stepper>` в шапке кандидатского флоу, а не дублирующийся визуал здесь. */
-  onRoadmapChange?: (roadmap: { index: number; total: number } | null) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const liveKitRef = useRef<LiveKitSession | null>(null);
@@ -41,7 +37,17 @@ export function InterviewRoom({
   // за отведённое время) — дальше ждать нечего, показываем экран выхода вместо того,
   // чтобы кандидат смотрел на мёртвую комнату с текстом ошибки под вопросом.
   const [fatalError, setFatalError] = useState<string | null>(null);
-  const candidateSpeaking = useMicSpeaking(stream);
+  // Только чтобы форсировать перерасчёт activeVideoTrack/activeAudioTrack ниже после
+  // успешного переключения устройства в DeviceSettings — сам номер нигде не читается.
+  const [, bumpDeviceVersion] = useState(0);
+  // После switchDevice("videoinput"/"audioinput", …) LiveKit пересоздаёт трек внутри
+  // себя (через свежий getUserMedia) — исходные `stream.getVideoTracks()[0]`/
+  // `getAudioTracks()[0]` с экрана проверки устройств после этого уже не те треки,
+  // что реально идут в комнату. Превью камеры и индикатор "вы говорите" должны
+  // смотреть на РЕАЛЬНО исходящий трек, а не на устаревший исходный стрим.
+  const activeVideoTrack = liveKitRef.current?.getLocalVideoTrack() ?? stream?.getVideoTracks()[0] ?? null;
+  const activeAudioTrack = liveKitRef.current?.getLocalAudioTrack() ?? stream?.getAudioTracks()[0] ?? null;
+  const candidateSpeaking = useMicSpeaking(activeAudioTrack);
   // Роадмап считает только "оригинальные" вопросы (ControlEvent.type === "question") —
   // checkin/adaptive_question не несут question_index/questions_total (см.
   // control-channel.ts) и намеренно не двигают роадмап: это уточнения в рамках текущего
@@ -64,14 +70,10 @@ export function InterviewRoom({
   }
 
   useEffect(() => {
-    onRoadmapChange?.(roadmap);
-  }, [roadmap, onRoadmapChange]);
-
-  useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    if (videoRef.current && activeVideoTrack) {
+      videoRef.current.srcObject = new MediaStream([activeVideoTrack]);
     }
-  }, [stream]);
+  }, [activeVideoTrack]);
 
   useEffect(() => {
     if (!stream) return;
@@ -156,21 +158,33 @@ export function InterviewRoom({
       </section>
 
       {roadmap && (
-        <ol className="hidden sm:fixed sm:left-6 sm:top-1/2 sm:block sm:w-[160px] sm:-translate-y-1/2 sm:space-y-2 sm:text-sm">
-          {Array.from({ length: roadmap.total }, (_, i) => (
-            <li
-              key={i}
-              className={
-                i === roadmap.index
-                  ? "font-medium text-[var(--ink)]"
-                  : i < roadmap.index
-                    ? "text-[var(--positive)]"
-                    : "text-[var(--ink-tertiary)]"
-              }
-            >
-              Вопрос {i + 1}
-            </li>
-          ))}
+        <ol className="hidden sm:fixed sm:left-6 sm:top-1/2 sm:block sm:w-[180px] sm:-translate-y-1/2 sm:space-y-2.5 sm:text-sm">
+          {Array.from({ length: roadmap.total }, (_, i) => {
+            const done = i < roadmap.index;
+            const active = i === roadmap.index;
+            return (
+              <li
+                key={i}
+                className={`flex items-center gap-2 ${
+                  active
+                    ? "font-semibold text-[var(--accent)]"
+                    : done
+                      ? "text-[var(--positive)]"
+                      : "text-[var(--ink-tertiary)]"
+                }`}
+              >
+                {done ? (
+                  <Check size={14} className="shrink-0" />
+                ) : (
+                  <span
+                    className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ background: active ? "var(--accent)" : "var(--ink-tertiary)" }}
+                  />
+                )}
+                Вопрос {i + 1}
+              </li>
+            );
+          })}
         </ol>
       )}
 
@@ -197,7 +211,7 @@ export function InterviewRoom({
             </div>
           </div>
           <div className="absolute right-2 top-2">
-            <DeviceSettings liveKitRef={liveKitRef} />
+            <DeviceSettings liveKitRef={liveKitRef} onDeviceSwitched={() => bumpDeviceVersion((v) => v + 1)} />
           </div>
         </div>
         <div
@@ -242,13 +256,22 @@ type MenuView = "main" | MediaDeviceKind;
  * Google Meet: карточка с рядами иконка+название+шеврон, клик по ряду открывает список
  * устройств этого вида (radio-стиль с галочкой у текущего), "назад" возвращает в главное
  * меню. */
-function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSession | null> }) {
+function DeviceSettings({
+  liveKitRef,
+  onDeviceSwitched,
+}: {
+  liveKitRef: React.RefObject<LiveKitSession | null>;
+  /** Камера/микрофон реально переключились в комнате — вызывающая сторона должна
+   * перечитать активный трек (превью, индикатор речи). Для динамиков не значим. */
+  onDeviceSwitched?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<MenuView>("main");
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([]);
   const [selected, setSelected] = useState<Partial<Record<MediaDeviceKind, string>>>({});
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -272,10 +295,16 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [open]);
 
-  const switchDevice = (kind: MediaDeviceKind, deviceId: string) => {
-    setSelected((current) => ({ ...current, [kind]: deviceId }));
-    void liveKitRef.current?.switchDevice(kind, deviceId);
+  const switchDevice = async (kind: MediaDeviceKind, deviceId: string) => {
+    setSwitchError(null);
     setView("main");
+    try {
+      await liveKitRef.current?.switchDevice(kind, deviceId);
+      setSelected((current) => ({ ...current, [kind]: deviceId }));
+      if (kind !== "audiooutput") onDeviceSwitched?.();
+    } catch {
+      setSwitchError("Не удалось переключить устройство. Попробуйте ещё раз.");
+    }
   };
 
   const rows: DeviceRow[] = [
@@ -299,6 +328,9 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
 
       {open && (
         <div className="absolute right-0 top-11 z-10 w-72 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] text-sm shadow-lg">
+          {switchError && (
+            <p className="border-b border-[var(--border)] px-4 py-2 text-xs text-[var(--danger)]">{switchError}</p>
+          )}
           {view === "main" ? (
             <div className="py-1">
               {rows.map((row, index) => {
@@ -366,11 +398,11 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
  * а не LiveKit `room.activeSpeakers` — тот теоретически тоже должен срабатывать, но
  * не проверен вживую как надёжный источник для этой цели, а порог/задержка SFU-стороны
  * не под нашим контролем. Простой RMS по последнему буферу, порог — эмпирический. */
-function useMicSpeaking(stream: MediaStream | null): boolean {
+function useMicSpeaking(track: MediaStreamTrack | null): boolean {
   const [speaking, setSpeaking] = useState(false);
 
   useEffect(() => {
-    if (!stream || stream.getAudioTracks().length === 0) {
+    if (!track) {
       return;
     }
     const AudioContextCtor =
@@ -378,7 +410,7 @@ function useMicSpeaking(stream: MediaStream | null): boolean {
     if (!AudioContextCtor) return;
 
     const audioContext = new AudioContextCtor();
-    const source = audioContext.createMediaStreamSource(stream);
+    const source = audioContext.createMediaStreamSource(new MediaStream([track]));
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 512;
     source.connect(analyser);
@@ -405,7 +437,7 @@ function useMicSpeaking(stream: MediaStream | null): boolean {
       audioContext.close().catch(() => {});
       setSpeaking(false);
     };
-  }, [stream]);
+  }, [track]);
 
   return speaking;
 }

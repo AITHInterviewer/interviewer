@@ -41,6 +41,8 @@ vi.mock("@/lib/livekit-client", () => ({
       disconnect: vi.fn(),
       onAgentPresenceChange: vi.fn().mockReturnValue(() => {}),
       switchDevice: vi.fn().mockResolvedValue(undefined),
+      getLocalVideoTrack: vi.fn().mockReturnValue(null),
+      getLocalAudioTrack: vi.fn().mockReturnValue(null),
     };
     liveKitInstances.push(instance);
     return instance;
@@ -57,7 +59,7 @@ vi.mock("@/lib/api", () => ({
   resolveLiveKitWsUrl: (wsUrl: string) => `ws://${window.location.host}${new URL(wsUrl).pathname}`,
 }));
 
-const fakeStream = { getTracks: () => [], getAudioTracks: () => [] } as unknown as MediaStream;
+const fakeStream = { getTracks: () => [], getAudioTracks: () => [], getVideoTracks: () => [] } as unknown as MediaStream;
 
 describe("InterviewRoom", () => {
   beforeEach(() => {

@@ -49,9 +49,40 @@ export class LiveKitSession {
 
   /** Переключение устройства прямо во время звонка (как в Zoom/Meet) — LiveKit сам
    * заменяет опубликованный трек (camera/mic) или sinkId у уже подключённых audio-
-   * элементов (speaker), без пересоздания соединения. */
+   * элементов (speaker), без пересоздания соединения. Бросает исключение при неудаче —
+   * вызывающая сторона (DeviceSettings) должна её показать, а не проглатывать молча. */
   async switchDevice(kind: MediaDeviceKind, deviceId: string): Promise<void> {
-    await this.room.switchActiveDevice(kind, deviceId);
+    const ok = await this.room.switchActiveDevice(kind, deviceId);
+    if (!ok) {
+      throw new Error("Устройство не переключилось.");
+    }
+  }
+
+  /** MediaStreamTrack камеры, реально сейчас исходящий в комнату — после
+   * `switchDevice("videoinput", …)` это уже трек НОВОЙ камеры (LiveKit пересоздаёт его
+   * через getUserMedia под капотом), а не тот, что был передан в `connect()`. Нужен,
+   * чтобы обновить локальное превью `<video>`, которое иначе продолжает показывать
+   * старую камеру — превью привязано к исходному MediaStream, а не к тому, что реально
+   * передаётся по WebRTC. */
+  getLocalVideoTrack(): MediaStreamTrack | null {
+    for (const publication of this.room.localParticipant.videoTrackPublications.values()) {
+      if (publication.source === Track.Source.Camera && publication.videoTrack?.mediaStreamTrack) {
+        return publication.videoTrack.mediaStreamTrack;
+      }
+    }
+    return null;
+  }
+
+  /** То же самое для микрофона — индикатор «Вы говорите» вокруг превью камеры должен
+   * слушать РЕАЛЬНО исходящий в комнату микрофон, а не исходный трек с экрана проверки
+   * устройств, который после `switchDevice("audioinput", …)` уже не совпадает с ним. */
+  getLocalAudioTrack(): MediaStreamTrack | null {
+    for (const publication of this.room.localParticipant.audioTrackPublications.values()) {
+      if (publication.source === Track.Source.Microphone && publication.audioTrack?.mediaStreamTrack) {
+        return publication.audioTrack.mediaStreamTrack;
+      }
+    }
+    return null;
   }
 
   /** Индикация присутствия агента (US2, FR-014) — по наличию remote-участника и его

@@ -34,10 +34,6 @@ export function InterviewFlow({ token }: { token: string }) {
   const [info, setInfo] = useState<ConsentInfo | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [speakerId, setSpeakerId] = useState<string | null>(null);
-  // Роадмап по оригинальным вопросам поднимается сюда из InterviewRoom (единственное
-  // место, где он реально известен — см. InterviewRoom.tsx, ControlEvent.type ===
-  // "question") — чтобы им управлял Stepper в CandidateShell.
-  const [roadmap, setRoadmap] = useState<{ index: number; total: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,17 +88,10 @@ export function InterviewFlow({ token }: { token: string }) {
 
   if (!info) return null;
 
-  // Степпер — только роадмап реальных вопросов, которым управляет агент (см.
-  // InterviewRoom.tsx). Согласие и проверка устройств — не шаги интервью, поэтому до
-  // появления роадмапа `steps`/`current` не передаются вовсе, и CandidateShell рендерит
-  // хедер без степпера.
-  const steps = roadmap ? Array.from({ length: roadmap.total }, (_, i) => `Вопрос ${i + 1}`) : undefined;
-  const current = roadmap ? `Вопрос ${roadmap.index + 1}` : undefined;
-
   if (step === "consent") {
     const { min, max } = info.estimated_duration_min;
     return (
-      <CandidateShell vacancyTitle={info.vacancy_title} steps={steps} current={current}>
+      <CandidateShell vacancyTitle={info.vacancy_title}>
         <ConsentStage
           vacancyTitle={info.vacancy_title}
           questionsTotal={info.questions_total}
@@ -119,7 +108,7 @@ export function InterviewFlow({ token }: { token: string }) {
 
   if (step === "setup") {
     return (
-      <CandidateShell vacancyTitle={info.vacancy_title} steps={steps} current={current}>
+      <CandidateShell vacancyTitle={info.vacancy_title}>
         <section className="setup-stage">
           <h1>Проверьте камеру и микрофон</h1>
           <p>Без доступа к ним интервью не начнётся.</p>
@@ -137,8 +126,8 @@ export function InterviewFlow({ token }: { token: string }) {
   }
 
   return (
-    <CandidateShell vacancyTitle={info.vacancy_title} steps={steps} current={current}>
-      <InterviewRoom sessionId={token} stream={stream} initialSpeakerId={speakerId} onRoadmapChange={setRoadmap} />
+    <CandidateShell vacancyTitle={info.vacancy_title}>
+      <InterviewRoom sessionId={token} stream={stream} initialSpeakerId={speakerId} />
     </CandidateShell>
   );
 }
