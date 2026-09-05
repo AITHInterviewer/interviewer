@@ -55,7 +55,13 @@ class ClaudeAgentSDKLiveControlLLM(LiveControlLLM):
             model=self.model,
             tools=[],  # ни одного встроенного тула — только текстовый completion
             max_turns=1,
-            permission_mode="bypassPermissions",  # тулов всё равно нет, но не должно возникать промптов
+            # permission_mode="bypassPermissions" — реальный найденный баг (2026-09-05):
+            # транслируется CLI во флаг --dangerously-skip-permissions, а тот CLI явно
+            # запрещает при root/sudo ("cannot be used with root/sudo privileges for
+            # security reasons") — контейнер live-agent работает от root. Раньше это было
+            # не нужно и не проверялось вживую вообще (см. README, "не проверено вживую").
+            # tools=[] и так означает, что спрашивать разрешения не на что — permission_mode
+            # можно просто не задавать.
             output_format={
                 "type": "json_schema",
                 "schema": LiveControlDecision.model_json_schema(),

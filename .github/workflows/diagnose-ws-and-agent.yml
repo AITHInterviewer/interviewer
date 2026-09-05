@@ -10,9 +10,9 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: reproduce the exact claude_agent_sdk query() call that fails
+      - name: retest without permission_mode=bypassPermissions
         run: |
-          Set-Content -Path probe_llm.py -Encoding utf8 -Value @'
+          Set-Content -Path probe_llm2.py -Encoding utf8 -Value @'
           import asyncio
           from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
 
@@ -28,7 +28,6 @@ jobs:
                   model="claude-haiku-4-5",
                   tools=[],
                   max_turns=1,
-                  permission_mode="bypassPermissions",
                   output_format={"type": "json_schema", "schema": SCHEMA},
               )
               try:
@@ -41,4 +40,4 @@ jobs:
 
           asyncio.run(main())
           '@
-          Get-Content probe_llm.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
+          Get-Content probe_llm2.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
