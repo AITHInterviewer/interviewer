@@ -279,8 +279,11 @@ jobs:
         # agent then fails every reply with a 404 ("Model ... is not installed locally")
         # instead of falling back or erroring loudly at startup - the interview just goes
         # silent. `model download` is idempotent (a no-op if the voice is already cached).
+        # uvx isn't a separate binary in this image, only uv itself - "uvx foo" is
+        # equivalent to "uv tool run foo" (see 2026-09-04 diagnostic run, same 404-on-missing
+        # voice bug hit and fixed once already via the now-removed download-tts-voice.yml).
         run: |
-          docker exec live-agent-tts-1 uvx speaches-cli model download speaches-ai/piper-ru_RU-ruslan-medium
+          docker exec live-agent-tts-1 uv tool run speaches-cli model download speaches-ai/piper-ru_RU-ruslan-medium
 
       - name: Build and (re)start evaluation-agent's stt-accurate
         run: |
