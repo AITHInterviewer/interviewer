@@ -89,7 +89,11 @@ services:
       - stt-cache:/root/.cache/huggingface
 
   tts:
-    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    # -cuda, не -cpu: тот же образ без CUDA-рантайма молча пытался поднять
+    # CUDAExecutionProvider (onnxruntime находит его в списке провайдеров, раз он вкомпилен,
+    # но при реальной загрузке падает — libcublasLt.so.12: No such file or directory,
+    # которого в -cpu образе просто нет) и откатывался на CPU — синтез работал, но без GPU.
+    image: ghcr.io/speaches-ai/speaches:latest-cuda
     ports:
       - "3906:8000"
     environment:
@@ -101,6 +105,15 @@ services:
       # Дефолтный таймаут huggingface_hub (10с) не хватает на этой сети — реально видели
       # ReadTimeoutError на скачивании model.onnx с us.aws.cdn.hf.co.
       - HF_HUB_DOWNLOAD_TIMEOUT=60
+    # Тот же паттерн, что и у stt выше — без этого блока GPU физически недоступен
+    # контейнеру, даже если образ -cuda и onnxruntime теоретически умеет CUDAExecutionProvider.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     # Без volume для кэша моделей — реальная проверка показала PermissionError: именованный
     # volume создаётся Docker'ом от root, а образ работает под непривилегированным ubuntu
     # (uid 1000) и не может в него писать. Можно было бы chown'ить volume отдельным init-шагом,
