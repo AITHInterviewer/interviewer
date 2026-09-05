@@ -23,7 +23,7 @@ const visit = [
   ["/vacancies/v-python/rubric", false], ["/vacancies/v-python/approve", false],
   ["/vacancies/v-python/settings", false], ["/expert", false], ["/expert/queue", false],
   ["/audit/v-python", false], ["/audit/v-python/i-lida", false],
-  ["/manager", false], ["/manager/i-lida", false], ["/internal/users", false],
+  ["/manager", false], ["/manager/i-dmitry", false], ["/internal/users", false],
   ["/internal/hiring-manager", false], ["/brief/v-python", false],
   ["/i/lida", true], ["/i/lida/consent", true], ["/i/lida/check", true], ["/i/lida/rules", true],
   ["/i/lida/practice", true], ["/i/lida/done", true], ["/i/lida/transcript", true],

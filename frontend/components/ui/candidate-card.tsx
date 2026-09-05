@@ -47,7 +47,7 @@ export function CandidateCard({
   }
 
   return (
-    <Link className="candidate-card candidate-card--interactive" href={href}>
+    <Link className="candidate-card candidate-card--interactive" href={href} aria-label={action}>
       {body}
     </Link>
   );

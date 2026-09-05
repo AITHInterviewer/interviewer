@@ -2,9 +2,8 @@ import type { RoleRegistryEntry } from "@/lib/api";
 
 export type { RoleRegistryEntry };
 
-/** Роли, которых нет в реестре бэкенда, но которые встречаются у пользователей. */
+/** Подписи для известных ролей, если реестр ещё не загрузился. Без выдуманного admin. */
 const FALLBACK_TITLES: Record<string, string> = {
-  admin: "Администратор",
   recruiter: "Рекрутер",
   expert: "Технический эксперт",
   hiring_manager: "Нанимающий менеджер",
@@ -14,6 +13,13 @@ export function roleTitle(entries: RoleRegistryEntry[], code: string): string {
   return entries.find((entry) => entry.code === code)?.title ?? FALLBACK_TITLES[code] ?? code;
 }
 
+export function assignedRegistryRoles(entries: RoleRegistryEntry[], codes: string[]): string[] {
+  const known = new Set(entries.map((entry) => entry.code));
+  return codes.filter((code) => known.has(code));
+}
+
 export function formatRoleList(entries: RoleRegistryEntry[], codes: string[]): string {
-  return codes.map((code) => roleTitle(entries, code)).join(", ");
+  return assignedRegistryRoles(entries, codes)
+    .map((code) => roleTitle(entries, code))
+    .join(", ");
 }

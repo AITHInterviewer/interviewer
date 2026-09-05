@@ -14,7 +14,7 @@ import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import type { Vacancy } from "@/lib/api";
 import { loadVacancies } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, OWNER_LABEL, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { buildNav, vacancyNextStep, VACANCY_STATUS_LABEL } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
@@ -25,11 +25,6 @@ function statusTone(status: Vacancy["status"]): StatusTone {
     return "warning";
   }
   return "neutral";
-}
-
-function ownerLabel(vacancy: Vacancy): string {
-  const owner = vacancy.owner_next ?? (vacancy.status === "calibration" || vacancy.status === "pending_review" ? "expert" : "recruiter");
-  return OWNER_LABEL[owner];
 }
 
 export default function VacanciesPage() {
@@ -56,33 +51,27 @@ export default function VacanciesPage() {
   const canReview = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
   const canAccess = canManage || canReview;
 
+  async function refreshVacancies() {
+    setVacanciesLoading(true);
+    setError(null);
+    try {
+      const response = await loadVacancies();
+      setVacancies(response.items);
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, "Не удалось загрузить вакансии."));
+    } finally {
+      setVacanciesLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!canAccess) {
       return;
     }
-
-    let cancelled = false;
-
-    loadVacancies()
-      .then((response) => {
-        if (!cancelled) {
-          setVacancies(response.items);
-        }
-      })
-      .catch((caughtError: unknown) => {
-        if (!cancelled) {
-          setError(normalizeError(caughtError, "Не удалось загрузить вакансии."));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setVacanciesLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
+    // Первичная загрузка списка: состояние меняется уже после await,
+    // но правило видит вызов из тела эффекта.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshVacancies();
   }, [canAccess]);
 
   if (loading || !landing) {
@@ -159,7 +148,18 @@ export default function VacanciesPage() {
         ) : null}
 
         {vacanciesLoading ? <SkeletonTable rows={3} columns={4} label="Загружаю вакансии" /> : null}
-        {error ? <ScreenState kind="error" title="Не удалось загрузить вакансии" text={error} /> : null}
+        {error ? (
+          <ScreenState
+            kind="error"
+            title="Не удалось загрузить вакансии"
+            text={error}
+            action={
+              <Button type="button" variant="secondary" onClick={() => void refreshVacancies()}>
+                Повторить
+              </Button>
+            }
+          />
+        ) : null}
 
         {!vacanciesLoading && !error ? (
           visible.length > 0 ? (
@@ -183,7 +183,7 @@ export default function VacanciesPage() {
                         {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
                       </StatusPill>
                     </td>
-                    <td>{ownerLabel(vacancy)}</td>
+                    <td>{vacancyNextStep(vacancy)}</td>
                     <td>{vacancy.candidate_count ?? "—"}</td>
                   </tr>
                 ))}
@@ -192,7 +192,7 @@ export default function VacanciesPage() {
           ) : (
             <ScreenState
               kind="empty"
-              title={vacancies.length === 0 ? "Вакансий пока нет" : "Под фильтры ничего не подошло"}
+              title={vacancies.length === 0 ? "Вакансий пока нет" : "По выбранным условиям вакансий нет"}
               text={
                 vacancies.length === 0
                   ? "Заведите вакансию: эксперт соберёт рубрику, после этого можно приглашать кандидатов."
@@ -208,7 +208,7 @@ export default function VacanciesPage() {
                       setStatusFilter("all");
                     }}
                   >
-                    Снять фильтры
+                    Сбросить фильтры
                   </Button>
                 ) : null
               }

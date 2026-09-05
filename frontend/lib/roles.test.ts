@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatRoleList, roleTitle } from "@/lib/roles";
+import { assignedRegistryRoles, formatRoleList, roleTitle } from "@/lib/roles";
 import type { RoleRegistryEntry } from "@/lib/roles";
 
 const entries: RoleRegistryEntry[] = [
@@ -18,7 +18,20 @@ describe("role registry helpers", () => {
     expect(roleTitle(entries, "methodologist")).toBe("methodologist");
   });
 
+  it("does not title a fictional admin role", () => {
+    expect(roleTitle(entries, "admin")).toBe("admin");
+    expect(roleTitle(entries, "admin")).not.toBe("Администратор");
+  });
+
+  it("keeps only roles that exist in the registry", () => {
+    expect(assignedRegistryRoles(entries, ["recruiter", "admin", "expert"])).toEqual(["recruiter", "expert"]);
+  });
+
   it("formats role lists for display", () => {
     expect(formatRoleList(entries, ["recruiter", "expert"])).toBe("Recruiter, Expert");
+  });
+
+  it("omits unknown codes from formatted lists", () => {
+    expect(formatRoleList(entries, ["recruiter", "admin"])).toBe("Recruiter");
   });
 });

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replace = vi.fn();
@@ -114,10 +114,12 @@ describe("VacancySettingsClient", () => {
 
     renderClient("v1");
 
-    fireEvent.click(await screen.findByRole("button", { name: /^архив$/i }));
-    expect(screen.getByRole("dialog", { name: /архивировать вакансию/i })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /приостановить/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^архивировать$/i }));
+    expect(screen.getByRole("dialog", { name: /архивировать вакансию/i })).toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^архивировать$/i }));
 
     await waitFor(() => expect(archiveManagedVacancy).toHaveBeenCalledWith("v1"));
     await waitFor(() => expect(screen.getByText(/вакансия в архиве/i)).toBeInTheDocument());

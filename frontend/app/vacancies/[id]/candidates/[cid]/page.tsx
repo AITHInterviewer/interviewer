@@ -34,8 +34,11 @@ import { normalizeError } from "@/lib/errors";
 import { interviewStageLabel } from "@/lib/pipeline";
 import {
   buildRequirementMap,
+  CONCLUSION_LABEL,
   COVERAGE_LABEL,
+  isReportProcessing,
   mandatorySummary,
+  requirementConclusion,
   uncoveredRequirements,
   type RequirementCoverage,
 } from "@/lib/report";
@@ -58,9 +61,9 @@ function reportLabel(interview: Interview): string {
   return "Отчёт готовится. Обычно это занимает около часа после сдачи.";
 }
 
-/** Тон пилюли под покрытие требования. Зелёный только там, где ответ есть. */
+/** Тон пилюли под наличие ответа. Не confirmed: наличие ≠ подтверждение навыка. */
 function coverageTone(coverage: RequirementCoverage): StatusTone {
-  if (coverage === "answered") return "confirmed";
+  if (coverage === "answered") return "neutral";
   if (coverage === "asked") return "insufficient";
   return "unchecked";
 }
@@ -100,6 +103,8 @@ export default function VacancyCandidatePage() {
   const uncovered = uncoveredRequirements(requirements);
   const selected =
     requirements.find((row) => row.skill === selectedSkill) ?? requirements[0] ?? null;
+  const processing = interview ? isReportProcessing(interview) : false;
+  const unansweredMandatory = requirements.filter((row) => row.mandatory && row.coverage !== "answered");
 
   async function refreshClarifications() {
     const response = await loadClarifications(params.cid);
@@ -271,45 +276,51 @@ export default function VacancyCandidatePage() {
               <div>
                 <h2>Что видно из ответов</h2>
                 <p className="muted-copy">
-                  Это наблюдения системы, не оценка. {reportLabel(interview)}
+                  {processing
+                    ? "Интервью завершено, отчёт собирается"
+                    : `Это разбор ответов системой, а не решение о найме. ${reportLabel(interview)}`}
                 </p>
               </div>
-              {mandatory.answered < mandatory.total ? (
+              {!processing && unansweredMandatory.length > 0 ? (
                 <p className="report-gap">
-                  Без ответа осталось обязательное:{" "}
-                  {requirements
-                    .filter((row) => row.mandatory && row.coverage !== "answered")
-                    .map((row) => row.skill)
-                    .join(", ")}
-                  . Логичный шаг — точечный доп. вопрос или разговор, а не решение вслепую.
+                  По требованию{" "}
+                  {unansweredMandatory.map((row) => `«${row.skill}»`).join(", ")} ответ не получен.
+                  Можно задать доп. вопрос или запросить аудит.
                 </p>
               ) : null}
-              <dl className="report-figures">
-                <div>
-                  <dt>Обязательные требования</dt>
-                  <dd>
-                    закрыты ответом {mandatory.answered} из {mandatory.total}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Ответов с расшифровкой</dt>
-                  <dd>
-                    {events?.answers.filter((item) => item.transcript_text).length ?? 0} из{" "}
-                    {vacancy?.questions.length ?? 0}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Не закрыл ни один вопрос</dt>
-                  <dd>{uncovered.length === 0 ? "таких требований нет" : uncovered.map((row) => row.skill).join(", ")}</dd>
-                </div>
-              </dl>
+              {processing ? null : (
+                <dl className="report-figures">
+                  <div>
+                    <dt>Обязательные требования</dt>
+                    <dd>
+                      По обязательным требованиям есть ответы: {mandatory.answered} из {mandatory.total}. Это
+                      не подтверждение навыка.
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Ответов с расшифровкой</dt>
+                    <dd>
+                      {events?.answers.filter((item) => item.transcript_text).length ?? 0} из{" "}
+                      {vacancy?.questions.length ?? 0}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Не закрыл ни один вопрос</dt>
+                    <dd>{uncovered.length === 0 ? "таких требований нет" : uncovered.map((row) => row.skill).join(", ")}</dd>
+                  </div>
+                </dl>
+              )}
             </section>
 
             <section className="requirement-map">
               <div className="requirement-map__list">
                 <header>
                   <h2>Карта требований</h2>
-                  <span className="muted-copy">Выберите строку, чтобы увидеть ответ целиком</span>
+                  <span className="muted-copy">
+                    {processing
+                      ? "Расшифровки ещё могут появиться — это не итоговый пробел"
+                      : "Выберите строку, чтобы увидеть ответ целиком"}
+                  </span>
                 </header>
                 {requirements.length === 0 ? (
                   <p className="muted-copy" style={{ padding: "16px 20px" }}>
@@ -347,6 +358,11 @@ export default function VacancyCandidatePage() {
                       <span className="muted-copy">
                         {selected.mandatory ? "Обязательное требование" : "Желательное требование"}
                       </span>
+                      <p className="muted-copy">
+                        {processing
+                          ? "Отчёт ещё собирается — это не итог по навыку."
+                          : CONCLUSION_LABEL[requirementConclusion(selected)]}
+                      </p>
                     </div>
                     {selected.answers.length > 0 ? (
                       selected.answers.map(({ question, answer }) => (
@@ -364,8 +380,9 @@ export default function VacancyCandidatePage() {
                       ))
                     ) : selected.coverage === "asked" ? (
                       <p className="muted-copy">
-                        Вопрос {selected.questions.map((question) => question.order).join(", ")} задавали, но
-                        расшифровки ответа нет. Это пробел в данных, а не минус кандидату.
+                        {processing
+                          ? "Расшифровка ещё может появиться — отчёт собирается."
+                          : `Вопрос ${selected.questions.map((question) => question.order).join(", ")} задавали, но расшифровки ответа нет. Это пробел в данных, а не минус кандидату.`}
                       </p>
                     ) : (
                       <p className="muted-copy">

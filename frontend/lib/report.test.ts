@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import type { InterviewAnswer, Question } from "@/lib/api";
-import { buildRequirementMap, mandatorySummary, uncoveredRequirements } from "@/lib/report";
+import {
+  buildRequirementMap,
+  isReportProcessing,
+  mandatorySummary,
+  requirementConclusion,
+  uncoveredRequirements,
+} from "@/lib/report";
 
 function question(id: string, order: number, skills: string[]): Question {
   return {
@@ -42,6 +48,31 @@ describe("buildRequirementMap", () => {
     expect(rows.find((row) => row.skill === "SQL")?.coverage).toBe("asked");
   });
 
+  it("непустая расшифровка даёт coverage answered, но не confirmed", () => {
+    const rows = buildRequirementMap(vacancy, questions, [answer("q1", "Разбирала event loop")]);
+    const python = rows.find((row) => row.skill === "Python");
+    expect(python?.coverage).toBe("answered");
+    expect(requirementConclusion(python!)).toBe("unavailable");
+    expect(requirementConclusion(python!)).not.toBe("confirmed");
+  });
+
+  it("пустая или отсутствующая расшифровка — asked, не confirmed", () => {
+    const empty = buildRequirementMap(vacancy, questions, [answer("q2", "")]);
+    const missing = buildRequirementMap(vacancy, questions, [answer("q2", null)]);
+    expect(empty.find((row) => row.skill === "SQL")?.coverage).toBe("asked");
+    expect(missing.find((row) => row.skill === "SQL")?.coverage).toBe("asked");
+    expect(requirementConclusion(empty.find((row) => row.skill === "SQL")!)).not.toBe("confirmed");
+    expect(requirementConclusion(missing.find((row) => row.skill === "SQL")!)).not.toBe("confirmed");
+  });
+
+  it("требование без вопроса — not-covered, не confirmed", () => {
+    const rows = buildRequirementMap(vacancy, questions, [answer("q1", "текст")]);
+    const celery = rows.find((row) => row.skill === "Celery");
+    expect(celery?.coverage).toBe("not-covered");
+    expect(requirementConclusion(celery!)).toBe("unavailable");
+    expect(requirementConclusion(celery!)).not.toBe("confirmed");
+  });
+
   it("считает только обязательные требования", () => {
     const rows = buildRequirementMap(vacancy, questions, [answer("q1", "текст"), answer("q3", "текст")]);
     expect(mandatorySummary(rows)).toEqual({ answered: 1, total: 3 });
@@ -54,5 +85,34 @@ describe("buildRequirementMap", () => {
       [answer("q1", "ответ")],
     );
     expect(rows[0].coverage).toBe("answered");
+  });
+});
+
+describe("requirementConclusion", () => {
+  it("без analysis не подтверждает навык даже при теге и расшифровке", () => {
+    const rows = buildRequirementMap(
+      { required_skills: ["Python"], nice_to_have_skills: [] },
+      [question("q1", 1, ["Python"])],
+      [answer("q1", "Разбирала event loop")],
+    );
+    expect(rows[0].coverage).toBe("answered");
+    expect(requirementConclusion(rows[0])).toBe("unavailable");
+    expect(requirementConclusion(rows[0], undefined)).toBe("unavailable");
+    expect(requirementConclusion(rows[0], {})).toBe("unavailable");
+  });
+});
+
+describe("isReportProcessing", () => {
+  it("true при report_status processing", () => {
+    expect(isReportProcessing({ report_status: "processing" })).toBe(true);
+  });
+
+  it("true при product_state report_processing", () => {
+    expect(isReportProcessing({ product_state: "report_processing" })).toBe(true);
+  });
+
+  it("false когда отчёт не в обработке", () => {
+    expect(isReportProcessing({ report_status: "ready", product_state: "report_ready" })).toBe(false);
+    expect(isReportProcessing({})).toBe(false);
   });
 });

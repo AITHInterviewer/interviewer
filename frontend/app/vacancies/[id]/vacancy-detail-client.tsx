@@ -11,7 +11,6 @@ import { Button } from "@/components/ui/button";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { Tag } from "@/components/ui/tag";
 import { CandidateCard } from "@/components/ui/candidate-card";
-import { ToastStack, type ToastItem } from "@/components/ui/toast";
 import type { AnonymizedStats, Interview, VacancyDetail } from "@/lib/api";
 import {
   activateManagedVacancy,
@@ -32,12 +31,21 @@ const RECRUITER_AREA = "area.recruiter_workspace";
 
 /** Пустая колонка говорит, чего в ней ждать, а не молчит белым полем. */
 const COLUMN_EMPTY: Record<string, string> = {
-  invited: "Никого не пригласили",
+  invited: "Никого ещё не приглашали",
   live: "Сейчас никто не отвечает",
   action: "Ничего не ждёт вашего вмешательства",
   decide: "Готовых отчётов нет",
   done: "Решений пока не было",
 };
+const STAGE_EMPTY_NOW = "Сейчас в этой стадии никого нет";
+
+function emptyColumnCopy(columnId: string, totalInterviews: number): string {
+  if (columnId === "invited" && totalInterviews > 0) {
+    return STAGE_EMPTY_NOW;
+  }
+  return COLUMN_EMPTY[columnId];
+}
+
 const HIRING_MANAGER_AREA = "area.hiring_manager_review";
 
 function statusTone(status: VacancyDetail["status"]): StatusTone {
@@ -75,16 +83,19 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const [copyDone, setCopyDone] = useState(false);
 
   const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
   const isHiringManager = landing?.available_areas.some((area) => area.id === HIRING_MANAGER_AREA) ?? false;
   const showAnonymized = isHiringManager && !canManage;
 
   async function refreshVacancy() {
+    setVacancyLoading(true);
+    setVacancyError(null);
     try {
       const detail = await loadVacancy(vacancyId);
-      setVacancyError(null);
       setVacancy(detail);
     } catch (caughtError) {
       setVacancyError(normalizeError(caughtError, "Не удалось загрузить вакансию."));
@@ -94,12 +105,26 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   }
 
   async function refreshInterviews() {
+    setInterviewsLoading(true);
+    setInterviewsError(null);
     try {
       const response = await loadInterviews(vacancyId);
-      setInterviewsError(null);
       setInterviews(response.items);
     } catch (caughtError) {
       setInterviewsError(normalizeError(caughtError, "Не удалось загрузить интервью."));
+    } finally {
+      setInterviewsLoading(false);
+    }
+  }
+
+  async function refreshStats() {
+    setInterviewsLoading(true);
+    setInterviewsError(null);
+    try {
+      const next = await loadAnonymizedStats(vacancyId);
+      setStats(next);
+    } catch (caughtError) {
+      setInterviewsError(normalizeError(caughtError, "Не удалось загрузить сводку."));
     } finally {
       setInterviewsLoading(false);
     }
@@ -114,12 +139,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshVacancy();
     if (showAnonymized) {
-      loadAnonymizedStats(vacancyId)
-        .then(setStats)
-        .catch((caughtError: unknown) => {
-          setInterviewsError(normalizeError(caughtError, "Не удалось загрузить сводку."));
-        })
-        .finally(() => setInterviewsLoading(false));
+      void refreshStats();
     } else {
       void refreshInterviews();
     }
@@ -143,11 +163,6 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     vacancy.status !== "paused" &&
     vacancy.status !== "archived" &&
     vacancy.status !== "ready";
-
-  function pushToast(text: string) {
-    const id = `${Date.now()}`;
-    setToasts((current) => [...current, { id, tone: "success", text }]);
-  }
 
   async function applyVacancyUpdate(run: () => Promise<{ status: VacancyDetail["status"] }>, fallback: string) {
     setActionBusy(true);
@@ -177,15 +192,9 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
         resumeFile,
         candidateName: candidateName || undefined,
       });
-      const token = response.interview.access_token;
-      const link = inviteLink(token);
-      try {
-        await navigator.clipboard.writeText(link);
-      } catch {
-        // Clipboard can fail; the toast still shows the path.
-      }
-      pushToast("Ссылка готова и скопирована. Отправьте её кандидату сами.");
-      setInviteOpen(false);
+      setCreatedInviteLink(inviteLink(response.interview.access_token));
+      setCopyError(null);
+      setCopyDone(false);
       setCandidateName("");
       setResumeFile(null);
       await refreshInterviews();
@@ -193,6 +202,26 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
       setInterviewFormError(normalizeError(caughtError, "Не удалось создать приглашение."));
     } finally {
       setInterviewFormSubmitting(false);
+    }
+  }
+
+  async function handleCopyInviteLink() {
+    if (!createdInviteLink) {
+      return;
+    }
+    const writeText = navigator.clipboard?.writeText;
+    if (!writeText) {
+      setCopyDone(false);
+      setCopyError("Не удалось скопировать. Выделите ссылку в поле и скопируйте вручную.");
+      return;
+    }
+    try {
+      await writeText.call(navigator.clipboard, createdInviteLink);
+      setCopyError(null);
+      setCopyDone(true);
+    } catch {
+      setCopyDone(false);
+      setCopyError("Не удалось скопировать. Выделите ссылку в поле и скопируйте вручную.");
     }
   }
 
@@ -223,7 +252,18 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     <AppShell nav={nav} title="Вакансия">
       <div className="workspace workspace--wide">
         {vacancyLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем вакансию…" /> : null}
-        {vacancyError ? <ScreenState kind="error" title="Не удалось загрузить вакансию" text={vacancyError} /> : null}
+        {vacancyError ? (
+          <ScreenState
+            kind="error"
+            title="Не удалось загрузить вакансию"
+            text={vacancyError}
+            action={
+              <Button type="button" variant="secondary" onClick={() => void refreshVacancy()}>
+                Повторить
+              </Button>
+            }
+          />
+        ) : null}
 
         {!vacancyLoading && vacancy ? (
           <>
@@ -303,7 +343,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                         void applyVacancyUpdate(() => pauseManagedVacancy(vacancyId), "Не удалось поставить на паузу.")
                       }
                     >
-                      {actionBusy ? "Пауза…" : "Пауза"}
+                      {actionBusy ? "Приостанавливаем…" : "Приостановить"}
                     </Button>
                   ) : null}
                   {showResume ? (
@@ -326,7 +366,18 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
               <section className="plain-section">
                 <h2>Сводка без имён</h2>
                 {interviewsLoading ? <ScreenState kind="loading" title="Загрузка" text="Считаем статусы…" /> : null}
-                {interviewsError ? <ScreenState kind="error" title="Нет сводки" text={interviewsError} /> : null}
+                {interviewsError ? (
+                  <ScreenState
+                    kind="error"
+                    title="Нет сводки"
+                    text={interviewsError}
+                    action={
+                      <Button type="button" variant="secondary" onClick={() => void refreshStats()}>
+                        Повторить
+                      </Button>
+                    }
+                  />
+                ) : null}
                 {stats ? (
                   <p>
                     Приглашены: {stats.invited}. Завершили: {stats.completed}. Ждут решения:{" "}
@@ -340,7 +391,16 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                   <ScreenState kind="loading" title="Загрузка" text="Загружаем кандидатов…" />
                 ) : null}
                 {interviewsError ? (
-                  <ScreenState kind="error" title="Не удалось загрузить интервью" text={interviewsError} />
+                  <ScreenState
+                    kind="error"
+                    title="Не удалось загрузить интервью"
+                    text={interviewsError}
+                    action={
+                      <Button type="button" variant="secondary" onClick={() => void refreshInterviews()}>
+                        Повторить
+                      </Button>
+                    }
+                  />
                 ) : null}
 
                 {!interviewsLoading && !interviewsError ? (
@@ -363,17 +423,22 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                             </div>
                             <div className="candidate-stack">
                               {items.length === 0 ? (
-                                <p className="kanban-column__empty">{COLUMN_EMPTY[column.id]}</p>
+                                <p className="kanban-column__empty">
+                                  {emptyColumnCopy(column.id, interviews.length)}
+                                </p>
                               ) : (
-                                items.map((interview) => (
-                                  <CandidateCard
-                                    key={interview.id}
-                                    name={interview.candidate_name ?? "Без имени"}
-                                    stage={interviewStageLabel(interview)}
-                                    href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
-                                    action="Открыть"
-                                  />
-                                ))
+                                items.map((interview) => {
+                                  const name = interview.candidate_name ?? "Без имени";
+                                  return (
+                                    <CandidateCard
+                                      key={interview.id}
+                                      name={name}
+                                      stage={interviewStageLabel(interview)}
+                                      href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
+                                      action={`Открыть ${name}`}
+                                    />
+                                  );
+                                })
                               )}
                             </div>
                           </div>
@@ -391,7 +456,9 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                   >
                   <form className="form-surface" onSubmit={handleCreateInterview}>
                     <p className="muted-copy">
-                      Система готовит ссылку и копирует её в буфер. Письмо кандидату отправляете вы.
+                      {createdInviteLink
+                        ? "Ссылка создана. Отправьте её кандидату самостоятельно."
+                        : "Система готовит ссылку. Письмо кандидату отправляете вы."}
                     </p>
                     <label>
                       Имя кандидата (необязательно)
@@ -404,6 +471,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                     <label>
                       Резюме кандидата
                       <input
+                        key={createdInviteLink ?? "resume-empty"}
                         type="file"
                         onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
                         disabled={!canInvite}
@@ -412,6 +480,12 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                         Резюме увидят эксперт и нанимающий менеджер рядом с отчётом.
                       </span>
                     </label>
+                    {createdInviteLink ? (
+                      <label>
+                        Ссылка для кандидата
+                        <input readOnly value={createdInviteLink} />
+                      </label>
+                    ) : null}
                     {interviewFormError ? <p className="form-error">{interviewFormError}</p> : null}
                     <div className="form-actions">
                       <Button
@@ -422,10 +496,23 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                       >
                         Подготовить ссылку
                       </Button>
+                      {createdInviteLink ? (
+                        <Button type="button" variant="secondary" onClick={() => void handleCopyInviteLink()}>
+                          Скопировать ссылку
+                        </Button>
+                      ) : null}
                       <Button type="button" variant="secondary" onClick={() => setInviteOpen(false)}>
                         Отмена
                       </Button>
                     </div>
+                    {copyError ? (
+                      <p className="form-error" role="alert">
+                        {copyError}
+                      </p>
+                    ) : null}
+                    {copyDone ? (
+                      <p role="status">Ссылка скопирована</p>
+                    ) : null}
                   </form>
                   </Modal>
                 ) : null}
@@ -434,7 +521,6 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
           </>
         ) : null}
       </div>
-      <ToastStack items={toasts} onClose={(id) => setToasts((current) => current.filter((item) => item.id !== id))} />
     </AppShell>
   );
 }

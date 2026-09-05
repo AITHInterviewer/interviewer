@@ -22,7 +22,7 @@ function accessTask(item: ManagerCandidate): string {
 
 function formatWhen(value?: string | null): string {
   if (!value) {
-    return "—";
+    return "Не указана";
   }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -37,30 +37,27 @@ export default function ManagerListPage() {
   const [error, setError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
 
+  async function refreshCandidates() {
+    setPageLoading(true);
+    setError(null);
+    try {
+      const response = await loadManagerCandidates();
+      setItems(response.items);
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, "Не удалось загрузить встречи."));
+    } finally {
+      setPageLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!landing) {
       return;
     }
-    let cancelled = false;
-    loadManagerCandidates()
-      .then((response) => {
-        if (!cancelled) {
-          setItems(response.items);
-        }
-      })
-      .catch((caughtError: unknown) => {
-        if (!cancelled) {
-          setError(normalizeError(caughtError, "Не удалось загрузить встречи."));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setPageLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+    // Первичная загрузка списка: состояние меняется уже после await,
+    // но правило видит вызов из тела эффекта.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshCandidates();
   }, [landing]);
 
   if (loading || !landing) {
@@ -74,9 +71,20 @@ export default function ManagerListPage() {
   return (
     <AppShell nav={buildNav(landing)} title="Встречи">
       <div className="workspace">
-        <PageHeader path="Менеджер" title="Кандидаты к встрече" />
+        <PageHeader path="Менеджер" title="Встречи и запросы мнения" />
         {pageLoading ? <SkeletonTable rows={3} columns={5} label="Загружаю кандидатов" /> : null}
-        {error ? <ScreenState kind="error" title="Нет списка" text={error} /> : null}
+        {error ? (
+          <ScreenState
+            kind="error"
+            title="Нет списка"
+            text={error}
+            action={
+              <Button type="button" variant="secondary" onClick={() => void refreshCandidates()}>
+                Повторить
+              </Button>
+            }
+          />
+        ) : null}
         {!pageLoading && !error ? (
           items.length > 0 ? (
             <table className="vacancies-table">
@@ -84,8 +92,8 @@ export default function ManagerListPage() {
                 <tr>
                   <th>Имя</th>
                   <th>Вакансия</th>
-                  <th>Кто передал</th>
-                  <th>Когда</th>
+                  <th>Кто передал / запросил</th>
+                  <th>Дата передачи / запроса</th>
                   <th>Что сделать</th>
                   <th></th>
                 </tr>
@@ -100,7 +108,12 @@ export default function ManagerListPage() {
                     <td>{accessTask(item)}</td>
                     <td>
                       <Button asChild variant="secondary">
-                        <Link href={`/manager/${item.interview.id}`}>Открыть</Link>
+                        <Link
+                          href={`/manager/${item.interview.id}`}
+                          aria-label={`Открыть ${item.interview.candidate_name ?? "Без имени"}`}
+                        >
+                          Открыть
+                        </Link>
                       </Button>
                     </td>
                   </tr>
@@ -110,7 +123,7 @@ export default function ManagerListPage() {
           ) : (
             <ScreenState
               kind="empty"
-              title="Пока нет кандидатов"
+              title="Вам пока не передали кандидатов и не запросили мнение"
               text="Список появится после явной передачи или запроса мнения от рекрутера."
             />
           )

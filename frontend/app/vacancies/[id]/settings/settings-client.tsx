@@ -147,7 +147,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
           <>
           <section className="form-panel">
             <div className="form-surface">
-            <h2>Жизненный цикл</h2>
+            <h2>Статус вакансии</h2>
             <p>Сейчас: {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}.</p>
             {vacancy.status === "active" ||
             vacancy.status === "paused" ||
@@ -166,7 +166,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
                       )
                     }
                   >
-                    Пауза
+                    Приостановить
                   </Button>
                 ) : null}
                 {vacancy.status === "paused" ? (
@@ -186,7 +186,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
                   </Button>
                 ) : null}
                 <Button type="button" variant="secondary" disabled={lifecycleBusy} onClick={() => setArchiveOpen(true)}>
-                  Архив
+                  Архивировать
                 </Button>
               </div>
             ) : (

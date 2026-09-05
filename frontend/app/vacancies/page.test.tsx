@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replace = vi.fn();
@@ -103,6 +103,71 @@ describe("VacanciesPage", () => {
     const row = (await screen.findByText(/backend developer/i)).closest("tr");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText(/на калибровке/i)).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText("Эксперт проверяет комплект")).toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText(/^Эксперт$/)).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /новая вакансия/i })).not.toBeInTheDocument();
+  });
+
+  it("distinguishes an empty catalog from an empty filter", async () => {
+    vi.mocked(loadLanding).mockResolvedValue(
+      landingFor([{ id: "area.recruiter_workspace", label: "Recruiter workspace", path: "/vacancies" }]),
+    );
+    vi.mocked(loadVacancies).mockResolvedValue({
+      items: [
+        {
+          id: "v1",
+          recruiter_id: "r1",
+          title: "Backend Developer",
+          description: "...",
+          grade: "middle",
+          required_skills: [],
+          nice_to_have_skills: [],
+          status: "active",
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/backend developer/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/поиск по названию/i), { target: { value: "zzz" } });
+
+    expect(await screen.findByText(/по выбранным условиям вакансий нет/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /сбросить фильтры/i })).toBeInTheDocument();
+    expect(screen.queryByText(/вакансий пока нет/i)).not.toBeInTheDocument();
+  });
+
+  it("retries loading vacancies after an error and does not show an empty list", async () => {
+    vi.mocked(loadLanding).mockResolvedValue(
+      landingFor([{ id: "area.recruiter_workspace", label: "Recruiter workspace", path: "/vacancies" }]),
+    );
+    vi.mocked(loadVacancies)
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "v1",
+            recruiter_id: "r1",
+            title: "Backend Developer",
+            description: "...",
+            grade: "middle",
+            required_skills: [],
+            nice_to_have_skills: [],
+            status: "active",
+            created_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+      });
+
+    renderPage();
+
+    expect(await screen.findByText(/не удалось загрузить вакансии/i)).toBeInTheDocument();
+    expect(screen.queryByText(/вакансий пока нет/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /повторить/i }));
+
+    expect(await screen.findByText(/backend developer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/не удалось загрузить вакансии/i)).not.toBeInTheDocument();
   });
 });

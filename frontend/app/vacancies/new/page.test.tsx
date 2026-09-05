@@ -66,6 +66,8 @@ describe("NewVacancyPage", () => {
   beforeEach(() => {
     push.mockReset();
     replace.mockReset();
+    vi.mocked(createManagedVacancy).mockReset();
+    vi.mocked(generateVacancyQuestions).mockReset();
     vi.mocked(loadLanding).mockResolvedValue({
       session: { token: "token", user: { id: "1", name: "Recruiter", email: "r@example.com", roles: ["recruiter"] } },
       landing: {
@@ -100,7 +102,8 @@ describe("NewVacancyPage", () => {
     renderPage();
 
     fireEvent.change(await screen.findByLabelText(/название/i), { target: { value: "Backend Developer" } });
-    expect(screen.getByText(/создаём вакансию, собираем вопросы, отправляем эксперту/i)).toBeInTheDocument();
+    expect(screen.getByText(/создадим вакансию и соберём вопросы/i)).toBeInTheDocument();
+    expect(screen.getByText(/письмо эксперту не отправляется/i)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/описание/i), { target: { value: "Build things" } });
     fireEvent.change(screen.getByLabelText(/грейд/i), { target: { value: "middle" } });
     fireEvent.change(screen.getByLabelText(/обязательные навыки/i), { target: { value: "python, sql" } });
@@ -118,6 +121,41 @@ describe("NewVacancyPage", () => {
       }),
     );
     await waitFor(() => expect(generateVacancyQuestions).toHaveBeenCalledWith("v1"));
+    expect(await screen.findByText(/explain gil/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /отправить эксперту/i })).toBeInTheDocument();
+  });
+
+  it("does not create a second vacancy when question generation fails", async () => {
+    vi.mocked(createManagedVacancy).mockResolvedValue(created);
+    vi.mocked(generateVacancyQuestions)
+      .mockRejectedValueOnce(new Error("generation failed"))
+      .mockResolvedValueOnce(created);
+
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText(/название/i), { target: { value: "Backend Developer" } });
+    fireEvent.change(screen.getByLabelText(/описание/i), { target: { value: "Build things" } });
+    fireEvent.change(screen.getByLabelText(/грейд/i), { target: { value: "middle" } });
+    fireEvent.change(screen.getByLabelText(/обязательные навыки/i), { target: { value: "python, sql" } });
+    fireEvent.change(screen.getByLabelText(/желательные навыки/i), { target: { value: "docker" } });
+
+    fireEvent.submit(screen.getByRole("button", { name: /создать и собрать вопросы/i }).closest("form")!);
+
+    expect(
+      await screen.findByText(
+        /вакансия создана, вопросы не собрались\. повторите сборку — новую вакансию создавать не нужно/i,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/вакансия сохранена: backend developer/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Backend Developer")).toBeInTheDocument();
+    expect(createManagedVacancy).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /собрать вопросы снова/i }));
+
+    await waitFor(() => expect(generateVacancyQuestions).toHaveBeenCalledTimes(2));
+    expect(generateVacancyQuestions).toHaveBeenNthCalledWith(1, "v1");
+    expect(generateVacancyQuestions).toHaveBeenNthCalledWith(2, "v1");
+    expect(createManagedVacancy).toHaveBeenCalledTimes(1);
     expect(await screen.findByText(/explain gil/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /отправить эксперту/i })).toBeInTheDocument();
   });

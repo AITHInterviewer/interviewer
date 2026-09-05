@@ -37,16 +37,19 @@ export function InterviewRoom({
   // за отведённое время) — дальше ждать нечего, показываем экран выхода вместо того,
   // чтобы кандидат смотрел на мёртвую комнату с текстом ошибки под вопросом.
   const [fatalError, setFatalError] = useState<string | null>(null);
-  // Только чтобы форсировать перерасчёт activeVideoTrack/activeAudioTrack ниже после
-  // успешного переключения устройства в DeviceSettings — сам номер нигде не читается.
-  const [, bumpDeviceVersion] = useState(0);
-  // После switchDevice("videoinput"/"audioinput", …) LiveKit пересоздаёт трек внутри
-  // себя (через свежий getUserMedia) — исходные `stream.getVideoTracks()[0]`/
-  // `getAudioTracks()[0]` с экрана проверки устройств после этого уже не те треки,
-  // что реально идут в комнату. Превью камеры и индикатор "вы говорите" должны
-  // смотреть на РЕАЛЬНО исходящий трек, а не на устаревший исходный стрим.
-  const activeVideoTrack = liveKitRef.current?.getLocalVideoTrack() ?? stream?.getVideoTracks()[0] ?? null;
-  const activeAudioTrack = liveKitRef.current?.getLocalAudioTrack() ?? stream?.getAudioTracks()[0] ?? null;
+  // После switchDevice LiveKit пересоздаёт трек. Превью и индикатор речи читают
+  // эти значения из state, а не из ref во время рендера.
+  const [activeVideoTrack, setActiveVideoTrack] = useState<MediaStreamTrack | null>(
+    () => stream?.getVideoTracks()[0] ?? null,
+  );
+  const [activeAudioTrack, setActiveAudioTrack] = useState<MediaStreamTrack | null>(
+    () => stream?.getAudioTracks()[0] ?? null,
+  );
+
+  const syncActiveTracks = (session: LiveKitSession | null) => {
+    setActiveVideoTrack(session?.getLocalVideoTrack() ?? stream?.getVideoTracks()[0] ?? null);
+    setActiveAudioTrack(session?.getLocalAudioTrack() ?? stream?.getAudioTracks()[0] ?? null);
+  };
   const candidateSpeaking = useMicSpeaking(activeAudioTrack);
   // Роадмап считает только "оригинальные" вопросы (ControlEvent.type === "question") —
   // checkin/adaptive_question не несут question_index/questions_total (см.
@@ -94,6 +97,7 @@ export function InterviewRoom({
       .then(() => {
         if (cancelled) return;
         unsubscribePresence = liveKit.onAgentPresenceChange(setAgentPresence);
+        syncActiveTracks(liveKit);
       })
       .catch((cause) => {
         if (cancelled) return;
@@ -115,6 +119,8 @@ export function InterviewRoom({
     // меняется через DeviceSettings (switchDevice), не пересозданием соединения.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, stream]);
+
+  const hasCamera = Boolean(activeVideoTrack);
 
   const questionText =
     channelState.status === "question_active" || channelState.status === "completed"
@@ -194,13 +200,18 @@ export function InterviewRoom({
             будучи абсолютно спозиционированным поверх неё. */}
         <div className="relative">
           <div
-            className={`aspect-video overflow-hidden rounded-xl border-4 bg-[var(--surface-muted)] transition-colors duration-150 ${
+            className={`relative aspect-video overflow-hidden rounded-xl border-4 bg-[var(--surface-muted)] transition-colors duration-150 ${
               candidateSpeaking
                 ? "border-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_25%,transparent)]"
                 : "border-transparent"
             }`}
           >
             <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+            {!hasCamera ? (
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-[var(--ink-secondary)]">
+                Камера выключена
+              </div>
+            ) : null}
             <div
               className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-medium text-[var(--accent-ink)] transition-opacity ${
                 candidateSpeaking ? "opacity-100" : "opacity-0"
@@ -211,7 +222,7 @@ export function InterviewRoom({
             </div>
           </div>
           <div className="absolute right-2 top-2">
-            <DeviceSettings liveKitRef={liveKitRef} onDeviceSwitched={() => bumpDeviceVersion((v) => v + 1)} />
+            <DeviceSettings liveKitRef={liveKitRef} onDeviceSwitched={() => syncActiveTracks(liveKitRef.current)} />
           </div>
         </div>
         <div

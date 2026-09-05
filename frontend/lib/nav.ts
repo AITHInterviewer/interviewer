@@ -1,4 +1,4 @@
-import type { LandingArea, LandingResponse } from "@/lib/api";
+import type { LandingArea, LandingResponse, Vacancy } from "@/lib/api";
 
 export const USERS_MANAGE_ACTION = "action.internal_users.manage";
 
@@ -66,6 +66,36 @@ export const OWNER_LABEL = {
   recruiter: "Рекрутер",
   expert: "Эксперт",
 } as const;
+
+export function vacancyNextStep(
+  vacancy: Pick<Vacancy, "status" | "owner_next" | "candidate_count">,
+): string {
+  switch (vacancy.status) {
+    case "calibration":
+    case "pending_review":
+      return "Эксперт проверяет комплект";
+    case "changes_requested":
+      return "Рекрутер: внести правки";
+    case "approved":
+      return "Рекрутер: активировать вакансию";
+    case "active":
+    case "ready":
+      return (vacancy.candidate_count ?? 0) > 0
+        ? "Рекрутер: работа с кандидатами"
+        : "Рекрутер: пригласить кандидатов";
+    case "paused":
+      return "Рекрутер: возобновить вакансию";
+    case "archived":
+      return "В архиве";
+    case "draft":
+    case "extracted":
+      return "Рекрутер: подготовить комплект";
+    default: {
+      const actor = vacancy.owner_next === "expert" ? OWNER_LABEL.expert : OWNER_LABEL.recruiter;
+      return `${actor}: подготовить комплект`;
+    }
+  }
+}
 
 export function vacancyContextNav(
   vacancyId: string,

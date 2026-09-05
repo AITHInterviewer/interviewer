@@ -15,7 +15,12 @@ import type { InternalUser } from "@/lib/api";
 import { loadInternalUsers, loadRoleRegistry, updateManagedUserRoles } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, USERS_MANAGE_ACTION } from "@/lib/nav";
-import { formatRoleList, roleTitle, type RoleRegistryEntry } from "@/lib/roles";
+import {
+  assignedRegistryRoles,
+  formatRoleList,
+  roleTitle,
+  type RoleRegistryEntry,
+} from "@/lib/roles";
 
 export default function InternalUsersPage() {
   const { landing, loading } = useProtectedLanding({ requiredAction: USERS_MANAGE_ACTION });
@@ -85,7 +90,8 @@ export default function InternalUsersPage() {
   }, [users, query]);
 
   async function removeRole(user: InternalUser, roleCode: string) {
-    if (user.roles.length < 2) {
+    const assigned = assignedRegistryRoles(roleRegistry, user.roles);
+    if (assigned.length < 2 || !assigned.includes(roleCode)) {
       return;
     }
     setBusyRole({ userId: user.id, role: roleCode });
@@ -114,8 +120,13 @@ export default function InternalUsersPage() {
     <AppShell nav={nav} title="Пользователи">
       <div className="workspace">
         <PageHeader
-          path="Администратор"
-          title="Сотрудники"
+          path="Пользователи"
+          title="Пользователи"
+          description={
+            landing.available_actions.includes(USERS_MANAGE_ACTION)
+              ? "Доступы сотрудников. Управление списком — право этой сессии, а не отдельная роль."
+              : "Доступы сотрудников"
+          }
           actions={
             <>
               <button
@@ -164,41 +175,44 @@ export default function InternalUsersPage() {
             />
           ) : (
             <div className="stack-list">
-              {visible.map((user) => (
-                <article className="candidate-card" key={user.id}>
-                  <div className="candidate-card__top">
-                    <strong>{user.name}</strong>
-                    <StatusPill tone="neutral">{formatRoleList(roleRegistry, user.roles)}</StatusPill>
-                  </div>
-                  <div className="candidate-card__meta">
-                    <span>{user.email}</span>
-                    <span>
-                      {user.created_by_user_id ? "Аккаунт завёл администратор" : "Аккаунт создан при регистрации"}
-                    </span>
-                  </div>
-                  <div className="form-actions">
-                    {user.roles.map((code) => {
-                      const lastRole = user.roles.length < 2;
-                      const thisBusy = busyRole?.userId === user.id && busyRole.role === code;
-                      return (
-                        <Button
-                          key={code}
-                          type="button"
-                          variant="secondary"
-                          disabled={lastRole || busyRole?.userId === user.id}
-                          loading={thisBusy}
-                          onClick={() => void removeRole(user, code)}
-                        >
-                          Снять роль «{roleTitle(roleRegistry, code)}»
-                        </Button>
-                      );
-                    })}
-                  </div>
-                  {user.roles.length < 2 ? (
-                    <p className="disabled-hint">Нужна хотя бы одна роль, поэтому снять последнюю нельзя.</p>
-                  ) : null}
-                </article>
-              ))}
+              {visible.map((user) => {
+                const assignedRoles = assignedRegistryRoles(roleRegistry, user.roles);
+                const lastRole = assignedRoles.length === 1;
+                return (
+                  <article className="candidate-card" key={user.id}>
+                    <div className="candidate-card__top">
+                      <strong>{user.name}</strong>
+                      <StatusPill tone="neutral">{formatRoleList(roleRegistry, assignedRoles)}</StatusPill>
+                    </div>
+                    <div className="candidate-card__meta">
+                      <span>{user.email}</span>
+                      <span>
+                        {user.created_by_user_id ? "Аккаунт создан вручную" : "Аккаунт создан при регистрации"}
+                      </span>
+                    </div>
+                    <div className="form-actions">
+                      {assignedRoles.map((code) => {
+                        const thisBusy = busyRole?.userId === user.id && busyRole.role === code;
+                        return (
+                          <Button
+                            key={code}
+                            type="button"
+                            variant="secondary"
+                            disabled={lastRole || busyRole?.userId === user.id}
+                            loading={thisBusy}
+                            onClick={() => void removeRole(user, code)}
+                          >
+                            Снять роль «{roleTitle(roleRegistry, code)}»
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    {lastRole ? (
+                      <p className="disabled-hint">Нужна хотя бы одна роль, поэтому снять последнюю нельзя.</p>
+                    ) : null}
+                  </article>
+                );
+              })}
             </div>
           )
         ) : null}

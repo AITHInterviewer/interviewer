@@ -1,10 +1,16 @@
-import type { InterviewAnswer, Question, VacancyDetail } from "@/lib/api";
+import type { Interview, InterviewAnswer, Question, VacancyDetail } from "@/lib/api";
 
 /**
- * Как требование закрыто ответами. Система не выносит вердикт: она показывает,
- * задавали ли вопрос и ответил ли человек. Решение принимает рекрутер.
+ * Наличие ответа по требованию — это сбор данных, не вердикт по навыку.
+ * «answered» значит: вопрос задан и расшифровка непустая. Это не «подтверждено».
  */
 export type RequirementCoverage = "answered" | "asked" | "not-covered";
+
+/**
+ * Итог разбора навыка. Отдельно от покрытия.
+ * Без явного payload анализа (его нет в API) всегда «unavailable».
+ */
+export type RequirementConclusion = "confirmed" | "insufficient" | "unavailable";
 
 export type RequirementRow = {
   skill: string;
@@ -18,8 +24,22 @@ export type RequirementRow = {
 
 export const COVERAGE_LABEL: Record<RequirementCoverage, string> = {
   answered: "Ответ есть",
-  asked: "Вопрос задан, ответа нет",
-  "not-covered": "Вопрос не задавался",
+  asked: "Ответа нет",
+  "not-covered": "Вопрос не задан",
+};
+
+export const CONCLUSION_LABEL: Record<RequirementConclusion, string> = {
+  confirmed: "Подтверждено",
+  insufficient: "Мало данных",
+  unavailable: "Разбор недоступен",
+};
+
+/**
+ * Будущий явный разбор. Поля не читаем с Interview: `report_json` на фронте нет.
+ * Страница карточки кандидата сейчас analysis не передаёт.
+ */
+export type RequirementAnalysis = {
+  confirmedSkills?: string[];
 };
 
 function questionsForSkill(questions: Question[], skill: string): Question[] {
@@ -30,9 +50,8 @@ function questionsForSkill(questions: Question[], skill: string): Question[] {
 }
 
 /**
- * Карта требований: требование вакансии, вопросы комплекта, которые его
- * закрывают, и ответы кандидата на них. Ничего не додумывает: если вопроса
- * нет, так и пишет.
+ * Карта требований: требование вакансии, вопросы комплекта и ответы.
+ * Наличие расшифровки ≠ подтверждение навыка.
  */
 export function buildRequirementMap(
   vacancy: Pick<VacancyDetail, "required_skills" | "nice_to_have_skills">,
@@ -59,7 +78,40 @@ export function buildRequirementMap(
   ];
 }
 
-/** Сколько обязательных требований закрыто ответом. */
+function explicitConfirmedSkills(analysis: unknown): string[] | null {
+  if (analysis == null || typeof analysis !== "object" || Array.isArray(analysis)) {
+    return null;
+  }
+  const skills = (analysis as RequirementAnalysis).confirmedSkills;
+  if (!Array.isArray(skills)) {
+    return null;
+  }
+  if (!skills.every((item) => typeof item === "string")) {
+    return null;
+  }
+  return skills;
+}
+
+/**
+ * Вывод по навыку. Никогда не ставит «confirmed» из тега и расшифровки.
+ * Без явного analysis — всегда «unavailable». Страница analysis не передаёт.
+ */
+export function requirementConclusion(
+  row: Pick<RequirementRow, "skill">,
+  analysis?: unknown,
+): RequirementConclusion {
+  const confirmedSkills = explicitConfirmedSkills(analysis);
+  if (confirmedSkills == null) {
+    return "unavailable";
+  }
+  const needle = row.skill.trim().toLowerCase();
+  if (confirmedSkills.some((skill) => skill.trim().toLowerCase() === needle)) {
+    return "confirmed";
+  }
+  return "insufficient";
+}
+
+/** Сколько обязательных требований закрыто ответом. Это не подтверждение навыка. */
 export function mandatorySummary(rows: RequirementRow[]): { answered: number; total: number } {
   const mandatory = rows.filter((row) => row.mandatory);
   return {
@@ -71,4 +123,11 @@ export function mandatorySummary(rows: RequirementRow[]): { answered: number; to
 /** Требования, которые не закрывает ни один вопрос комплекта: дыра калибровки. */
 export function uncoveredRequirements(rows: RequirementRow[]): RequirementRow[] {
   return rows.filter((row) => row.coverage === "not-covered");
+}
+
+/** Отчёт ещё собирается: цифры покрытия нельзя читать как итоговый пробел. */
+export function isReportProcessing(
+  interview: Pick<Interview, "report_status" | "product_state">,
+): boolean {
+  return interview.report_status === "processing" || interview.product_state === "report_processing";
 }

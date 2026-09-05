@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "@/lib/api";
+
 const push = vi.fn();
 const replace = vi.fn();
 
@@ -25,6 +27,11 @@ vi.mock("@/lib/auth", () => ({
 import { getSession, signIn } from "@/lib/auth";
 import LoginPage from "./page";
 
+function fillLoginForm() {
+  fireEvent.change(screen.getByLabelText(/рабочая почта/i), { target: { value: "expert@example.com" } });
+  fireEvent.change(screen.getByLabelText(/^пароль$/i), { target: { value: "TempPass123" } });
+}
+
 describe("LoginPage", () => {
   beforeEach(() => {
     push.mockReset();
@@ -41,8 +48,7 @@ describe("LoginPage", () => {
 
     render(<LoginPage />);
 
-    fireEvent.change(screen.getByLabelText(/рабочая почта/i), { target: { value: "expert@example.com" } });
-    fireEvent.change(screen.getByLabelText(/^пароль$/i), { target: { value: "TempPass123" } });
+    fillLoginForm();
     fireEvent.submit(screen.getByRole("button", { name: /^войти$/i }).closest("form")!);
 
     await waitFor(() => expect(signIn).toHaveBeenCalled());
@@ -60,18 +66,50 @@ describe("LoginPage", () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/internal"));
   });
 
-  it("points to help mail when the password is wrong", async () => {
-    vi.mocked(signIn).mockRejectedValue(new Error("bad password"));
-
+  it("shows a help mail link before any error", () => {
     render(<LoginPage />);
 
-    fireEvent.change(screen.getByLabelText(/рабочая почта/i), { target: { value: "expert@example.com" } });
-    fireEvent.change(screen.getByLabelText(/^пароль$/i), { target: { value: "TempPass123" } });
-    fireEvent.submit(screen.getByRole("button", { name: /^войти$/i }).closest("form")!);
-
-    expect(await screen.findByRole("link", { name: /help@napoleon-it.ru/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /нужна помощь со входом/i })).toHaveAttribute(
       "href",
       "mailto:help@napoleon-it.ru",
     );
+  });
+
+  it("shows a unified Russian message on 401 and keeps the email", async () => {
+    vi.mocked(signIn).mockRejectedValue(new ApiError("Invalid email or password.", 401));
+
+    render(<LoginPage />);
+
+    fillLoginForm();
+    fireEvent.submit(screen.getByRole("button", { name: /^войти$/i }).closest("form")!);
+
+    expect(await screen.findByText("Не удалось войти. Проверьте почту и пароль")).toBeInTheDocument();
+    expect(screen.getByLabelText(/рабочая почта/i)).toHaveValue("expert@example.com");
+    expect(screen.getByLabelText(/^пароль$/i)).toHaveValue("TempPass123");
+    expect(screen.queryByText(/неверный пароль/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/invalid email/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a service-unreachable message on network failure", async () => {
+    vi.mocked(signIn).mockRejectedValue(new TypeError("Failed to fetch"));
+
+    render(<LoginPage />);
+
+    fillLoginForm();
+    fireEvent.submit(screen.getByRole("button", { name: /^войти$/i }).closest("form")!);
+
+    expect(await screen.findByText("Не удалось связаться с сервисом. Повторите попытку")).toBeInTheDocument();
+    expect(screen.getByLabelText(/рабочая почта/i)).toHaveValue("expert@example.com");
+  });
+
+  it("shows a service-unreachable message when the request never reaches the server", async () => {
+    vi.mocked(signIn).mockRejectedValue(new Error("Network Error"));
+
+    render(<LoginPage />);
+
+    fillLoginForm();
+    fireEvent.submit(screen.getByRole("button", { name: /^войти$/i }).closest("form")!);
+
+    expect(await screen.findByText("Не удалось связаться с сервисом. Повторите попытку")).toBeInTheDocument();
   });
 });

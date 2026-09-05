@@ -4,8 +4,19 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AuthShell } from "@/components/auth/auth-shell";
+import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
 import { getSession, resolveLandingPath, signIn } from "@/lib/auth";
+
+const CREDENTIALS_ERROR = "Не удалось войти. Проверьте почту и пароль";
+const SERVICE_ERROR = "Не удалось связаться с сервисом. Повторите попытку";
+
+function loginErrorMessage(caughtError: unknown): string {
+  if (caughtError instanceof ApiError && caughtError.status === 401) {
+    return CREDENTIALS_ERROR;
+  }
+  return SERVICE_ERROR;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,11 +41,7 @@ export default function LoginPage() {
       const response = await signIn({ email, password });
       router.push(await resolveLandingPath(response.access_token));
     } catch (caughtError) {
-      if (caughtError instanceof ApiError) {
-        setError(caughtError.message);
-      } else {
-        setError("Не удалось войти. Проверьте почту и пароль.");
-      }
+      setError(loginErrorMessage(caughtError));
     } finally {
       setSubmitting(false);
     }
@@ -44,7 +51,7 @@ export default function LoginPage() {
     <AuthShell
       eyebrow="Вход для сотрудников"
       title="Вход в рабочий кабинет"
-      description="Рабочая почта и пароль, которые выдал администратор."
+      description="Используйте рабочую почту и пароль, выданные для доступа"
     >
       <form className="form-surface" onSubmit={handleSubmit}>
         <label>
@@ -68,22 +75,14 @@ export default function LoginPage() {
             required
           />
         </label>
-        {error ? (
-          <>
-            <p className="form-error">{error}</p>
-            <p className="disabled-hint">
-              Если пароль не подошёл, напишите на{" "}
-              <a href="mailto:help@napoleon-it.ru">help@napoleon-it.ru</a>.
-            </p>
-          </>
-        ) : null}
+        {error ? <p className="form-error">{error}</p> : null}
+        <p className="disabled-hint">
+          <a href="mailto:help@napoleon-it.ru">Нужна помощь со входом?</a>
+        </p>
         <div className="form-actions">
-          <button className="button button--primary" type="submit" disabled={submitting}>
+          <Button type="submit" variant="primary" loading={submitting}>
             Войти
-          </button>
-          <button className="button button--secondary" type="button" disabled title="Самостоятельная регистрация выключена: аккаунт заводит администратор">
-            Регистрация
-          </button>
+          </Button>
         </div>
       </form>
     </AuthShell>

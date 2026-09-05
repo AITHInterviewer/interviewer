@@ -25,9 +25,9 @@ type FlowStep = "loading" | "not_found" | "already_completed" | "consent" | "set
 
 /**
  * Оркестрирует US1 (specs/004-candidate-interview-flow/spec.md) в три экрана: явное
- * согласие на запись/обработку персональных данных ("consent"), проверка камеры и
- * микрофона ("setup"), сам interview-room ("ready"). Если согласие уже отмечено раньше
- * (кандидат вернулся по той же ссылке) — первый экран пропускается.
+ * согласие на запись/обработку персональных данных ("consent"), проверка микрофона и
+ * опциональной камеры ("setup"), сам interview-room ("ready"). Микрофон обязателен,
+ * камера — по желанию; если согласие уже отмечено раньше — первый экран пропускается.
  */
 export function InterviewFlow({ token }: { token: string }) {
   const [step, setStep] = useState<FlowStep>("loading");
@@ -110,8 +110,8 @@ export function InterviewFlow({ token }: { token: string }) {
     return (
       <CandidateShell vacancyTitle={info.vacancy_title}>
         <section className="setup-stage">
-          <h1>Проверьте камеру и микрофон</h1>
-          <p>Без доступа к ним интервью не начнётся.</p>
+          <h1>Проверьте микрофон</h1>
+          <p>Для голосовых ответов нужен микрофон. Камера не обязательна — интервью можно пройти без неё.</p>
           <DeviceCheck
             onGranted={(granted, speaker) => {
               setStream(granted);
