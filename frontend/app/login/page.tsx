@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -74,9 +73,9 @@ export default function LoginPage() {
           <button className="button button--primary" type="submit" disabled={submitting}>
             {submitting ? "Signing in..." : "Sign in"}
           </button>
-          <Link className="button button--secondary" href="/register">
-            Create recruiter account
-          </Link>
+          <button className="button button--secondary" type="button" disabled title="Registration is temporarily disabled — use an admin account for the demo">
+            Register
+          </button>
         </div>
       </form>
     </AuthShell>
