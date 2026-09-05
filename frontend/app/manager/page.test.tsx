@@ -52,7 +52,7 @@ describe("ManagerListPage", () => {
   it("shows an honest empty state when nobody was handed off", async () => {
     renderPage();
 
-    expect(await screen.findByText(/пока нет кандидатов/i)).toBeInTheDocument();
+    expect(await screen.findByText(/вам пока не передали кандидатов и не запросили мнение/i)).toBeInTheDocument();
   });
 
   it("merges access and next step into one column", async () => {
@@ -93,6 +93,11 @@ describe("ManagerListPage", () => {
 
     expect(await screen.findByText(/передан вам, нужна встреча/i)).toBeInTheDocument();
     expect(screen.getByText(/спросили мнение/i)).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /дата передачи \/ запроса/i })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /кто передал \/ запросил/i })).toBeInTheDocument();
+    expect(screen.getByText("Не указана")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /открыть lida/i })).toBeInTheDocument();
     expect(screen.queryByText(/^доступ$/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /^когда$/i })).not.toBeInTheDocument();
   });
 });

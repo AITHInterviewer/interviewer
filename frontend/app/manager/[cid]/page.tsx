@@ -9,6 +9,7 @@ import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
+import { StatusPill } from "@/components/ui/status-pill";
 import { ApiError } from "@/lib/api";
 import type { InterviewEventsResponse, ManagerCandidate, RubricVersion } from "@/lib/api";
 import { loadInterviewEvents, loadManagerCandidate, loadRubricVersions } from "@/lib/auth";
@@ -140,8 +141,10 @@ export default function ManagerCandidatePage() {
     );
   }
 
+  const isHandoff = candidate.access === "handoff";
+
   return (
-    <AppShell nav={nav} title="Перед встречей">
+    <AppShell nav={nav} title={isHandoff ? "Перед встречей" : "Запрос мнения"}>
       <div className="workspace">
         <PageHeader
           path="Встречи"
@@ -150,7 +153,7 @@ export default function ManagerCandidatePage() {
             <>
               <p>
                 {candidate.vacancy_title}.{" "}
-                {candidate.access === "handoff"
+                {isHandoff
                   ? `Передал ${candidate.from_recruiter_name ?? "рекрутер"}: с человеком нужна встреча.`
                   : "Рекрутер спросил ваше мнение: кандидат вам не передан."}
               </p>
@@ -158,12 +161,20 @@ export default function ManagerCandidatePage() {
                 Здесь только то, что нужно перед разговором. Прокторинга и оценки тут нет: решение
                 принимает человек.
               </p>
+              <p className="muted-copy">
+                Результат встречи здесь не сохраняется. Сообщите его рекрутеру вне сервиса.
+              </p>
             </>
           }
           actions={
-            <Button asChild variant="secondary">
-              <Link href="/manager">К встречам</Link>
-            </Button>
+            <>
+              <StatusPill tone={isHandoff ? "warning" : "neutral"}>
+                {isHandoff ? "Передан вам, нужна встреча" : "Спросили мнение"}
+              </StatusPill>
+              <Button asChild variant="secondary">
+                <Link href="/manager">К встречам</Link>
+              </Button>
+            </>
           }
         />
         <section className="plain-section">
@@ -174,7 +185,7 @@ export default function ManagerCandidatePage() {
         <section className="plain-section">
           <h2>Что человек уже рассказал</h2>
           <p className="muted-copy">
-            Это ответы с интервью. Их не нужно переспрашивать на встрече: лучше идти дальше от них.
+            Начните с того, что человек уже рассказал; при необходимости уточните детали.
           </p>
           {events?.answers.length ? (
             <ul className="stack-list">

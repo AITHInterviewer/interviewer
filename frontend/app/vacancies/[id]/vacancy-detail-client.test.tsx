@@ -114,4 +114,30 @@ describe("VacancyDetailClient", () => {
     // Разделы вакансии живут в сайдбаре: он рисуется вокруг экрана в AppShell.
     expect(screen.getByRole("link", { name: /вопросы/i })).toBeInTheDocument();
   });
+
+  it("does not claim nobody was invited when later-stage interviews exist", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "active" });
+    vi.mocked(loadInterviews).mockResolvedValue({
+      items: [
+        {
+          id: "i1",
+          vacancy_id: "v1",
+          candidate_name: "Lida",
+          resume_file_url: "",
+          access_token: "t",
+          status: "completed",
+          created_at: "2026-01-01T00:00:00Z",
+          product_state: "report_ready",
+        },
+      ],
+    });
+
+    renderClient("v1");
+
+    expect(await screen.findByText("Сейчас в этой стадии никого нет")).toBeInTheDocument();
+    expect(screen.queryByText("Никого не пригласили")).not.toBeInTheDocument();
+    expect(screen.queryByText("Никого ещё не приглашали")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /открыть lida/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /приостановить/i })).toBeInTheDocument();
+  });
 });

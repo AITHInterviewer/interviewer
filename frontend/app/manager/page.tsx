@@ -22,7 +22,7 @@ function accessTask(item: ManagerCandidate): string {
 
 function formatWhen(value?: string | null): string {
   if (!value) {
-    return "—";
+    return "Не указана";
   }
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
@@ -74,7 +74,7 @@ export default function ManagerListPage() {
   return (
     <AppShell nav={buildNav(landing)} title="Встречи">
       <div className="workspace">
-        <PageHeader path="Менеджер" title="Кандидаты к встрече" />
+        <PageHeader path="Менеджер" title="Встречи и запросы мнения" />
         {pageLoading ? <SkeletonTable rows={3} columns={5} label="Загружаю кандидатов" /> : null}
         {error ? <ScreenState kind="error" title="Нет списка" text={error} /> : null}
         {!pageLoading && !error ? (
@@ -84,8 +84,8 @@ export default function ManagerListPage() {
                 <tr>
                   <th>Имя</th>
                   <th>Вакансия</th>
-                  <th>Кто передал</th>
-                  <th>Когда</th>
+                  <th>Кто передал / запросил</th>
+                  <th>Дата передачи / запроса</th>
                   <th>Что сделать</th>
                   <th></th>
                 </tr>
@@ -100,7 +100,12 @@ export default function ManagerListPage() {
                     <td>{accessTask(item)}</td>
                     <td>
                       <Button asChild variant="secondary">
-                        <Link href={`/manager/${item.interview.id}`}>Открыть</Link>
+                        <Link
+                          href={`/manager/${item.interview.id}`}
+                          aria-label={`Открыть ${item.interview.candidate_name ?? "Без имени"}`}
+                        >
+                          Открыть
+                        </Link>
                       </Button>
                     </td>
                   </tr>
@@ -110,7 +115,7 @@ export default function ManagerListPage() {
           ) : (
             <ScreenState
               kind="empty"
-              title="Пока нет кандидатов"
+              title="Вам пока не передали кандидатов и не запросили мнение"
               text="Список появится после явной передачи или запроса мнения от рекрутера."
             />
           )

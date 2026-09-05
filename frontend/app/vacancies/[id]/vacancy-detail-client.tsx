@@ -32,12 +32,21 @@ const RECRUITER_AREA = "area.recruiter_workspace";
 
 /** Пустая колонка говорит, чего в ней ждать, а не молчит белым полем. */
 const COLUMN_EMPTY: Record<string, string> = {
-  invited: "Никого не пригласили",
+  invited: "Никого ещё не приглашали",
   live: "Сейчас никто не отвечает",
   action: "Ничего не ждёт вашего вмешательства",
   decide: "Готовых отчётов нет",
   done: "Решений пока не было",
 };
+const STAGE_EMPTY_NOW = "Сейчас в этой стадии никого нет";
+
+function emptyColumnCopy(columnId: string, totalInterviews: number): string {
+  if (columnId === "invited" && totalInterviews > 0) {
+    return STAGE_EMPTY_NOW;
+  }
+  return COLUMN_EMPTY[columnId];
+}
+
 const HIRING_MANAGER_AREA = "area.hiring_manager_review";
 
 function statusTone(status: VacancyDetail["status"]): StatusTone {
@@ -303,7 +312,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                         void applyVacancyUpdate(() => pauseManagedVacancy(vacancyId), "Не удалось поставить на паузу.")
                       }
                     >
-                      {actionBusy ? "Пауза…" : "Пауза"}
+                      {actionBusy ? "Приостанавливаем…" : "Приостановить"}
                     </Button>
                   ) : null}
                   {showResume ? (
@@ -363,17 +372,22 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                             </div>
                             <div className="candidate-stack">
                               {items.length === 0 ? (
-                                <p className="kanban-column__empty">{COLUMN_EMPTY[column.id]}</p>
+                                <p className="kanban-column__empty">
+                                  {emptyColumnCopy(column.id, interviews.length)}
+                                </p>
                               ) : (
-                                items.map((interview) => (
-                                  <CandidateCard
-                                    key={interview.id}
-                                    name={interview.candidate_name ?? "Без имени"}
-                                    stage={interviewStageLabel(interview)}
-                                    href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
-                                    action="Открыть"
-                                  />
-                                ))
+                                items.map((interview) => {
+                                  const name = interview.candidate_name ?? "Без имени";
+                                  return (
+                                    <CandidateCard
+                                      key={interview.id}
+                                      name={name}
+                                      stage={interviewStageLabel(interview)}
+                                      href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
+                                      action={`Открыть ${name}`}
+                                    />
+                                  );
+                                })
                               )}
                             </div>
                           </div>
