@@ -48,6 +48,22 @@ export function backendWsUrl(path: string): string {
   return `${wsBase}${path}`;
 }
 
+/**
+ * Backend отдаёт `livekit_ws_url` как абсолютный адрес (см. app/config.py) — на деплое это
+ * фиксированный IP раннера (VPN-адрес), который недоступен браузеру, открывшему сайт через
+ * внешний туннель на другом IP. nginx проксирует /rtc/ на том же origin, с которого отдан
+ * сам сайт (см. infra/nginx/nginx.conf), так что в браузере всегда безопасно подменить
+ * хост на текущий origin страницы — сохраняя из ответа backend'а только путь/query.
+ */
+export function resolveLiveKitWsUrl(wsUrl: string): string {
+  if (typeof window === "undefined") {
+    return wsUrl;
+  }
+  const parsed = new URL(wsUrl);
+  const pageWsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${pageWsProtocol}//${window.location.host}${parsed.pathname}${parsed.search}`;
+}
+
 // --- Internal auth / roles API (specs/006-recruiter-auth, 007-multi-role-assignment) ---
 
 export type InternalUser = {

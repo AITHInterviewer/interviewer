@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ChevronLeft, ChevronRight, Check, Camera, Mic, Volume2, MoreVertical } from "lucide-react";
 
-import { apiFetch } from "@/lib/api";
+import { apiFetch, resolveLiveKitWsUrl } from "@/lib/api";
 import { ControlChannel, type ChannelState } from "@/lib/control-channel";
 import { LiveKitSession, type AgentPresence } from "@/lib/livekit-client";
 
@@ -84,7 +84,7 @@ export function InterviewRoom({
     apiFetch<LiveKitTokenResponse>(`/api/interview/${sessionId}/livekit-token`, { method: "POST" })
       .then((tokenResponse) => {
         if (cancelled) return undefined;
-        return liveKit.connect(tokenResponse.ws_url, tokenResponse.token, stream, initialSpeakerId);
+        return liveKit.connect(resolveLiveKitWsUrl(tokenResponse.ws_url), tokenResponse.token, stream, initialSpeakerId);
       })
       .then(() => {
         if (cancelled) return;

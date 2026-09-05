@@ -54,6 +54,7 @@ vi.mock("@/lib/api", () => ({
     ws_url: "ws://localhost:3907",
     expires_at: "2026-09-04T12:00:00Z",
   }),
+  resolveLiveKitWsUrl: (wsUrl: string) => `ws://${window.location.host}${new URL(wsUrl).pathname}`,
 }));
 
 const fakeStream = { getTracks: () => [], getAudioTracks: () => [] } as unknown as MediaStream;
@@ -74,7 +75,7 @@ describe("InterviewRoom", () => {
     await waitFor(() => expect(channelInstances).toHaveLength(1));
     expect(channelInstances[0].connect).toHaveBeenCalled();
     await waitFor(() =>
-      expect(liveKitInstances[0].connect).toHaveBeenCalledWith("ws://localhost:3907", "jwt", fakeStream, undefined),
+      expect(liveKitInstances[0].connect).toHaveBeenCalledWith(`ws://${window.location.host}/`, "jwt", fakeStream, undefined),
     );
   });
 
