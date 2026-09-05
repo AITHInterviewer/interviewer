@@ -10,6 +10,26 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: live-agent logs (full)
+      - name: inspect ClaudeSDKClient API
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
+          Set-Content -Path probe_sdkclient.py -Encoding utf8 -Value @'
+          import inspect
+          from claude_agent_sdk import ClaudeSDKClient
+
+          print("--- ClaudeSDKClient public methods ---")
+          for name in dir(ClaudeSDKClient):
+              if not name.startswith("_"):
+                  print(name)
+          print("--- __init__ ---")
+          print(inspect.signature(ClaudeSDKClient.__init__))
+          print("--- connect ---")
+          print(inspect.signature(ClaudeSDKClient.connect))
+          print("--- query ---")
+          print(inspect.signature(ClaudeSDKClient.query))
+          print("--- receive_response ---")
+          try:
+              print(inspect.signature(ClaudeSDKClient.receive_response))
+          except Exception as e:
+              print("no receive_response:", e)
+          '@
+          Get-Content probe_sdkclient.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
