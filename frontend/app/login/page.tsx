@@ -68,7 +68,15 @@ export default function LoginPage() {
             required
           />
         </label>
-        {error ? <p className="form-error">{error}</p> : null}
+        {error ? (
+          <>
+            <p className="form-error">{error}</p>
+            <p className="disabled-hint">
+              Если пароль не подошёл, напишите на{" "}
+              <a href="mailto:help@napoleon-it.ru">help@napoleon-it.ru</a>.
+            </p>
+          </>
+        ) : null}
         <div className="form-actions">
           <button className="button button--primary" type="submit" disabled={submitting}>
             Войти

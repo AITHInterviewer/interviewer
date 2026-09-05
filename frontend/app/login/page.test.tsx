@@ -59,4 +59,19 @@ describe("LoginPage", () => {
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/internal"));
   });
+
+  it("points to help mail when the password is wrong", async () => {
+    vi.mocked(signIn).mockRejectedValue(new Error("bad password"));
+
+    render(<LoginPage />);
+
+    fireEvent.change(screen.getByLabelText(/рабочая почта/i), { target: { value: "expert@example.com" } });
+    fireEvent.change(screen.getByLabelText(/^пароль$/i), { target: { value: "TempPass123" } });
+    fireEvent.submit(screen.getByRole("button", { name: /^войти$/i }).closest("form")!);
+
+    expect(await screen.findByRole("link", { name: /help@napoleon-it.ru/i })).toHaveAttribute(
+      "href",
+      "mailto:help@napoleon-it.ru",
+    );
+  });
 });
