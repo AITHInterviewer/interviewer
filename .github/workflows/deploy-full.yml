@@ -63,7 +63,11 @@ jobs:
         # since it's an environment fix, not something this workflow can guarantee.
         # netsh is a native exe, not a cmdlet - failures (access denied, already
         # reserved) come back as plain output + a non-zero exit code, not a catchable
-        # PowerShell exception, so check $LASTEXITCODE rather than try/catch here.
+        # PowerShell exception, so check $LASTEXITCODE rather than try/catch here. Actions'
+        # powershell wrapper fails the STEP on a nonzero $LASTEXITCODE left over from the
+        # last command it ran, regardless of our own warn-and-continue logic - reset it
+        # explicitly, same as the network-create step below (hit this the hard way: the
+        # warning printed correctly and the step still failed the whole run).
         run: |
           $output = netsh interface ipv4 add excludedportrange protocol=udp startport=50000 numberofports=101 store=persistent
           if ($LASTEXITCODE -eq 0) {
@@ -71,6 +75,7 @@ jobs:
           } else {
             Write-Output "WARNING: could not reserve UDP 50000-50100 (netsh: $output) - livekit-server media may fail to bind; reserve it manually on the runner if so"
           }
+          $global:LASTEXITCODE = 0
 
       - name: Ensure firewall rules for all service ports
         run: |
