@@ -146,5 +146,34 @@ describe("InternalUsersPage", () => {
     await waitFor(() =>
       expect(updateManagedUserRoles).toHaveBeenCalledWith("1", { removeRoles: ["expert"] }),
     );
+
+    expect(screen.getByRole("button", { name: /снять роль «hiring manager»/i })).toBeDisabled();
+  });
+
+  it("hides a fictional admin role and does not send it to the API", async () => {
+    vi.mocked(loadInternalUsers).mockResolvedValue({
+      items: [
+        {
+          id: "1",
+          name: "Anna Recruiter",
+          email: "anna@example.com",
+          roles: ["recruiter", "admin"],
+          created_by_user_id: "9",
+        },
+      ],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Anna Recruiter")).toBeInTheDocument();
+    expect(screen.queryByText("Администратор")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /снять роль «admin»/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /снять роль «администратор»/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Аккаунт создан вручную")).toBeInTheDocument();
+
+    const lastRegistryRole = screen.getByRole("button", { name: /снять роль «recruiter»/i });
+    expect(lastRegistryRole).toBeDisabled();
+    fireEvent.click(lastRegistryRole);
+    expect(updateManagedUserRoles).not.toHaveBeenCalled();
   });
 });
