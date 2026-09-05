@@ -18,8 +18,3 @@ jobs:
         if: always()
         run: |
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 60
-
-      - name: livekit-server logs (full)
-        if: always()
-        run: |
-          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server
