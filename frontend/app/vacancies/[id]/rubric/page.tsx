@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
@@ -10,13 +10,21 @@ import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
+import { Button } from "@/components/ui/button";
 import type { RubricVersion, VacancyDetail } from "@/lib/api";
-import { loadRubricVersions, loadVacancy } from "@/lib/auth";
+import { loadRubricVersions, loadVacancy, updateManagedVacancy } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
 import { buildRequirementMap, uncoveredRequirements } from "@/lib/report";
 
 /** Что зафиксировано в версии рубрики. Сырой JSON пользователю не показываем. */
+function splitSkills(value: string): string[] {
+  return value
+    .split(",")
+    .map((skill) => skill.trim())
+    .filter((skill) => skill.length > 0);
+}
+
 function snapshotText(snapshot?: Record<string, unknown>): string {
   const skills = snapshot?.required_skills;
   if (Array.isArray(skills) && skills.every((item) => typeof item === "string")) {
@@ -35,6 +43,11 @@ function RubricInner() {
   const [versions, setVersions] = useState<RubricVersion[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [vacancyLoading, setVacancyLoading] = useState(true);
+  const [requiredSkills, setRequiredSkills] = useState("");
+  const [niceToHaveSkills, setNiceToHaveSkills] = useState("");
+  const [skillError, setSkillError] = useState<string | null>(null);
+  const [skillStatus, setSkillStatus] = useState<string | null>(null);
+  const [skillSaving, setSkillSaving] = useState(false);
 
   useEffect(() => {
     if (!landing) {
@@ -48,6 +61,8 @@ function RubricInner() {
         }
         setVacancy(detail);
         setVersions(versionResponse.items);
+        setRequiredSkills(detail.required_skills.join(", "));
+        setNiceToHaveSkills(detail.nice_to_have_skills.join(", "));
       })
       .catch((caughtError: unknown) => {
         if (!cancelled) {
@@ -66,6 +81,26 @@ function RubricInner() {
 
   const coverage = vacancy ? buildRequirementMap(vacancy, vacancy.questions, []) : [];
   const gaps = uncoveredRequirements(coverage);
+  const canEditSkills = landing?.available_areas.some((area) => area.id === "area.recruiter_workspace") ?? false;
+
+  async function handleSaveSkills(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSkillSaving(true);
+    setSkillError(null);
+    setSkillStatus(null);
+    try {
+      const updated = await updateManagedVacancy(vacancyId, {
+        requiredSkills: splitSkills(requiredSkills),
+        niceToHaveSkills: splitSkills(niceToHaveSkills),
+      });
+      setVacancy((current) => (current ? { ...current, ...updated } : current));
+      setSkillStatus("Список навыков сохранён.");
+    } catch (caughtError) {
+      setSkillError(normalizeError(caughtError, "Не удалось сохранить навыки."));
+    } finally {
+      setSkillSaving(false);
+    }
+  }
 
   if (loading || !landing) {
     return (
@@ -92,6 +127,41 @@ function RubricInner() {
               }
             />
             {fromRecruiter ? null : <CalibrationSubnav vacancyId={vacancyId} />}
+            <section className="plain-section" style={{ marginTop: 20 }}>
+              <h2>Состав требований</h2>
+              {canEditSkills ? (
+                <form className="form-surface" onSubmit={(event) => void handleSaveSkills(event)}>
+                  <label>
+                    Обязательные навыки
+                    <input
+                      value={requiredSkills}
+                      onChange={(event) => setRequiredSkills(event.target.value)}
+                      placeholder="python, sql"
+                    />
+                  </label>
+                  <label>
+                    Желательные навыки
+                    <input
+                      value={niceToHaveSkills}
+                      onChange={(event) => setNiceToHaveSkills(event.target.value)}
+                      placeholder="docker, kubernetes"
+                    />
+                  </label>
+                  {skillError ? <p className="form-error">{skillError}</p> : null}
+                  {skillStatus ? <p className="success-message">{skillStatus}</p> : null}
+                  <div className="form-actions">
+                    <Button type="submit" loading={skillSaving} loadingLabel="Сохраняем…">
+                      Сохранить навыки
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <p className="muted-copy">
+                  Менять список может рекрутер в настройках вакансии. Сейчас обязательные:{" "}
+                  {vacancy.required_skills.join(", ") || "не указаны"}.
+                </p>
+              )}
+            </section>
             {gaps.length > 0 ? (
               <p className="report-gap">
                 Ни один вопрос комплекта не закрывает: {gaps.map((row) => row.skill).join(", ")}. Пока
