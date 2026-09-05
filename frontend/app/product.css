@@ -542,3 +542,4 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 
 @media (max-width: 1080px) { .requirement-map { grid-template-columns: minmax(0, 1fr); } }
 .report-gap { margin: 0; padding: 12px 14px; border-left: 2px solid var(--warning); background: var(--warning-soft); color: var(--warning); font-size: var(--text-body); }
+.kanban-column__empty { margin: 0; padding: 14px 10px; border: 1px dashed var(--border); border-radius: var(--radius-control); color: var(--ink-tertiary); font-size: var(--text-meta); text-align: center; }

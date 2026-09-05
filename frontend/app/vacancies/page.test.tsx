@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replace = vi.fn();
@@ -99,7 +99,10 @@ describe("VacanciesPage", () => {
     renderPage();
 
     expect(await screen.findByText(/backend developer/i)).toBeInTheDocument();
-    expect(await screen.findByText(/на калибровке/i)).toBeInTheDocument();
+    // Статус есть и в строке таблицы, и в фильтре — проверяем именно пилюлю в таблице.
+    const row = (await screen.findByText(/backend developer/i)).closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText(/на калибровке/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /новая вакансия/i })).not.toBeInTheDocument();
   });
 });

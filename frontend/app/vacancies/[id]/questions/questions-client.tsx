@@ -59,6 +59,15 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
   const canEditQuestions = hasEditAction && !fromRecruiter;
   const canApprove = vacancy ? APPROVABLE_STATUSES.includes(vacancy.status) : false;
 
+  /** Теги вопроса, которых нет среди требований вакансии: вопрос ни за что не отвечает. */
+  function orphanTags(question: Question): string[] {
+    if (!vacancy) return [];
+    const known = [...vacancy.required_skills, ...vacancy.nice_to_have_skills].map((skill) =>
+      skill.trim().toLowerCase(),
+    );
+    return (question.skill_tag ?? []).filter((tag) => !known.includes(tag.trim().toLowerCase()));
+  }
+
   async function refreshVacancy() {
     try {
       const detail = await loadVacancy(vacancyId);
@@ -199,8 +208,18 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
                         <div className="candidate-card__meta">
                           <span>{QUESTION_FORMAT_LABEL[question.format] ?? question.format}</span>
                           <span>{QUESTION_DIFFICULTY_LABEL[question.difficulty] ?? question.difficulty}</span>
-                          <span>{question.skill_tag?.join(", ") || "Навык не указан"}</span>
+                          <span>
+                            {question.skill_tag?.length
+                              ? `Закрывает: ${question.skill_tag.join(", ")}`
+                              : "Требование не указано"}
+                          </span>
                         </div>
+                        {orphanTags(question).length > 0 ? (
+                          <p className="disabled-hint">
+                            {orphanTags(question).join(", ")} нет среди требований вакансии: ответ на
+                            этот вопрос ничего не закроет в отчёте.
+                          </p>
+                        ) : null}
                         {canEditQuestions ? (
                           <div className="page-actions">
                             <button

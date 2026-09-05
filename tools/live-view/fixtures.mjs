@@ -316,7 +316,19 @@ export function respond(pathname) {
         },
       ],
     };
-  if (/\/interviews\/[^/]+\/clarifications$/.test(p)) return { items: [] };
+  if (/\/interviews\/[^/]+\/clarifications$/.test(p))
+    return {
+      items: [
+        {
+          id: "cl-audit",
+          interview_id: "i-lida",
+          type: "expert_audit",
+          status: "open",
+          close_reason: null,
+          extra_token: null,
+        },
+      ],
+    };
   if (/\/interviews\/[^/]+$/.test(p)) return fixtures.interviews[0];
   return {};
 }

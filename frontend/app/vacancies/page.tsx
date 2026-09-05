@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
+import { SearchField, SelectField, Toolbar } from "@/components/chrome/Toolbar";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import type { Vacancy } from "@/lib/api";
@@ -37,6 +38,19 @@ export default function VacanciesPage() {
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
   const [vacanciesLoading, setVacanciesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sort, setSort] = useState("candidates");
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const rows = vacancies
+      .filter((item) => (statusFilter === "all" ? true : item.status === statusFilter))
+      .filter((item) => item.title.toLowerCase().includes(needle));
+    if (sort === "title") return [...rows].sort((a, b) => a.title.localeCompare(b.title, "ru"));
+    if (sort === "status") return [...rows].sort((a, b) => a.status.localeCompare(b.status));
+    return [...rows].sort((a, b) => (b.candidate_count ?? 0) - (a.candidate_count ?? 0));
+  }, [query, sort, statusFilter, vacancies]);
 
   const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
   const canReview = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
@@ -110,11 +124,45 @@ export default function VacanciesPage() {
           }
         />
 
+        {!vacanciesLoading && !error && vacancies.length > 0 ? (
+          <Toolbar>
+            <SearchField
+              label="Поиск по названию"
+              placeholder="Поиск вакансии"
+              value={query}
+              onChange={setQuery}
+            />
+            <SelectField
+              label="Статус"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { value: "all", label: "Любой статус" },
+                ...Array.from(new Set(vacancies.map((item) => item.status))).map((status) => ({
+                  value: status,
+                  label: VACANCY_STATUS_LABEL[status] ?? status,
+                })),
+              ]}
+            />
+            <SelectField
+              label="Сортировка"
+              value={sort}
+              onChange={setSort}
+              options={[
+                { value: "candidates", label: "Сначала где больше кандидатов" },
+                { value: "title", label: "По названию" },
+                { value: "status", label: "По статусу" },
+              ]}
+            />
+            <span className="toolbar__count">Найдено: {visible.length}</span>
+          </Toolbar>
+        ) : null}
+
         {vacanciesLoading ? <SkeletonTable rows={3} columns={4} label="Загружаю вакансии" /> : null}
         {error ? <ScreenState kind="error" title="Не удалось загрузить вакансии" text={error} /> : null}
 
         {!vacanciesLoading && !error ? (
-          vacancies.length > 0 ? (
+          visible.length > 0 ? (
             <table className="vacancies-table">
               <thead>
                 <tr>
@@ -125,7 +173,7 @@ export default function VacanciesPage() {
                 </tr>
               </thead>
               <tbody>
-                {vacancies.map((vacancy) => (
+                {visible.map((vacancy) => (
                   <tr key={vacancy.id}>
                     <td>
                       <Link href={`/vacancies/${vacancy.id}`}>{vacancy.title}</Link>
@@ -144,8 +192,26 @@ export default function VacanciesPage() {
           ) : (
             <ScreenState
               kind="empty"
-              title="Вакансий пока нет"
-              text="Заведите вакансию: эксперт соберёт рубрику, после этого можно приглашать кандидатов."
+              title={vacancies.length === 0 ? "Вакансий пока нет" : "Под фильтры ничего не подошло"}
+              text={
+                vacancies.length === 0
+                  ? "Заведите вакансию: эксперт соберёт рубрику, после этого можно приглашать кандидатов."
+                  : "Снимите фильтры или измените поиск — вакансии есть, но не под этот запрос."
+              }
+              action={
+                vacancies.length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => {
+                      setQuery("");
+                      setStatusFilter("all");
+                    }}
+                  >
+                    Снять фильтры
+                  </Button>
+                ) : null
+              }
             />
           )
         ) : null}
