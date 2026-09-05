@@ -10,17 +10,46 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: check adapter status and re-enable anything disabled
+      - uses: actions/checkout@v4
+
+      - name: check uploaded files exist
         run: |
-          Get-NetAdapter | Format-Table Name, InterfaceDescription, Status, ifIndex -AutoSize
-          foreach ($n in @("Radmin VPN", "Tailscale")) {
-            $a = Get-NetAdapter -Name $n -ErrorAction SilentlyContinue
-            if ($a -and $a.Status -ne "Up") {
-              Write-Output "Re-enabling $n (was $($a.Status))"
-              Enable-NetAdapter -Name $n -Confirm:$false
-            } else {
-              Write-Output "$n status: $($a.Status)"
-            }
+          Get-ChildItem C:\ai-interviewer-assets\ -ErrorAction Stop | Format-Table Name, Length
+
+      - name: find the tts container's cache snapshot dir for the irina voice
+        run: |
+          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q tts
+          Write-Output "container: $containerId"
+          docker exec $containerId find / -xdev -iname "config.json" -path "*irina*" 2>$null
+
+      - name: copy irina.onnx into the container as model.onnx
+        if: always()
+        run: |
+          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q tts
+          $dir = docker exec $containerId find / -xdev -iname "config.json" -path "*irina*" 2>$null | Select-Object -First 1
+          $dir = $dir.Trim()
+          if (-not $dir) {
+            Write-Output "could not find the irina snapshot dir - see previous step output"
+            exit 1
           }
-          Write-Output "--- looking for hidemy-related adapters by any name ---"
-          Get-NetAdapter | Where-Object { $_.InterfaceDescription -like "*WireGuard*" -or $_.Name -like "*hidemy*" } | Format-Table Name, InterfaceDescription, Status -AutoSize
+          $targetDir = Split-Path $dir -Parent
+          Write-Output "target dir: $targetDir"
+          docker cp C:\ai-interviewer-assets\irina.onnx "${containerId}:${targetDir}/model.onnx"
+          docker exec $containerId ls -la $targetDir
+
+      - name: verify with a real synth call
+        if: always()
+        run: |
+          Set-Content -Path probe_verify.py -Encoding utf8 -Value @'
+          import json, urllib.request, urllib.error
+          body = json.dumps({"model": "speaches-ai/piper-ru_RU-irina-medium", "voice": "irina", "input": "privet, eto test"}).encode()
+          req = urllib.request.Request("http://tts:8000/v1/audio/speech", data=body, headers={"Content-Type": "application/json"})
+          try:
+              r = urllib.request.urlopen(req, timeout=30)
+              data = r.read()
+              print("STATUS", r.status, "BYTES", len(data))
+          except urllib.error.HTTPError as e:
+              print("STATUS", e.code)
+              print(e.read().decode("utf-8", "replace"))
+          '@
+          Get-Content probe_verify.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
