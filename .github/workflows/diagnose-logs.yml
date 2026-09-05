@@ -1,0 +1,27 @@
+name: inspect fish-speech-custom (self-hosted, temporary)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  inspect:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: container list (all, to find it whether running or stopped)
+        run: docker ps -a --filter "ancestor=fish-speech-custom:latest" --format "table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+      - name: inspect ports/env/entrypoint
+        continue-on-error: true
+        run: |
+          docker inspect 0d4c48c231f1 --format "PORTS: {{json .NetworkSettings.Ports}}"
+          docker inspect 0d4c48c231f1 --format "ENV: {{json .Config.Env}}"
+          docker inspect 0d4c48c231f1 --format "CMD: {{json .Config.Cmd}}"
+          docker inspect 0d4c48c231f1 --format "ENTRYPOINT: {{json .Config.Entrypoint}}"
+          docker inspect 0d4c48c231f1 --format "STATUS: {{.State.Status}}"
+
+      - name: recent logs
+        continue-on-error: true
+        run: docker logs --tail 80 0d4c48c231f1
