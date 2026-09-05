@@ -10,6 +10,20 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: live-agent logs (full)
+      - name: inspect ChatContext attributes
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
+          Set-Content -Path probe_ctx.py -Encoding utf8 -Value @'
+          import inspect
+          from livekit.agents.llm import ChatContext
+
+          print("--- ChatContext members ---")
+          for name in dir(ChatContext):
+              if not name.startswith("_"):
+                  print(name)
+          print("--- items property ---")
+          try:
+              print(inspect.getsource(ChatContext.items.fget))
+          except Exception as e:
+              print("no items property:", e)
+          '@
+          Get-Content probe_ctx.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
