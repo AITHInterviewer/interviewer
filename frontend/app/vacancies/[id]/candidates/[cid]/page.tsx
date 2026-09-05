@@ -30,14 +30,19 @@ import {
   requestManagedAudit,
   requestManagedExtra,
 } from "@/lib/auth";
+import { clarificationStatusLabel, isClarificationOpen, openClarifications } from "@/lib/clarifications";
 import { normalizeError } from "@/lib/errors";
 import { interviewStageLabel } from "@/lib/pipeline";
 import {
+  analysisSourceLabel,
   buildRequirementMap,
   CONCLUSION_LABEL,
   COVERAGE_LABEL,
   isReportProcessing,
+  mandatoryGapWarning,
   mandatorySummary,
+  optionalGapRows,
+  PROCESSING_COPY,
   requirementConclusion,
   uncoveredRequirements,
   type RequirementCoverage,
@@ -45,7 +50,6 @@ import {
 import { buildNav, vacancyBreadcrumbs } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
-const OPEN_CLARIFICATION = new Set(["requested", "received", "in_progress"]);
 
 function extraLink(accessToken: string, clarificationId: string): string {
   if (typeof window === "undefined") {
@@ -66,14 +70,6 @@ function coverageTone(coverage: RequirementCoverage): StatusTone {
   if (coverage === "answered") return "neutral";
   if (coverage === "asked") return "insufficient";
   return "unchecked";
-}
-
-/** Статус уточнения словами: коды open/closed в интерфейс не выносим. */
-function clarificationStatusLabel(status: string): string {
-  if (status === "open") return "ждёт ответа";
-  if (status === "closed") return "закрыт";
-  if (status === "answered") return "кандидат ответил";
-  return status;
 }
 
 export default function VacancyCandidatePage() {
@@ -101,10 +97,11 @@ export default function VacancyCandidatePage() {
   );
   const mandatory = mandatorySummary(requirements);
   const uncovered = uncoveredRequirements(requirements);
+  const optionalGaps = optionalGapRows(requirements);
+  const gapWarning = mandatoryGapWarning(requirements);
   const selected =
     requirements.find((row) => row.skill === selectedSkill) ?? requirements[0] ?? null;
   const processing = interview ? isReportProcessing(interview) : false;
-  const unansweredMandatory = requirements.filter((row) => row.mandatory && row.coverage !== "answered");
 
   async function refreshClarifications() {
     const response = await loadClarifications(params.cid);
@@ -154,21 +151,26 @@ export default function VacancyCandidatePage() {
     };
   }, [landing, params.cid, params.id, canManage]);
 
-  const openClarifications = clarifications.filter((item) => OPEN_CLARIFICATION.has(item.status));
-  const handoffBlocked = openClarifications.length > 0;
+  const openItems = openClarifications(clarifications);
+  const handoffBlocked = openItems.length > 0;
   const extras = clarifications.filter((item) => item.type === "extra");
   const audits = clarifications.filter((item) => item.type === "expert_audit");
+  const hasOpenExtra = extras.some((item) => isClarificationOpen(item.status));
+  const hasOpenAudit = audits.some((item) => isClarificationOpen(item.status));
 
   async function handleExtra() {
+    if (hasOpenExtra || busy) return;
     setBusy(true);
     setError(null);
     try {
       const item = await requestManagedExtra(params.cid);
       await refreshClarifications();
       if (interview) {
-        setStatus(`Запросили доп. ответ. Ссылка: ${extraLink(interview.access_token, item.id)}. Отправьте её сами.`);
+        setStatus(
+          `Ссылка для кандидата: ${extraLink(interview.access_token, item.id)}. Отправьте её кандидату самостоятельно.`,
+        );
       } else {
-        setStatus("Запросили доп. ответ. Отправьте ссылку сами.");
+        setStatus("Запросили доп. ответ. Отправьте ссылку кандидату самостоятельно.");
       }
     } catch (caughtError) {
       setError(normalizeError(caughtError, "Не удалось запросить доп. ответ."));
@@ -178,12 +180,15 @@ export default function VacancyCandidatePage() {
   }
 
   async function handleAudit() {
+    if (hasOpenAudit || busy) return;
     setBusy(true);
     setError(null);
     try {
       await requestManagedAudit(params.cid);
       await refreshClarifications();
-      setStatus("Запросили аудит эксперта.");
+      setStatus(
+        "Запросили аудит эксперта. Требование и причина в запросе не сохраняются — их увидит эксперт в очереди, если бэкенд их добавит.",
+      );
     } catch (caughtError) {
       setError(normalizeError(caughtError, "Не удалось запросить аудит."));
     } finally {
@@ -280,31 +285,66 @@ export default function VacancyCandidatePage() {
             {error ? <p className="form-error">{error}</p> : null}
             {status ? <p className="success-message">{status}</p> : null}
 
-            <section className="report-summary">
+            {/* 1. Контекст вакансии и интервью */}
+            <section className="report-summary" aria-labelledby="report-context-heading">
               <div>
-                <h2>Что видно из ответов</h2>
+                <h2 id="report-context-heading">Контекст</h2>
                 <p className="muted-copy">
-                  {processing
-                    ? "Интервью завершено, отчёт собирается"
-                    : `Это разбор ответов системой, а не решение о найме. ${reportLabel(interview)}`}
+                  {vacancy ? (
+                    <>
+                      Вакансия «{vacancy.title}»
+                      {vacancy.grade ? ` · ${vacancy.grade}` : ""}. Стадия: {interviewStageLabel(interview)}.
+                    </>
+                  ) : (
+                    <>Стадия: {interviewStageLabel(interview)}.</>
+                  )}
                 </p>
               </div>
-              {!processing && unansweredMandatory.length > 0 ? (
-                <p className="report-gap">
-                  По требованию{" "}
-                  {unansweredMandatory.map((row) => `«${row.skill}»`).join(", ")} ответ не получен.
-                  Можно задать доп. вопрос или запросить аудит.
+              <nav className="report-jumps" aria-label="Переход по отчёту">
+                <a className="text-button" href="#requirements">
+                  К требованиям
+                </a>
+                {canManage ? (
+                  <a className="text-button" href="#next-step">
+                    К следующему шагу
+                  </a>
+                ) : null}
+              </nav>
+            </section>
+
+            {/* 2. Состояние обработки */}
+            <section className="report-summary" aria-labelledby="report-processing-heading">
+              <div>
+                <h2 id="report-processing-heading">Состояние обработки</h2>
+                <p className="muted-copy">
+                  {processing ? PROCESSING_COPY : reportLabel(interview)}
                 </p>
-              ) : null}
-              {processing ? null : (
+                {!processing ? (
+                  <p className="muted-copy">
+                    Это разбор ответов системой, а не решение о найме.
+                  </p>
+                ) : null}
+              </div>
+            </section>
+
+            {/* 3. Обязательные требования с пробелами */}
+            {!processing ? (
+              <section className="report-summary" aria-labelledby="report-gaps-heading">
+                <div>
+                  <h2 id="report-gaps-heading">Обязательные требования</h2>
+                  <p className="muted-copy">
+                    По обязательным требованиям есть ответы: {mandatory.answered} из {mandatory.total}. Это
+                    наличие расшифровки, не подтверждение навыка.
+                  </p>
+                </div>
+                {gapWarning ? <p className="report-gap">{gapWarning}</p> : null}
+                {optionalGaps.length > 0 ? (
+                  <p className="muted-copy">
+                    Желательные пробелы (не провал обязательных):{" "}
+                    {optionalGaps.map((row) => row.skill).join(", ")}.
+                  </p>
+                ) : null}
                 <dl className="report-figures">
-                  <div>
-                    <dt>Обязательные требования</dt>
-                    <dd>
-                      По обязательным требованиям есть ответы: {mandatory.answered} из {mandatory.total}. Это
-                      не подтверждение навыка.
-                    </dd>
-                  </div>
                   <div>
                     <dt>Ответов с расшифровкой</dt>
                     <dd>
@@ -317,13 +357,14 @@ export default function VacancyCandidatePage() {
                     <dd>{uncovered.length === 0 ? "таких требований нет" : uncovered.map((row) => row.skill).join(", ")}</dd>
                   </div>
                 </dl>
-              )}
-            </section>
+              </section>
+            ) : null}
 
-            <section className="requirement-map">
+            {/* 4. Карта требований и ответы */}
+            <section className="requirement-map" id="requirements" aria-labelledby="requirements-heading">
               <div className="requirement-map__list">
                 <header>
-                  <h2>Карта требований</h2>
+                  <h2 id="requirements-heading">Карта требований</h2>
                   <span className="muted-copy">
                     {processing
                       ? "Расшифровки ещё могут появиться — это не итоговый пробел"
@@ -340,7 +381,7 @@ export default function VacancyCandidatePage() {
                       className="requirement-row"
                       type="button"
                       key={row.skill}
-                      data-selected={row.skill === selectedSkill}
+                      data-selected={row.skill === selectedSkill || (selectedSkill === null && row === selected)}
                       onClick={() => setSelectedSkill(row.skill)}
                     >
                       <span>
@@ -367,10 +408,16 @@ export default function VacancyCandidatePage() {
                         {selected.mandatory ? "Обязательное требование" : "Желательное требование"}
                       </span>
                       <p className="muted-copy">
+                        Наличие ответа: {COVERAGE_LABEL[selected.coverage]}
+                      </p>
+                      <p className="muted-copy">
                         {processing
                           ? "Отчёт ещё собирается — это не итог по навыку."
-                          : CONCLUSION_LABEL[requirementConclusion(selected)]}
+                          : `Заключение: ${CONCLUSION_LABEL[requirementConclusion(selected)]}`}
                       </p>
+                      {!processing ? (
+                        <p className="muted-copy">{analysisSourceLabel()}</p>
+                      ) : null}
                     </div>
                     {selected.answers.length > 0 ? (
                       selected.answers.map(({ question, answer }) => (
@@ -405,23 +452,51 @@ export default function VacancyCandidatePage() {
               </aside>
             </section>
 
+            {/* 5. Следующий шаг человека */}
             {canManage ? (
-              <section className="plain-section">
-                <h2>Уточнения</h2>
+              <section className="plain-section" id="next-step" aria-labelledby="next-step-heading">
+                <h2 id="next-step-heading">Следующий шаг</h2>
+                <p className="muted-copy">
+                  Система собирает наблюдения, решение принимает человек.
+                </p>
+
+                <h3>Уточнения</h3>
+                <p className="muted-copy">
+                  Доп. вопрос и аудит создаются без текста на сервере — ссылку или контекст передаёте вы.
+                </p>
                 <div className="form-actions">
-                  <Button type="button" variant="secondary" disabled={busy} onClick={() => void handleExtra()}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy || hasOpenExtra}
+                    onClick={() => void handleExtra()}
+                  >
                     Запросить доп. ответ
                   </Button>
-                  <Button type="button" variant="secondary" disabled={busy} onClick={() => void handleAudit()}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy || hasOpenAudit}
+                    onClick={() => void handleAudit()}
+                  >
                     Запросить аудит
                   </Button>
                 </div>
+                {hasOpenExtra ? (
+                  <p className="disabled-hint">Уже есть открытый доп. вопрос — новый не создаём.</p>
+                ) : null}
+                {hasOpenAudit ? (
+                  <p className="disabled-hint">Уже есть открытый аудит — новый не создаём.</p>
+                ) : null}
                 {extras.length > 0 ? (
                   <ul className="stack-list">
                     {extras.map((item) => (
                       <li key={item.id}>
                         Доп. вопрос: {clarificationStatusLabel(item.status)} ·{" "}
                         {extraLink(interview.access_token, item.id)}
+                        {isClarificationOpen(item.status)
+                          ? " · отправьте ссылку кандидату самостоятельно"
+                          : null}
                       </li>
                     ))}
                   </ul>
@@ -431,13 +506,14 @@ export default function VacancyCandidatePage() {
                     {audits.map((item) => (
                       <li key={item.id}>
                         Аудит эксперта: {clarificationStatusLabel(item.status)}
+                        {item.close_reason ? ` · закрыт: ${item.close_reason}` : null}
                       </li>
                     ))}
                   </ul>
                 ) : null}
-                {openClarifications.length > 0 ? (
+                {openItems.length > 0 ? (
                   <div>
-                    {openClarifications.map((item) => (
+                    {openItems.map((item) => (
                       <p key={item.id}>
                         {item.type === "extra" ? "Доп. вопрос" : "Аудит эксперта"} ждёт ответа
                         <button className="text-button" type="button" onClick={() => void handleClose(item.id)}>
@@ -453,32 +529,28 @@ export default function VacancyCandidatePage() {
                 ) : (
                   <p>Открытых уточнений нет.</p>
                 )}
-              </section>
-            ) : null}
 
-            {canManage ? (
-              <section className="plain-section">
-                <h2>Решение</h2>
+                <h3>Решение</h3>
                 <p className="muted-copy">
-                  Система собирает наблюдения, решение принимает человек. Передача менеджеру
-                  открывает ему карточку и ваш комментарий.
+                  Передача менеджеру открывает ему карточку и ваш комментарий. Запрос мнения — только доступ к
+                  отчёту, без передачи кандидата.
                 </p>
                 <div className="form-surface">
-                <label>
-                  Менеджер
-                  <select value={managerId} onChange={(event) => setManagerId(event.target.value)}>
-                    <option value="">Выберите менеджера</option>
-                    {managers.map((manager) => (
-                      <option key={manager.id} value={manager.id}>
-                        {manager.name} ({manager.email})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Что рассказать менеджеру
-                  <textarea value={summary} onChange={(event) => setSummary(event.target.value)} />
-                </label>
+                  <label>
+                    Менеджер
+                    <select value={managerId} onChange={(event) => setManagerId(event.target.value)}>
+                      <option value="">Выберите менеджера</option>
+                      {managers.map((manager) => (
+                        <option key={manager.id} value={manager.id}>
+                          {manager.name} ({manager.email})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Что рассказать менеджеру
+                    <textarea value={summary} onChange={(event) => setSummary(event.target.value)} />
+                  </label>
                 </div>
                 <div className="form-actions">
                   <Button type="button" disabled={busy || handoffBlocked} onClick={() => void handleHandoff()}>
@@ -492,7 +564,15 @@ export default function VacancyCandidatePage() {
                   </Button>
                 </div>
                 {handoffBlocked ? (
-                  <p className="disabled-hint">Сначала закройте открытые уточнения.</p>
+                  <p className="disabled-hint">
+                    Передача недоступна:{" "}
+                    {openItems
+                      .map((item) =>
+                        item.type === "extra" ? "открыт доп. вопрос" : "открыт аудит эксперта",
+                      )
+                      .join(", ")}
+                    . Сначала закройте уточнения.
+                  </p>
                 ) : null}
                 <p className="disabled-hint">
                   «Не продолжаем» появится после пилота: пока решение об отказе фиксируется вне системы.

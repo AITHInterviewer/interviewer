@@ -4,9 +4,14 @@ import type { InterviewAnswer, Question } from "@/lib/api";
 import {
   buildRequirementMap,
   isReportProcessing,
+  mandatoryGapRows,
+  mandatoryGapWarning,
   mandatorySummary,
+  optionalGapRows,
+  analysisSourceLabel,
   requirementConclusion,
   uncoveredRequirements,
+  PROCESSING_COPY,
 } from "@/lib/report";
 
 function question(id: string, order: number, skills: string[]): Question {
@@ -114,5 +119,48 @@ describe("isReportProcessing", () => {
   it("false когда отчёт не в обработке", () => {
     expect(isReportProcessing({ report_status: "ready", product_state: "report_ready" })).toBe(false);
     expect(isReportProcessing({})).toBe(false);
+  });
+});
+
+describe("mandatoryGapRows", () => {
+  const vacancy = { required_skills: ["Python", "SQL"], nice_to_have_skills: ["Docker"] };
+  const questions = [question("q1", 1, ["Python"]), question("q2", 2, ["SQL"]), question("q3", 3, ["Docker"])];
+
+  it("не включает желательные пробелы", () => {
+    const rows = buildRequirementMap(vacancy, questions, [answer("q1", "ответ")]);
+    expect(mandatoryGapRows(rows).map((row) => row.skill)).toEqual(["SQL"]);
+    expect(optionalGapRows(rows).map((row) => row.skill)).toEqual(["Docker"]);
+  });
+
+  it("формирует предупреждение только по обязательным", () => {
+    const rows = buildRequirementMap(vacancy, questions, [answer("q1", "ответ")]);
+    expect(mandatoryGapWarning(rows)).toMatch(/SQL/);
+    expect(mandatoryGapWarning(rows)).not.toMatch(/Docker/);
+  });
+
+  it("null когда обязательные закрыты ответами", () => {
+    const rows = buildRequirementMap(vacancy, questions, [
+      answer("q1", "a"),
+      answer("q2", "b"),
+      answer("q3", "c"),
+    ]);
+    expect(mandatoryGapWarning(rows)).toBeNull();
+  });
+});
+
+describe("analysisSourceLabel", () => {
+  it("без analysis — честно про недоступность", () => {
+    expect(analysisSourceLabel()).toMatch(/недоступен/i);
+    expect(analysisSourceLabel({})).toMatch(/недоступен/i);
+  });
+
+  it("с analysis — указывает автоматический разбор", () => {
+    expect(analysisSourceLabel({ confirmedSkills: ["Python"] })).toMatch(/автоматический анализ/i);
+  });
+});
+
+describe("PROCESSING_COPY", () => {
+  it("фиксирует текст состояния обработки", () => {
+    expect(PROCESSING_COPY).toBe("Интервью завершено, отчёт собирается");
   });
 });
