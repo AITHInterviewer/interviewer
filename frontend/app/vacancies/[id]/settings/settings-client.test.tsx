@@ -117,9 +117,12 @@ describe("VacancySettingsClient", () => {
     expect(await screen.findByRole("button", { name: /приостановить/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /^архивировать$/i }));
-    expect(screen.getByRole("dialog", { name: /архивировать вакансию/i })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: /архивировать вакансию/i });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText(/backend developer/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/не отменяем/i)).toBeInTheDocument();
 
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^архивировать$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^архивировать$/i }));
 
     await waitFor(() => expect(archiveManagedVacancy).toHaveBeenCalledWith("v1"));
     await waitFor(() => expect(screen.getByText(/вакансия в архиве/i)).toBeInTheDocument());

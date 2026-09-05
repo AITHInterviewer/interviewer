@@ -170,6 +170,7 @@ export default function VacanciesPage() {
                   <th>Статус</th>
                   <th>Следующий шаг</th>
                   <th>Кандидаты</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -185,6 +186,13 @@ export default function VacanciesPage() {
                     </td>
                     <td>{vacancyNextStep(vacancy)}</td>
                     <td>{vacancy.candidate_count ?? "—"}</td>
+                    <td>
+                      <Button asChild variant="secondary">
+                        <Link href={`/vacancies/${vacancy.id}`} aria-label={`Открыть ${vacancy.title}`}>
+                          Открыть
+                        </Link>
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

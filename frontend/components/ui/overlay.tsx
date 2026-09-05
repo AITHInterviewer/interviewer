@@ -1,16 +1,18 @@
 "use client";
 
 import { X } from "@phosphor-icons/react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
+const INITIAL_FOCUS = "[data-modal-initial-focus]";
+
 /**
  * Оверлей по правилам системы: Esc, крестик и клик по фону закрывают,
- * фокус заперт внутри и после закрытия возвращается на элемент, который
- * оверлей открыл.
+ * фокус заперт внутри, стартовый фокус — на «Отмена», после закрытия
+ * возвращается на элемент, который оверлей открыл.
  */
 function useOverlay(open: boolean, onClose: () => void) {
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -19,11 +21,14 @@ function useOverlay(open: boolean, onClose: () => void) {
   useEffect(() => {
     if (!open) return undefined;
     openerRef.current = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
 
-    // Фокус переводим следующим кадром: браузер доводит обработку клика по
-    // кнопке-открывашке и иначе оставляет фокус на ней.
     const frame = requestAnimationFrame(() => {
-      const first = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE);
+      const panel = panelRef.current;
+      if (!panel) return;
+      const preferred = panel.querySelector<HTMLElement>(INITIAL_FOCUS);
+      const first = preferred ?? panel.querySelector<HTMLElement>(FOCUSABLE);
       first?.focus();
     });
 
@@ -51,6 +56,7 @@ function useOverlay(open: boolean, onClose: () => void) {
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
       openerRef.current?.focus?.();
     };
   }, [open, onClose]);
@@ -70,14 +76,26 @@ export function Drawer({
   children: ReactNode;
 }) {
   const panelRef = useOverlay(open, onClose);
+  const titleId = useId();
   if (!open) return null;
   return (
     <>
       <button className="drawer-overlay" type="button" aria-label="Закрыть" onClick={onClose} />
-      <div className="drawer-panel" role="dialog" aria-modal="true" aria-label={title} ref={panelRef}>
+      <div
+        className="drawer-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        ref={panelRef}
+      >
         <div className="evidence-drawer__heading">
-          <h2>{title}</h2>
-          <button className="icon-button icon-button--small" type="button" onClick={onClose} aria-label="Закрыть панель">
+          <h2 id={titleId}>{title}</h2>
+          <button
+            className="icon-button icon-button--small"
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть панель"
+          >
             <X size={16} />
           </button>
         </div>
@@ -99,20 +117,39 @@ export function Modal({
   children: ReactNode;
 }) {
   const panelRef = useOverlay(open, onClose);
-  if (!open) return null;
-  return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" aria-label={title} onClick={onClose}>
-      <div className="modal-card" ref={panelRef} onClick={(event) => event.stopPropagation()}>
+  const titleId = useId();
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        ref={panelRef}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="section-heading">
-          <h2>{title}</h2>
-          <button className="icon-button icon-button--small" type="button" onClick={onClose} aria-label="Закрыть">
+          <h2 id={titleId}>{title}</h2>
+          <button
+            className="icon-button icon-button--small"
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть"
+          >
             <X size={16} />
           </button>
         </div>
-        <div style={{ padding: 18 }}>{children}</div>
+        <div className="modal-card__body">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
+}
+
+export function ModalActions({ children }: { children: ReactNode }) {
+  return <div className="form-actions modal-actions">{children}</div>;
 }
 
 export function ToastStack({ messages }: { messages: string[] }) {

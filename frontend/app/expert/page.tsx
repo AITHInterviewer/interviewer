@@ -7,6 +7,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { Button } from "@/components/ui/button";
 import { SkeletonList } from "@/components/ui/skeleton";
 import type { ExpertQueueResponse } from "@/lib/api";
 import { loadExpertQueue } from "@/lib/auth";
@@ -69,32 +70,56 @@ export default function ExpertHomePage() {
             <section className="plain-section">
               <h2>Вакансии на калибровке</h2>
               {queue.calibrations.length > 0 ? (
-                <ul className="stack-list">
+                <div className="stack-list">
                   {queue.calibrations.map((vacancy) => (
-                    <li key={vacancy.id}>
-                      <Link href={`/vacancies/${vacancy.id}/rubric`}>{vacancy.title}</Link>
-                      <span className="muted-copy"> · {vacancy.grade}, требований {vacancy.required_skills.length}</span>
-                    </li>
+                    <article className="candidate-card" key={vacancy.id}>
+                      <div className="candidate-card__top">
+                        <strong>{vacancy.title}</strong>
+                        <span className="muted-copy">{vacancy.grade}</span>
+                      </div>
+                      <p className="muted-copy">Требований: {vacancy.required_skills.length}</p>
+                      <div className="form-actions">
+                        <Button asChild>
+                          <Link href={`/vacancies/${vacancy.id}/rubric`}>Проверить комплект</Link>
+                        </Button>
+                      </div>
+                    </article>
                   ))}
-                </ul>
+                </div>
               ) : (
-                <p className="muted-copy">Новых вакансий на калибровку нет.</p>
+                <ScreenState
+                  kind="empty"
+                  title="Комплекты на проверку не поступили"
+                  text="Когда рекрутер отправит вакансию на калибровку, она появится здесь."
+                />
               )}
             </section>
             <section className="plain-section">
               <h2>Отчёты на аудит</h2>
               {queue.audits.length > 0 ? (
-                <ul className="stack-list">
+                <div className="stack-list">
                   {queue.audits.map((item) => (
-                    <li key={item.interview.id}>
-                      <Link href={`/audit/${item.vacancy_id}/${item.interview.id}`}>
-                        {item.interview.candidate_name ?? "Кандидат"} · {item.vacancy_title}
-                      </Link>
-                    </li>
+                    <article className="candidate-card" key={item.interview.id}>
+                      <div className="candidate-card__top">
+                        <strong>{item.interview.candidate_name ?? "Кандидат"}</strong>
+                        <span className="muted-copy">{item.vacancy_title}</span>
+                      </div>
+                      <div className="form-actions">
+                        <Button asChild variant="secondary">
+                          <Link href={`/audit/${item.vacancy_id}/${item.interview.id}`}>
+                            Открыть аудит
+                          </Link>
+                        </Button>
+                      </div>
+                    </article>
                   ))}
-                </ul>
+                </div>
               ) : (
-                <p>Запросов на аудит нет.</p>
+                <ScreenState
+                  kind="empty"
+                  title="Запросов аудита нет"
+                  text="Рекрутер попросит ваш взгляд — тогда отчёт появится в этом списке."
+                />
               )}
             </section>
           </>

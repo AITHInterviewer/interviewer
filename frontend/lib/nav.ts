@@ -111,3 +111,54 @@ export function vacancyContextNav(
   }
   return items;
 }
+
+export const EXPERT_HOME = "/expert";
+
+export function isRecruiterViewMode(from: string | null | undefined): boolean {
+  return from === "recruiter";
+}
+
+export type Breadcrumb = { label: string; href?: string };
+
+/** Крошки внутри вакансии: Вакансии → доска → текущий экран. */
+export function vacancyBreadcrumbs(
+  vacancyId: string,
+  vacancyTitle: string,
+  current?: string,
+): Breadcrumb[] {
+  const items: Breadcrumb[] = [
+    { label: "Вакансии", href: "/vacancies" },
+    { label: vacancyTitle, href: `/vacancies/${vacancyId}` },
+  ];
+  if (current) {
+    items.push({ label: current });
+  }
+  return items;
+}
+
+/** Крошки экспертского аудита: возврат на /expert, не в рекрутерский кабинет. */
+export function expertAuditBreadcrumbs(options?: {
+  vacancyTitle?: string;
+  vacancyId?: string;
+  current?: string;
+}): Breadcrumb[] {
+  const items: Breadcrumb[] = [{ label: "Эксперт", href: EXPERT_HOME }];
+  if (options?.vacancyTitle && options.vacancyId) {
+    items.push({
+      label: options.vacancyTitle,
+      href: `/audit/${options.vacancyId}`,
+    });
+  }
+  if (options?.current) {
+    items.push({ label: options.current });
+  }
+  return items;
+}
+
+export function calibrationSubnavItems(vacancyId: string): { href: string; label: string }[] {
+  return [
+    { href: `/vacancies/${vacancyId}/rubric`, label: "Критерии" },
+    { href: `/vacancies/${vacancyId}/questions`, label: "Вопросы" },
+    { href: `/vacancies/${vacancyId}/approve`, label: "Утверждение" },
+  ];
+}
