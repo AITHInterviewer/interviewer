@@ -10,50 +10,7 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: check uploaded files exist
-        run: |
-          Get-ChildItem C:\ai-interviewer-assets\ -ErrorAction Stop | Format-Table Name, Length
-
-      - name: copy small whisper model.bin into the stt container's cache
+      - name: list stt hub cache dirs
         run: |
           $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q stt
-          $targetDir = "/root/.cache/huggingface/hub/models--Systran--faster-whisper-small/snapshots/536b0662742c02347bc0e980a01041f333bce120"
-          docker cp "C:\ai-interviewer-assets\Systranfaster-whisper-small.bin" "${containerId}:${targetDir}/model.bin"
-          docker exec $containerId ls -la $targetDir
-
-      - name: verify with a real transcription call
-        if: always()
-        run: |
-          Set-Content -Path probe_stt.py -Encoding utf8 -Value @'
-          import struct, urllib.request, urllib.error
-
-          # Минимальный валидный WAV: 1с тишины, 16kHz mono 16-bit PCM.
-          sample_rate = 16000
-          n_samples = sample_rate
-          data = b"\x00\x00" * n_samples
-          header = b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16) + b"data" + struct.pack("<I", len(data))
-          wav = header + data
-
-          boundary = "----probe"
-          body = (
-              f"--{boundary}\r\n"
-              f'Content-Disposition: form-data; name="file"; filename="test.wav"\r\n'
-              f"Content-Type: audio/wav\r\n\r\n"
-          ).encode() + wav + f"\r\n--{boundary}\r\n".encode() + (
-              f'Content-Disposition: form-data; name="model"\r\n\r\nSystran/faster-whisper-small\r\n--{boundary}--\r\n'
-          ).encode()
-
-          req = urllib.request.Request(
-              "http://stt:8000/v1/audio/transcriptions",
-              data=body,
-              headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-          )
-          try:
-              r = urllib.request.urlopen(req, timeout=30)
-              print("STATUS", r.status)
-              print(r.read()[:500])
-          except urllib.error.HTTPError as e:
-              print("STATUS", e.code)
-              print(e.read().decode("utf-8", "replace")[:2000])
-          '@
-          Get-Content probe_stt.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
+          docker exec $containerId find /root/.cache/huggingface/hub -maxdepth 3
