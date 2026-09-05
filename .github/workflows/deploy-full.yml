@@ -229,13 +229,27 @@ jobs:
         # см. обсуждение) — CA проверяет владение доменом через TXT-запись, которую сам
         # acme.sh проставляет через DuckDNS API. Сертификат общий для nginx (сайт, 443) и
         # livekit-server (TURN/TLS, 5349) — оба уже смонтировали ./infra/tls. acme.sh сам
-        # пропускает выпуск, если текущий сертификат ещё не близок к истечению — безопасно
-        # гонять на каждом деплое, не упрёмся в лимиты Let's Encrypt.
+        # пропускает выпуск, если текущий сертификат ещё не близок к истечению (теперь, когда
+        # acme-state volume даёт ему это увидеть — см. infra/docker-compose.yml, реальный
+        # инцидент 2026-09-05: без персистентного /acme.sh каждый прогон стартовал с чистого
+        # состояния, не помнил о прошлой выдаче и перевыпускал сертификат заново, пока не
+        # уткнулись в лимит Let's Encrypt "5 certs/168h"). Не валим весь деплой на этом шаге:
+        # если CA всё же зарейтлимитил, nginx/livekit-server продолжают работать с уже
+        # лежащим на диске сертификатом от прошлого успешного запуска.
         env:
           DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
         run: |
           $env:TLS_DOMAIN = "ainterviewer.duckdns.org"
           docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml run --rm acme
+          if ($LASTEXITCODE -ne 0) {
+            if ((Test-Path infra/tls/fullchain.pem) -and (Test-Path infra/tls/domain.key)) {
+              Write-Output "WARNING: acme.sh failed (see log above, e.g. rate limit) - continuing with the existing cert already on disk"
+            } else {
+              Write-Output "ERROR: acme.sh failed and there is no existing cert on disk - nginx/livekit-server will fail to start"
+              exit 1
+            }
+          }
+          $global:LASTEXITCODE = 0
 
       - name: Build and (re)start infra + backend + frontend
         # livekit-server теперь тоже здесь — см. шаг "Reserve livekit UDP port range"

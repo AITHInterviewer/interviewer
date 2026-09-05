@@ -125,6 +125,14 @@ services:
       - DuckDNS_Token=${DUCKDNS_TOKEN}
     volumes:
       - ./infra/tls:/acme.sh/output
+      # LE_CONFIG_HOME for this image is /acme.sh itself (account registration, ACME
+      # thumbprint, per-domain renewal bookkeeping) — separate from --cert-home below,
+      # which only controls where the issued cert files land. Without persisting this too,
+      # `docker compose run --rm acme` starts a brand-new, empty /acme.sh every single
+      # deploy: acme.sh has no memory of ever having issued this domain before and reissues
+      # a fresh certificate on every run instead of detecting "still valid, skip" — burned
+      # through Let's Encrypt's 5-certs/168h rate limit this way (2026-09-05).
+      - acme-state:/acme.sh
     entrypoint: sh
     command: >-
       -c "acme.sh --issue --dns dns_duckdns -d ${TLS_DOMAIN} --server letsencrypt --cert-home /acme.sh/output &&
@@ -159,6 +167,7 @@ services:
 volumes:
   postgres-data:
   minio-data:
+  acme-state:
 
 networks:
   # Общая сеть между этим compose-проектом и live-agent/docker-compose.yml (отдельный
