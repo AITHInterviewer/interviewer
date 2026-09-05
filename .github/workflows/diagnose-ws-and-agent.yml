@@ -10,15 +10,11 @@ jobs:
       run:
         shell: powershell
     steps:
-      - uses: actions/checkout@v4
-
-      - name: inspect AgentSession.start signature and docstring
+      - name: live-agent logs (full)
         run: |
-          Set-Content -Path probe_sig.py -Encoding utf8 -Value @'
-          import inspect
-          from livekit.agents import AgentSession
-          print(inspect.signature(AgentSession.start))
-          print("---docstring---")
-          print(AgentSession.start.__doc__)
-          '@
-          Get-Content probe_sig.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
+
+      - name: stt logs (tail)
+        if: always()
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 60
