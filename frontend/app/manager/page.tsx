@@ -37,30 +37,27 @@ export default function ManagerListPage() {
   const [error, setError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
 
+  async function refreshCandidates() {
+    setPageLoading(true);
+    setError(null);
+    try {
+      const response = await loadManagerCandidates();
+      setItems(response.items);
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, "Не удалось загрузить встречи."));
+    } finally {
+      setPageLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!landing) {
       return;
     }
-    let cancelled = false;
-    loadManagerCandidates()
-      .then((response) => {
-        if (!cancelled) {
-          setItems(response.items);
-        }
-      })
-      .catch((caughtError: unknown) => {
-        if (!cancelled) {
-          setError(normalizeError(caughtError, "Не удалось загрузить встречи."));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setPageLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+    // Первичная загрузка списка: состояние меняется уже после await,
+    // но правило видит вызов из тела эффекта.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refreshCandidates();
   }, [landing]);
 
   if (loading || !landing) {
@@ -76,7 +73,18 @@ export default function ManagerListPage() {
       <div className="workspace">
         <PageHeader path="Менеджер" title="Встречи и запросы мнения" />
         {pageLoading ? <SkeletonTable rows={3} columns={5} label="Загружаю кандидатов" /> : null}
-        {error ? <ScreenState kind="error" title="Нет списка" text={error} /> : null}
+        {error ? (
+          <ScreenState
+            kind="error"
+            title="Нет списка"
+            text={error}
+            action={
+              <Button type="button" variant="secondary" onClick={() => void refreshCandidates()}>
+                Повторить
+              </Button>
+            }
+          />
+        ) : null}
         {!pageLoading && !error ? (
           items.length > 0 ? (
             <table className="vacancies-table">
