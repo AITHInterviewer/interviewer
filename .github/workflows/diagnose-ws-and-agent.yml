@@ -10,6 +10,7 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: live-agent logs (full)
+      - name: dump the event log jsonl for the latest interview
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
+          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q live-agent
+          docker exec $containerId sh -c "ls -t /app/out/*.jsonl | head -1 | xargs cat"
