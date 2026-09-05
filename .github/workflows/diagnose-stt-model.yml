@@ -1,0 +1,42 @@
+name: diagnose STT model load (self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: List local assets dir
+        run: Get-ChildItem "C:\ai-interviewer-assets\" | Format-Table Name, Length
+
+      - name: Copy local large-v3 model file into the known snapshot dir (if present)
+        run: |
+          $snapshotDir = "/root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3/snapshots/edaa852ec7e145841d8ffdb056a99866b5f0a478"
+          $candidates = @("large-v3.bin", "model.bin", "faster-whisper-large-v3.bin", "ggml-large-v3.bin")
+          $found = $null
+          foreach ($name in $candidates) {
+            $p = "C:\ai-interviewer-assets\$name"
+            if (Test-Path $p) { $found = $p; break }
+          }
+          if ($found) {
+            Write-Output "found: $found"
+            docker cp $found "live-agent-stt-1:${snapshotDir}/model.bin"
+            docker exec live-agent-stt-1 ls -la $snapshotDir
+          } else {
+            Write-Output "none of the candidate filenames exist - see the directory listing above for the real name"
+          }
+
+      - name: Trigger a real transcription to verify large-v3 now works
+        continue-on-error: true
+        run: |
+          Get-Content live-agent/ensure_stt_model.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 - http://stt:8000 Systran/faster-whisper-large-v3
+
+      - name: GPU process check
+        continue-on-error: true
+        run: docker exec live-agent-stt-1 nvidia-smi

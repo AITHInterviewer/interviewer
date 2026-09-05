@@ -1,13 +1,17 @@
 /**
  * Тонкая fetch-обёртка к backend API. Базовый URL берётся из
- * `NEXT_PUBLIC_BACKEND_URL` (клиентские вызовы) — единственная переменная, которую
- * реально читает этот файл; `BACKEND_INTERNAL_URL` (server-side fetch из RSC) здесь
- * не используется, т.к. все вызовы через `apiFetch` идут из клиентских компонентов
- * (см. specs/004-candidate-interview-flow/plan.md — control-канал и его REST-соседи
- * вызываются из браузера кандидата, не с сервера Next.js).
+ * `NEXT_PUBLIC_BACKEND_URL` (клиентские вызовы), если задан — иначе, в браузере,
+ * берём origin текущей страницы (там же nginx проксирует /api/, см. infra/nginx/nginx.conf),
+ * чтобы не завязываться на конкретный IP/порт раннера: сайт может быть открыт и через
+ * VPN-адрес, и через внешний туннель — оба раза nginx рядом, на том же origin.
+ * `BACKEND_INTERNAL_URL` (server-side fetch из RSC) здесь не используется, т.к. все вызовы
+ * через `apiFetch` идут из клиентских компонентов (см.
+ * specs/004-candidate-interview-flow/plan.md — control-канал и его REST-соседи вызываются
+ * из браузера кандидата, не с сервера Next.js).
  */
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || (typeof window !== "undefined" ? window.location.origin : "http://localhost:8000");
 
 export class ApiError extends Error {
   constructor(
@@ -43,6 +47,22 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 export function backendWsUrl(path: string): string {
   const wsBase = BACKEND_URL.replace(/^http/, "ws");
   return `${wsBase}${path}`;
+}
+
+/**
+ * Backend отдаёт `livekit_ws_url` как абсолютный адрес (см. app/config.py) — на деплое это
+ * фиксированный IP раннера (VPN-адрес), который недоступен браузеру, открывшему сайт через
+ * внешний туннель на другом IP. nginx проксирует /rtc/ на том же origin, с которого отдан
+ * сам сайт (см. infra/nginx/nginx.conf), так что в браузере всегда безопасно подменить
+ * хост на текущий origin страницы — сохраняя из ответа backend'а только путь/query.
+ */
+export function resolveLiveKitWsUrl(wsUrl: string): string {
+  if (typeof window === "undefined") {
+    return wsUrl;
+  }
+  const parsed = new URL(wsUrl);
+  const pageWsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${pageWsProtocol}//${window.location.host}${parsed.pathname}${parsed.search}`;
 }
 
 // --- Internal auth / roles API (specs/006-recruiter-auth, 007-multi-role-assignment) ---
@@ -427,15 +447,15 @@ export type CandidateInterviewInfo = {
 };
 
 export function fetchCandidateInterview(accessToken: string) {
-  return apiFetch<CandidateInterviewInfo>(`/interview/${accessToken}`);
+  return apiFetch<CandidateInterviewInfo>(`/api/interview/${accessToken}`);
 }
 
 export function postCandidateConsent(accessToken: string) {
-  return apiFetch<{ product_state: string }>(`/interview/${accessToken}/consent`, { method: "POST" });
+  return apiFetch<{ product_state: string }>(`/api/interview/${accessToken}/consent`, { method: "POST" });
 }
 
 export function postCandidateProgress(accessToken: string, product_state: InterviewProductState) {
-  return apiFetch<{ product_state: string }>(`/interview/${accessToken}/progress`, {
+  return apiFetch<{ product_state: string }>(`/api/interview/${accessToken}/progress`, {
     method: "POST",
     body: JSON.stringify({ product_state }),
   });
@@ -511,12 +531,12 @@ export function listHiringManagers(token: string) {
 
 export function fetchCandidateExtra(accessToken: string, extraId: string) {
   return apiFetch<{ id: string; status: string; extra_token: string | null }>(
-    `/interview/${accessToken}/extra/${extraId}`,
+    `/api/interview/${accessToken}/extra/${extraId}`,
   );
 }
 
 export function submitCandidateExtra(accessToken: string, extraId: string, answer: string) {
-  return apiFetch<{ id: string; status: string }>(`/interview/${accessToken}/extra/${extraId}`, {
+  return apiFetch<{ id: string; status: string }>(`/api/interview/${accessToken}/extra/${extraId}`, {
     method: "POST",
     body: JSON.stringify({ answer }),
   });

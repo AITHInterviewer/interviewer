@@ -1,0 +1,20 @@
+name: diagnose STT container (self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+      - name: stt status + logs
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps stt
+          Write-Output "--- logs ---"
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 300
+          Write-Output "--- gpu usage inside container ---"
+          docker exec live-agent-stt-1 nvidia-smi

@@ -1,0 +1,46 @@
+name: fix ruslan TTS voice (self-hosted)
+
+# Mirrors the proven irina.onnx pattern (formerly in the deleted seed-demo-interview.yml):
+# the ensure_tts_model.py retry script runs INSIDE live-agent (has python3), targeting tts
+# by its internal docker network name (tts:8000) - not inside the tts container itself.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  fix:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trigger ruslan model download attempt (will likely fail on model.onnx, that's expected)
+        continue-on-error: true
+        run: |
+          Get-Content live-agent/ensure_tts_model.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 - http://tts:8000 speaches-ai/piper-ru_RU-ruslan-medium ruslan
+
+      - name: Inspect resulting snapshot dir
+        run: |
+          docker exec live-agent-tts-1 find /home/ubuntu/.cache/huggingface/hub/models--speaches-ai--piper-ru_RU-ruslan-medium -maxdepth 3 2>&1
+
+      - name: Copy manually-provided ruslan.onnx into the container (if present)
+        run: |
+          $localFile = "C:\ai-interviewer-assets\ruslan.onnx"
+          if (Test-Path $localFile) {
+            $snapshotDir = docker exec live-agent-tts-1 sh -c "ls /home/ubuntu/.cache/huggingface/hub/models--speaches-ai--piper-ru_RU-ruslan-medium/snapshots/ 2>/dev/null" | Select-Object -First 1
+            if ($snapshotDir) {
+              $targetDir = "/home/ubuntu/.cache/huggingface/hub/models--speaches-ai--piper-ru_RU-ruslan-medium/snapshots/$snapshotDir"
+              docker cp $localFile "live-agent-tts-1:${targetDir}/model.onnx"
+              docker exec live-agent-tts-1 ls -la $targetDir
+            } else {
+              Write-Output "WARNING: no snapshot directory found for ruslan yet - the initial metadata download must succeed first"
+            }
+          } else {
+            Write-Output "no local file at $localFile"
+          }
+
+      - name: Verify ruslan voice actually works now
+        run: |
+          Get-Content live-agent/ensure_tts_model.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 - http://tts:8000 speaches-ai/piper-ru_RU-ruslan-medium ruslan

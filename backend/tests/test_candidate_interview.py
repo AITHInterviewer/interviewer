@@ -11,7 +11,7 @@ async def test_get_interview_consent_info_returns_seeded_entry(db_session: Async
     await seed_demo_interview(db_session, access_token="demo-token", question_count=6)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/interview/demo-token")
+        response = await client.get("/api/interview/demo-token")
 
     assert response.status_code == 200
     body = response.json()
@@ -29,7 +29,7 @@ async def test_get_interview_consent_info_completed_status(db_session: AsyncSess
     await seed_demo_interview(db_session, access_token="demo-token-completed", status="completed")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/interview/demo-token-completed")
+        response = await client.get("/api/interview/demo-token-completed")
 
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
@@ -38,7 +38,7 @@ async def test_get_interview_consent_info_completed_status(db_session: AsyncSess
 @pytest.mark.anyio
 async def test_get_interview_consent_info_unknown_token_is_404(db_session: AsyncSession) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/interview/does-not-exist")
+        response = await client.get("/api/interview/does-not-exist")
 
     assert response.status_code == 404
 
@@ -48,7 +48,7 @@ async def test_livekit_token_issued_for_active_interview(db_session: AsyncSessio
     interview = await seed_demo_interview(db_session, access_token="demo-token-livekit")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.post("/interview/demo-token-livekit/livekit-token")
+        response = await client.post("/api/interview/demo-token-livekit/livekit-token")
 
     assert response.status_code == 200
     body = response.json()
@@ -61,7 +61,7 @@ async def test_livekit_token_rejects_completed_interview(db_session: AsyncSessio
     await seed_demo_interview(db_session, access_token="demo-token-completed-2", status="completed")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.post("/interview/demo-token-completed-2/livekit-token")
+        response = await client.post("/api/interview/demo-token-completed-2/livekit-token")
 
     assert response.status_code == 409
 
@@ -71,8 +71,8 @@ async def test_consent_sets_product_state(db_session: AsyncSession) -> None:
     await seed_demo_interview(db_session, access_token="demo-token-consent")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.post("/interview/demo-token-consent/consent")
-        after = await client.get("/interview/demo-token-consent")
+        response = await client.post("/api/interview/demo-token-consent/consent")
+        after = await client.get("/api/interview/demo-token-consent")
 
     assert response.status_code == 200
     assert response.json()["product_state"] == "consented"
@@ -86,7 +86,7 @@ async def test_consent_on_completed_is_409(db_session: AsyncSession) -> None:
     await seed_demo_interview(db_session, access_token="demo-token-consent-done", status="completed")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.post("/interview/demo-token-consent-done/consent")
+        response = await client.post("/api/interview/demo-token-consent-done/consent")
 
     assert response.status_code == 409
 
@@ -97,17 +97,17 @@ async def test_progress_forward_and_unknown_state(db_session: AsyncSession) -> N
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
         opened = await client.post(
-            "/interview/demo-token-progress/progress", json={"product_state": "opened"}
+            "/api/interview/demo-token-progress/progress", json={"product_state": "opened"}
         )
-        await client.post("/interview/demo-token-progress/consent")
+        await client.post("/api/interview/demo-token-progress/consent")
         checked = await client.post(
-            "/interview/demo-token-progress/progress", json={"product_state": "device_checked"}
+            "/api/interview/demo-token-progress/progress", json={"product_state": "device_checked"}
         )
         unknown = await client.post(
-            "/interview/demo-token-progress/progress", json={"product_state": "not_a_state"}
+            "/api/interview/demo-token-progress/progress", json={"product_state": "not_a_state"}
         )
         backward = await client.post(
-            "/interview/demo-token-progress/progress", json={"product_state": "opened"}
+            "/api/interview/demo-token-progress/progress", json={"product_state": "opened"}
         )
 
     assert opened.status_code == 200

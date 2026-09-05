@@ -14,7 +14,7 @@ from app.services.interview_repository import build_consent_info, get_interview_
 from app.services.livekit_tokens import LiveKitTokenResponse, issue_candidate_token
 from app.services.pilot_service import PilotError, PilotService
 
-router = APIRouter(tags=["candidate-interview"])
+router = APIRouter(prefix="/api", tags=["candidate-interview"])
 
 
 class ProgressBody(BaseModel):

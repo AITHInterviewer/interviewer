@@ -65,7 +65,7 @@ describe("InterviewPage", () => {
 
     await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
       video: true,
-      audio: { echoCancellation: true },
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     }));
     expect(await screen.findByText(/камера и микрофон готовы/i)).toBeInTheDocument();
   });

@@ -39,7 +39,7 @@ export function InterviewFlow({ token }: { token: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<ConsentInfo>(`/interview/${token}`)
+    apiFetch<ConsentInfo>(`/api/interview/${token}`)
       .then((data) => {
         if (cancelled) return;
         setInfo(data);

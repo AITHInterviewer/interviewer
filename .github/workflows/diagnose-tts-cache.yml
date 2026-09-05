@@ -1,0 +1,17 @@
+name: diagnose TTS cache layout (self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: whoami + HF cache layout inside tts container
+        run: |
+          docker exec live-agent-tts-1 whoami
+          Write-Output "--- hub dir tree ---"
+          docker exec live-agent-tts-1 find /home/ubuntu/.cache/huggingface/hub -maxdepth 4 2>&1
