@@ -3,7 +3,6 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 
-import { CandidateDeadline } from "@/components/chrome/CandidateDeadline";
 import { CandidateGate } from "@/components/chrome/CandidateGate";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
@@ -18,9 +17,9 @@ export default function ExtraPage() {
 
   return (
     <CandidateGate token={token} current="Интервью">
-      {(info, accessToken) =>
+      {(_info, accessToken) =>
         extraId ? (
-          <ExtraBody token={accessToken} extraId={extraId} deadline={info.deadline} />
+          <ExtraBody token={accessToken} extraId={extraId} />
         ) : (
           <ScreenState kind="error" title="Такого уточнения нет" text="Проверьте ссылку целиком." />
         )
@@ -29,15 +28,7 @@ export default function ExtraPage() {
   );
 }
 
-function ExtraBody({
-  token,
-  extraId,
-  deadline,
-}: {
-  token: string;
-  extraId: string;
-  deadline?: string | null;
-}) {
+function ExtraBody({ token, extraId }: { token: string; extraId: string }) {
   const [loadState, setLoadState] = useState<"loading" | "ready" | "missing" | "error">("loading");
   const [status, setStatus] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
@@ -115,10 +106,10 @@ function ExtraBody({
       <p className="path">Уточнение</p>
       <h1>Короткий письменный ответ</h1>
       <p>
-        Рекрутер просит дополнить интервью. Текста вопроса в ссылке нет — напишите ответ на то, о чём
-        вас просили отдельно.
+        Текст вопроса здесь недоступен. Используйте вопрос из сообщения рекрутера; если его нет,
+        уточните перед отправкой.
       </p>
-      <CandidateDeadline deadline={deadline} />
+      <p>Срок письменного ответа в этой ссылке не указан.</p>
       {alreadyIn ? (
         <p>Ответ уже принят. Новый текст с этой страницы отправлять не нужно.</p>
       ) : (
@@ -141,7 +132,7 @@ function ExtraBody({
             </Button>
           </div>
           {answer.trim() === "" ? (
-            <p className="disabled-hint">Кнопка станет доступной, когда появится текст.</p>
+            <p className="disabled-hint">Введите ответ, чтобы отправить его</p>
           ) : null}
         </form>
       )}
