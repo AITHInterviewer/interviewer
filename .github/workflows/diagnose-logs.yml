@@ -1,0 +1,19 @@
+name: diagnose agent silent again (self-hosted, temporary)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  logs:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: live-agent recent log
+        continue-on-error: true
+        run: docker logs --tail 200 live-agent-live-agent-1
+
+      - name: tts recent log
+        continue-on-error: true
+        run: docker logs --tail 100 live-agent-tts-1
