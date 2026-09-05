@@ -271,6 +271,17 @@ jobs:
         run: |
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --remove-orphans
 
+      - name: Ensure TTS voice model is downloaded
+        # tts (live-agent/docker-compose.yml) has no volume for its model cache — voices are
+        # downloaded straight into the container's writable layer (see comment there:
+        # PermissionError with a named volume, root vs. non-root uid 1000). Any container
+        # recreation (image/tag change, `down`/`up`, host reboot) wipes that cache, and the
+        # agent then fails every reply with a 404 ("Model ... is not installed locally")
+        # instead of falling back or erroring loudly at startup - the interview just goes
+        # silent. `model download` is idempotent (a no-op if the voice is already cached).
+        run: |
+          docker exec live-agent-tts-1 uvx speaches-cli model download speaches-ai/piper-ru_RU-ruslan-medium
+
       - name: Build and (re)start evaluation-agent's stt-accurate
         run: |
           docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml up -d --build --remove-orphans stt-accurate
