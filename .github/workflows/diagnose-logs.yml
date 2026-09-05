@@ -12,7 +12,8 @@ jobs:
     steps:
       - name: live-agent can reach backend now?
         continue-on-error: true
-        run: docker exec live-agent-live-agent-1 sh -c "curl -sS -m 5 -o /dev/null -w 'backend health: %{http_code}\n' http://backend:8000/api/health"
+        run: |
+          docker exec live-agent-live-agent-1 sh -c "curl -sS -m 5 -o /dev/null -w 'backend health: %{http_code}\n' http://backend:8000/api/health"
 
       - name: live-agent recent log
         continue-on-error: true
