@@ -256,8 +256,20 @@ jobs:
             if ((Test-Path infra/tls/fullchain.pem) -and (Test-Path infra/tls/domain.key)) {
               Write-Output "WARNING: acme.sh failed (see log above, e.g. rate limit) - continuing with the existing cert already on disk"
             } else {
-              Write-Output "ERROR: acme.sh failed and there is no existing cert on disk - nginx/livekit-server will fail to start"
-              exit 1
+              # Реальный инцидент (2026-09-05): попали в rate limit Let's Encrypt (5
+              # certs/168h) как раз когда infra/tls был пуст (см. фикс checkout clean: false
+              # выше — до него git clean стирал сертификат на каждом прогоне). Без файла на
+              # диске nginx/livekit-server вообще не стартуют (не 502 на один location, а
+              # падение всего контейнера) — весь сайт лежит до истечения rate limit (может
+              # быть больше суток).Self-signed — временный аварийный fallback ТОЛЬКО чтобы
+              # сайт не лежал: браузер покажет предупреждение о недоверенном сертификате
+              # (кандидату придётся один раз кликнуть "продолжить"), TURN/TLS с ним не
+              # заработает (см. коммит с self-signed TURN — браузеры валидируют его строже).
+              # Следующий успешный прогон acme (после снятия rate limit) сам перезапишет эти
+              # файлы настоящими — никакого дальнейшего вмешательства не требуется.
+              Write-Output "WARNING: acme.sh failed and there is no cert on disk - generating a TEMPORARY self-signed fallback so the site doesn't go down entirely. Browsers will show a security warning until the next successful Let's Encrypt run replaces it."
+              New-Item -ItemType Directory -Force infra/tls | Out-Null
+              & openssl req -x509 -newkey rsa:2048 -nodes -keyout infra/tls/domain.key -out infra/tls/fullchain.pem -days 7 -subj "/CN=ainterviewer.duckdns.org"
             }
           }
           $global:LASTEXITCODE = 0
