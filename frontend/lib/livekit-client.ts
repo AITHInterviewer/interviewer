@@ -34,7 +34,13 @@ export class LiveKitSession {
   async connect(wsUrl: string, token: string, localStream: MediaStream, speakerId?: string | null): Promise<void> {
     await this.room.connect(wsUrl, token);
     for (const track of localStream.getTracks()) {
-      await this.room.localParticipant.publishTrack(track);
+      // source: явно, иначе LiveKit публикует трек с source "unknown" (проверено вживую
+      // логами livekit-server) — реальный найденный баг: агентский RoomIO по умолчанию
+      // подписывается на входное аудио именно по source "microphone", трек с "unknown"
+      // молча игнорируется на уровне VAD/STT, хотя транспортом до агента и долетает.
+      await this.room.localParticipant.publishTrack(track, {
+        source: track.kind === "audio" ? Track.Source.Microphone : Track.Source.Camera,
+      });
     }
     if (speakerId) {
       await this.room.switchActiveDevice("audiooutput", speakerId).catch(() => {});
