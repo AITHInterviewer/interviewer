@@ -34,7 +34,7 @@ os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
 
 from app.db import Base, SessionLocal, engine
 from app.main import app
-from app.models import Interview, Question, Recruiter, Vacancy  # регистрирует все модели в Base.metadata
+from app.models import InternalUser, Interview, Question, Vacancy  # регистрирует все модели в Base.metadata
 from app.services.role_service import RoleService
 
 # httpx's ASGITransport does not execute the FastAPI lifespan, so the registry
@@ -96,9 +96,9 @@ async def seed_demo_interview(
     status: str = "created",
     question_count: int = 6,
 ) -> Interview:
-    """Минимальный набор строк (Recruiter → Vacancy → Question* → Interview) для тестов
+    """Минимальный набор строк (InternalUser → Vacancy → Question* → Interview) для тестов
     кандидатского флоу — замена удалённому `interview_directory.py`-мок-словарю."""
-    recruiter = Recruiter(email=f"{uuid.uuid4()}@example.com", name="Test Recruiter", password_hash="x")
+    recruiter = InternalUser(email=f"{uuid.uuid4()}@example.com", name="Test Recruiter", password_hash="x")
     session.add(recruiter)
     await session.flush()
 

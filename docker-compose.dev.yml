@@ -31,6 +31,10 @@ services:
       - ./backend/app:/app/app
       - ./backend/tests:/app/tests
       - ./backend/scripts:/app/scripts
+      # Claude Agent SDK (vacancy_llm_service.py) запускает `claude` CLI подпроцессом
+      # (см. backend/Dockerfile) — креды подписки (`claude login`, разово на хосте, НЕ в
+      # образе) читает отсюда. Тот же паттерн, что live-agent/docker-compose.yml.
+      - ${CLAUDE_CONFIG_DIR:-~/.claude}:/root/.claude:ro
     depends_on:
       postgres:
         condition: service_healthy

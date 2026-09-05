@@ -9,26 +9,39 @@ from app.services.user_admin_service import InvalidRoleAssignmentError, UserAdmi
 from tests.conftest import create_internal_user, login, register_recruiter
 
 
+async def _create_vacancy(client, recruiter_token: str) -> str:
+    response = await client.post(
+        "/api/v1/vacancies",
+        headers={"Authorization": f"Bearer {recruiter_token}"},
+        json={"title": "Backend Developer", "description": "...", "grade": "middle"},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
 @pytest.mark.anyio
 async def test_capability_gating_allows_and_denies_question_editing(client) -> None:
-    token = await register_recruiter(client)
-    await create_internal_user(client, token, email="expert@example.com", roles=["expert"])
-    await create_internal_user(client, token, email="manager@example.com", roles=["hiring_manager"])
+    recruiter_token = await register_recruiter(client)
+    vacancy_id = await _create_vacancy(client, recruiter_token)
+    await create_internal_user(client, recruiter_token, email="expert@example.com", roles=["expert"])
+    await create_internal_user(client, recruiter_token, email="manager@example.com", roles=["hiring_manager"])
 
     expert_token = await login(client, "expert@example.com")
     manager_token = await login(client, "manager@example.com")
 
     allowed = await client.post(
-        "/api/v1/questions",
+        f"/api/v1/vacancies/{vacancy_id}/questions",
         headers={"Authorization": f"Bearer {expert_token}"},
         json={"text": "What is ACID?"},
     )
     denied = await client.post(
-        "/api/v1/questions",
+        f"/api/v1/vacancies/{vacancy_id}/questions",
         headers={"Authorization": f"Bearer {manager_token}"},
         json={"text": "What is ACID?"},
     )
-    unauthenticated = await client.post("/api/v1/questions", json={"text": "What is ACID?"})
+    unauthenticated = await client.post(
+        f"/api/v1/vacancies/{vacancy_id}/questions", json={"text": "What is ACID?"}
+    )
 
     assert allowed.status_code == 201
     assert denied.status_code == 403
@@ -37,14 +50,15 @@ async def test_capability_gating_allows_and_denies_question_editing(client) -> N
 
 @pytest.mark.anyio
 async def test_recruiter_plus_expert_edits_questions_in_one_session(client) -> None:
-    token = await register_recruiter(client)
+    recruiter_token = await register_recruiter(client)
+    vacancy_id = await _create_vacancy(client, recruiter_token)
     await create_internal_user(
-        client, token, email="combo@example.com", roles=["recruiter", "expert"]
+        client, recruiter_token, email="combo@example.com", roles=["recruiter", "expert"]
     )
     combo_token = await login(client, "combo@example.com")
 
     response = await client.post(
-        "/api/v1/questions",
+        f"/api/v1/vacancies/{vacancy_id}/questions",
         headers={"Authorization": f"Bearer {combo_token}"},
         json={"text": "Explain REST."},
     )
@@ -55,9 +69,10 @@ async def test_recruiter_plus_expert_edits_questions_in_one_session(client) -> N
 @pytest.mark.anyio
 async def test_recruiter_without_capability_is_denied_question_editing(client) -> None:
     token = await register_recruiter(client)
+    vacancy_id = await _create_vacancy(client, token)
 
     response = await client.post(
-        "/api/v1/questions",
+        f"/api/v1/vacancies/{vacancy_id}/questions",
         headers={"Authorization": f"Bearer {token}"},
         json={"text": "Should be denied."},
     )
@@ -152,14 +167,15 @@ async def test_custom_registry_capability_extends_access_without_route_changes(c
     )
     app.state.role_service = RoleService(registry)
 
-    token = await register_recruiter(client)
+    recruiter_token = await register_recruiter(client)
+    vacancy_id = await _create_vacancy(client, recruiter_token)
     await create_internal_user(
-        client, token, email="methodologist@example.com", roles=["methodologist"]
+        client, recruiter_token, email="methodologist@example.com", roles=["methodologist"]
     )
     methodologist_token = await login(client, "methodologist@example.com")
 
     response = await client.post(
-        "/api/v1/questions",
+        f"/api/v1/vacancies/{vacancy_id}/questions",
         headers={"Authorization": f"Bearer {methodologist_token}"},
         json={"text": "Registry-only role can edit questions."},
     )

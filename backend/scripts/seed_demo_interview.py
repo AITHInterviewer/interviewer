@@ -1,10 +1,10 @@
-"""Разовый dev-скрипт: создаёт Recruiter/Vacancy/Question*/Interview на реальном Postgres
-и печатает `access_token`, готовый для `/interview/{access_token}` во фронте.
+"""Разовый dev-скрипт: создаёт InternalUser/Vacancy/Question*/Interview на реальном
+Postgres и печатает `access_token`, готовый для `/interview/{access_token}` во фронте.
 
-Нужен, потому что CRUD рекрутёра (specs/003-recruiter-vacancy-management) ещё не
-реализован — иначе получить реальный `access_token` для ручной проверки
-[[004-candidate-interview-flow]] неоткуда (см. `specs/004-candidate-interview-flow/
-tasks.md`, T004, «Known Gaps»). Вопросы совпадают по тексту с
+Быстрый путь к рабочему `access_token` в обход реального флоу вакансия → генерация →
+review → approve → создание интервью (тот флоу теперь есть, см. `app/routers/vacancies.py`)
+— удобно для ручной проверки [[004-candidate-interview-flow]] без прохождения всего
+рекрутёрского UI. Вопросы совпадают по тексту с
 `live-agent/mock_data/interview_example.json` — вакансия/вопросы намеренно захардкожены
 (решение пользователя от 2026-09-04), это не попытка выдать за настоящий CRUD.
 
@@ -25,7 +25,7 @@ import secrets
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import Interview, Question, Recruiter, Vacancy
+from app.models import InternalUser, Interview, Question, Vacancy
 
 _DEMO_RECRUITER_EMAIL = "demo-recruiter@example.com"
 _DEMO_VACANCY_TITLE = "Middle + Python Developer"
@@ -53,10 +53,12 @@ async def main() -> None:
     # "запустить ещё раз, получить свежую ссылку".
     async with SessionLocal() as session:
         recruiter = (
-            await session.execute(select(Recruiter).where(Recruiter.email == _DEMO_RECRUITER_EMAIL))
+            await session.execute(select(InternalUser).where(InternalUser.email == _DEMO_RECRUITER_EMAIL))
         ).scalar_one_or_none()
         if recruiter is None:
-            recruiter = Recruiter(email=_DEMO_RECRUITER_EMAIL, name="Demo Recruiter", password_hash="x")
+            recruiter = InternalUser(
+                email=_DEMO_RECRUITER_EMAIL, name="Demo Recruiter", password_hash="x"
+            )
             session.add(recruiter)
             await session.flush()
 

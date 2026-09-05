@@ -39,7 +39,7 @@ async def test_question_started_maps_to_question_with_input_format_none(db_sessi
 async def test_question_started_carries_index_and_total_for_roadmap(db_session: AsyncSession) -> None:
     """US2 — роадмап прогресса на фронте: question_index/questions_total из payload
     live-agent прокидываются в ControlEvent как есть."""
-    interview = await seed_demo_interview(db_session, question_count=1)
+    await seed_demo_interview(db_session, question_count=1)
     question = (await db_session.execute(select(Question))).scalar_one()
 
     event = await to_control_event(

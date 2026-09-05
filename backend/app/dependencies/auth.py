@@ -64,6 +64,28 @@ def require_capability(capability_id: str):
     return dependency
 
 
+def require_any_capability(*capability_ids: str):
+    """Как `require_capability`, но пропускает, если у пользователя есть ЛЮБАЯ из
+    перечисленных capability — для эндпоинтов, доступных нескольким ролям (напр. чтение
+    вакансий и recruiter, и expert)."""
+
+    async def dependency(
+        user: Annotated[InternalUser, Depends(get_current_user)],
+        user_repository: Annotated[UserRepository, Depends(get_current_user_repository)],
+        role_service: Annotated[RoleService, Depends(get_role_service)],
+    ) -> InternalUser:
+        role_codes = await user_repository.list_role_codes(user.id)
+        granted = role_service.capabilities_for_roles(role_codes)
+        if granted.isdisjoint(capability_ids):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient capability for this action.",
+            )
+        return user
+
+    return dependency
+
+
 def require_area(area_id: str):
     async def dependency(
         user: Annotated[InternalUser, Depends(get_current_user)],

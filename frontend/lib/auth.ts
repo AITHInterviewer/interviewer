@@ -1,17 +1,30 @@
 "use client";
 
 import {
+  addQuestion,
+  approveVacancy,
   createInternalUser,
+  createInterview,
+  createVacancy,
+  deleteQuestion,
   fetchCurrentUser,
   fetchLanding,
   fetchRoleRegistry,
+  generateQuestions,
+  getInterviewEvents,
+  getVacancy,
+  listInterviews,
   listInternalUsers,
+  listVacancies,
   loginUser,
   registerRecruiter,
+  updateQuestion,
   updateRoleAssignments,
+  updateVacancy,
   type AuthResponse,
   type InternalUser,
   type LandingResponse,
+  type QuestionInput,
   type RoleRegistryEntry,
 } from "@/lib/api";
 
@@ -156,4 +169,141 @@ export async function loadInternalUsers() {
   }
 
   return listInternalUsers(session.token);
+}
+
+// --- Vacancy / question / interview session-aware wrappers ---
+
+export type VacancyInput = {
+  title: string;
+  description: string;
+  grade: string;
+  requiredSkills: string[];
+  niceToHaveSkills: string[];
+};
+
+export async function createManagedVacancy(input: VacancyInput) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return createVacancy(session.token, {
+    title: input.title,
+    description: input.description,
+    grade: input.grade,
+    required_skills: input.requiredSkills,
+    nice_to_have_skills: input.niceToHaveSkills,
+  });
+}
+
+export async function updateManagedVacancy(vacancyId: string, input: Partial<VacancyInput>) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return updateVacancy(session.token, vacancyId, {
+    ...(input.title !== undefined ? { title: input.title } : {}),
+    ...(input.description !== undefined ? { description: input.description } : {}),
+    ...(input.grade !== undefined ? { grade: input.grade } : {}),
+    ...(input.requiredSkills !== undefined ? { required_skills: input.requiredSkills } : {}),
+    ...(input.niceToHaveSkills !== undefined ? { nice_to_have_skills: input.niceToHaveSkills } : {}),
+  });
+}
+
+export async function loadVacancies() {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return listVacancies(session.token);
+}
+
+export async function loadVacancy(vacancyId: string) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return getVacancy(session.token, vacancyId);
+}
+
+export async function generateVacancyQuestions(vacancyId: string) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return generateQuestions(session.token, vacancyId);
+}
+
+export async function addManagedQuestion(vacancyId: string, input: QuestionInput) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return addQuestion(session.token, vacancyId, input);
+}
+
+export async function updateManagedQuestion(
+  vacancyId: string,
+  questionId: string,
+  input: Partial<QuestionInput>,
+) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return updateQuestion(session.token, vacancyId, questionId, input);
+}
+
+export async function deleteManagedQuestion(vacancyId: string, questionId: string) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return deleteQuestion(session.token, vacancyId, questionId);
+}
+
+export async function approveManagedVacancy(vacancyId: string) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return approveVacancy(session.token, vacancyId);
+}
+
+export async function createManagedInterview(
+  vacancyId: string,
+  input: { resumeFile: File; candidateName?: string },
+) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return createInterview(session.token, vacancyId, input);
+}
+
+export async function loadInterviews(vacancyId: string) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return listInterviews(session.token, vacancyId);
+}
+
+export async function loadInterviewEvents(interviewId: string) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return getInterviewEvents(session.token, interviewId);
 }

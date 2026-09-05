@@ -150,6 +150,200 @@ export function fetchRoleRegistry(token: string) {
   return request<RoleRegistrySnapshot>("/api/v1/internal/roles", { token });
 }
 
-export function createQuestion(token: string, body: { text: string }) {
-  return request<{ id: string; text: string }>("/api/v1/questions", { method: "POST", token, body });
+// --- Vacancy / question / interview API (specs/003-vacancy-questions, 004-candidate-interview-flow) ---
+
+export type VacancyStatus = "draft" | "pending_review" | "ready";
+
+export type Vacancy = {
+  id: string;
+  recruiter_id: string;
+  title: string;
+  description: string;
+  grade: string;
+  required_skills: string[];
+  nice_to_have_skills: string[];
+  status: VacancyStatus;
+  created_at: string;
+};
+
+export type QuestionFormat = "voice" | "code_review_verbal" | "live_coding";
+export type QuestionRole = "assessment" | "warmup" | "closing";
+export type QuestionDifficulty = "baseline" | "stretch";
+export type QuestionSource = "base_generated" | "base_edited" | "base_manual" | "dynamic";
+
+export type Question = {
+  id: string;
+  vacancy_id: string;
+  interview_id: string | null;
+  text: string;
+  order: number;
+  skill_tag: string[];
+  intent: string;
+  reference_answer: string;
+  format: QuestionFormat;
+  role: QuestionRole;
+  difficulty: QuestionDifficulty;
+  estimated_duration_sec: number;
+  stimulus: string | null;
+  source: QuestionSource;
+};
+
+export type QuestionInput = {
+  text: string;
+  order: number;
+  skill_tag: string[];
+  intent: string;
+  reference_answer: string;
+  format: QuestionFormat;
+  role: QuestionRole;
+  difficulty: QuestionDifficulty;
+  estimated_duration_sec: number;
+  stimulus?: string | null;
+};
+
+export type VacancyDetail = Vacancy & { questions: Question[] };
+
+export type VacancyListResponse = {
+  items: Vacancy[];
+};
+
+export type Interview = {
+  id: string;
+  vacancy_id: string;
+  candidate_name: string | null;
+  resume_file_url: string;
+  access_token: string;
+  status: string;
+  created_at: string;
+};
+
+export type InterviewListResponse = {
+  items: Interview[];
+};
+
+export type CreateInterviewResponse = {
+  interview: Interview;
+  candidate_link: string;
+};
+
+export type InterviewEventRecord = {
+  id: string;
+  interview_id: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export type InterviewAnswer = {
+  id: string;
+  question_id: string;
+  question_text: string | null;
+  transcript_text: string | null;
+};
+
+export type InterviewEventsResponse = {
+  interview: Interview;
+  events: InterviewEventRecord[];
+  answers: InterviewAnswer[];
+};
+
+type VacancyWriteBody = {
+  title: string;
+  description: string;
+  grade: string;
+  required_skills: string[];
+  nice_to_have_skills: string[];
+};
+
+async function requestMultipart<T>(
+  path: string,
+  options: { method?: string; token?: string; formData: FormData },
+): Promise<T> {
+  const response = await fetch(`${BACKEND_URL}${path}`, {
+    method: options.method ?? "POST",
+    headers: {
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+    },
+    body: options.formData,
+  });
+
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new ApiError(payload?.detail ?? "Request failed.", response.status);
+  }
+
+  return (await response.json()) as T;
+}
+
+export function createVacancy(token: string, body: VacancyWriteBody) {
+  return request<Vacancy>("/api/v1/vacancies", { method: "POST", token, body });
+}
+
+export function updateVacancy(token: string, vacancyId: string, body: Partial<VacancyWriteBody>) {
+  return request<Vacancy>(`/api/v1/vacancies/${vacancyId}`, { method: "PATCH", token, body });
+}
+
+export function listVacancies(token: string) {
+  return request<VacancyListResponse>("/api/v1/vacancies", { token });
+}
+
+export function getVacancy(token: string, vacancyId: string) {
+  return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}`, { token });
+}
+
+export function generateQuestions(token: string, vacancyId: string) {
+  return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}/questions/generate`, { method: "POST", token });
+}
+
+export function addQuestion(token: string, vacancyId: string, body: QuestionInput) {
+  return request<Question>(`/api/v1/vacancies/${vacancyId}/questions`, { method: "POST", token, body });
+}
+
+export function updateQuestion(
+  token: string,
+  vacancyId: string,
+  questionId: string,
+  body: Partial<QuestionInput>,
+) {
+  return request<Question>(`/api/v1/vacancies/${vacancyId}/questions/${questionId}`, {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
+export function deleteQuestion(token: string, vacancyId: string, questionId: string) {
+  return request<void>(`/api/v1/vacancies/${vacancyId}/questions/${questionId}`, { method: "DELETE", token });
+}
+
+export function approveVacancy(token: string, vacancyId: string) {
+  return request<Vacancy>(`/api/v1/vacancies/${vacancyId}/approve`, { method: "POST", token });
+}
+
+export function createInterview(
+  token: string,
+  vacancyId: string,
+  body: { resumeFile: File; candidateName?: string },
+) {
+  const formData = new FormData();
+  formData.append("resume_file", body.resumeFile);
+  if (body.candidateName) {
+    formData.append("candidate_name", body.candidateName);
+  }
+  return requestMultipart<CreateInterviewResponse>(`/api/v1/vacancies/${vacancyId}/interviews`, {
+    token,
+    formData,
+  });
+}
+
+export function listInterviews(token: string, vacancyId: string) {
+  return request<InterviewListResponse>(`/api/v1/vacancies/${vacancyId}/interviews`, { token });
+}
+
+export function getInterview(token: string, interviewId: string) {
+  return request<Interview>(`/api/v1/interviews/${interviewId}`, { token });
+}
+
+export function getInterviewEvents(token: string, interviewId: string) {
+  return request<InterviewEventsResponse>(`/api/v1/interviews/${interviewId}/events`, { token });
 }

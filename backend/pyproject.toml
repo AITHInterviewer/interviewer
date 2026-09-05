@@ -25,6 +25,13 @@ dependencies = [
     "passlib[bcrypt]>=1.7",
     "python-jose[cryptography]>=3.3",
     "email-validator>=2.2",
+    # Генерация базовых вопросов вакансии (app/services/vacancy_llm_service.py) — Claude
+    # Agent SDK на подписке (claude login), не Anthropic API-ключ. Не пиним версию — тот
+    # же подход, что live-agent/pyproject.toml.
+    "claude-agent-sdk",
+    # Multipart-эндпоинт создания интервью (POST /vacancies/{id}/interviews, resume_file) —
+    # FastAPI требует этот пакет для разбора form-data/UploadFile.
+    "python-multipart",
 ]
 
 [project.optional-dependencies]

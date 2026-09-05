@@ -3,9 +3,20 @@ import pytest
 from tests.conftest import create_internal_user, login, register_recruiter
 
 
+async def _create_vacancy(client, token: str) -> str:
+    response = await client.post(
+        "/api/v1/vacancies",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "Backend Developer", "description": "...", "grade": "middle"},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
 @pytest.mark.anyio
 async def test_single_role_sign_in_and_landing_unchanged(client) -> None:
     token = await register_recruiter(client)
+    vacancy_id = await _create_vacancy(client, token)
     await create_internal_user(client, token, email="manager@example.com", roles=["hiring_manager"])
     manager_token = await login(client, "manager@example.com")
 
@@ -14,7 +25,7 @@ async def test_single_role_sign_in_and_landing_unchanged(client) -> None:
         headers={"Authorization": f"Bearer {manager_token}"},
     )
     questions = await client.post(
-        "/api/v1/questions",
+        f"/api/v1/vacancies/{vacancy_id}/questions",
         headers={"Authorization": f"Bearer {manager_token}"},
         json={"text": "Denied for non-expert."},
     )
@@ -28,6 +39,7 @@ async def test_single_role_sign_in_and_landing_unchanged(client) -> None:
 @pytest.mark.anyio
 async def test_recruiter_plus_expert_regression(client) -> None:
     token = await register_recruiter(client)
+    vacancy_id = await _create_vacancy(client, token)
     await create_internal_user(
         client, token, email="combo@example.com", roles=["recruiter", "expert"]
     )
@@ -43,7 +55,7 @@ async def test_recruiter_plus_expert_regression(client) -> None:
         headers={"Authorization": f"Bearer {combo_token}"},
     )
     questions = await client.post(
-        "/api/v1/questions",
+        f"/api/v1/vacancies/{vacancy_id}/questions",
         headers={"Authorization": f"Bearer {combo_token}"},
         json={"text": "Allowed for expert-capable user."},
     )

@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     # источник решений о переходах для mock-флоу. Backend только проксирует к нему.
     live_agent_driver_url: str = "http://localhost:3909"
 
+    # Публичный URL фронтенда — используется для сборки кандидатской ссылки
+    # (`{public_frontend_url}/interview/{access_token}`, см. `interview_admin_service.py`),
+    # тот же env-переменной уже читает `scripts/seed_demo_interview.py` через os.environ.
+    public_frontend_url: str = "http://localhost:3000"
+
     # CORS
     cors_origins: list[str] = []
 

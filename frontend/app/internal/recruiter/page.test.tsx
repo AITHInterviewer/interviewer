@@ -12,10 +12,12 @@ vi.mock("@/lib/auth", async () => {
     createManagedInternalUser: vi.fn(),
     loadInternalUsers: vi.fn(),
     loadRoleRegistry: vi.fn(),
+    loadLanding: vi.fn(),
+    loadVacancies: vi.fn(),
   };
 });
 
-import { createManagedInternalUser, loadInternalUsers, loadRoleRegistry } from "@/lib/auth";
+import { createManagedInternalUser, loadInternalUsers, loadLanding, loadRoleRegistry, loadVacancies } from "@/lib/auth";
 import RecruiterInternalPage from "./page";
 
 const registryEntries = [
@@ -31,6 +33,16 @@ describe("RecruiterInternalPage", () => {
       items: [],
     });
     vi.mocked(loadRoleRegistry).mockResolvedValue(registryEntries);
+    vi.mocked(loadLanding).mockResolvedValue({
+      session: { token: "token", user: { id: "1", name: "Recruiter", email: "r@example.com", roles: ["recruiter"] } },
+      landing: {
+        roles: ["recruiter"],
+        default_path: "/internal/recruiter",
+        available_areas: [{ id: "area.recruiter_workspace", label: "Recruiter", path: "/internal/recruiter" }],
+        available_actions: [],
+      },
+    });
+    vi.mocked(loadVacancies).mockResolvedValue({ items: [] });
   });
 
   it("shows the users tab and submits the internal-user creation form", async () => {
@@ -44,7 +56,9 @@ describe("RecruiterInternalPage", () => {
 
     render(<RecruiterInternalPage />);
 
-    expect(await screen.findByRole("tab", { name: /users/i })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click((await screen.findAllByRole("tab", { name: /users/i }))[0]);
+
+    expect(screen.getByRole("tab", { name: /users/i })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText(/no managed users yet/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /add new user/i }));
@@ -54,7 +68,7 @@ describe("RecruiterInternalPage", () => {
     fireEvent.change(screen.getByLabelText(/temporary password/i), { target: { value: "TempPass123" } });
 
     // First registry entry is preselected by default; choose hiring manager instead.
-    fireEvent.click(screen.getByRole("checkbox", { name: /recruiter/i }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /recruiter/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /^hiring manager$/i }));
 
     fireEvent.submit(screen.getByRole("button", { name: /create internal user/i }).closest("form")!);
@@ -71,9 +85,17 @@ describe("RecruiterInternalPage", () => {
   it("shows placeholder copy on future tabs", async () => {
     render(<RecruiterInternalPage />);
 
-    fireEvent.click((await screen.findAllByRole("tab", { name: /vacancies/i }))[0]);
+    fireEvent.click((await screen.findAllByRole("tab", { name: /candidates/i }))[0]);
 
     expect(screen.getByText(/placeholder/i)).toBeInTheDocument();
-    expect(screen.getByText(/vacancies tab is reserved/i)).toBeInTheDocument();
+    expect(screen.getByText(/candidates tab is reserved/i)).toBeInTheDocument();
+  });
+
+  it("shows the vacancies tab with no vacancies yet", async () => {
+    render(<RecruiterInternalPage />);
+
+    fireEvent.click((await screen.findAllByRole("tab", { name: /vacancies/i }))[0]);
+
+    expect(await screen.findByText(/no vacancies yet/i)).toBeInTheDocument();
   });
 });

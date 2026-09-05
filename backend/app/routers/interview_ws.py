@@ -18,6 +18,7 @@ from redis.asyncio import Redis
 from app.config import settings
 from app.db import SessionLocal
 from app.services.control_channel import subscribe_raw_events, to_control_event
+from app.services.interview_event_service import InterviewEventService
 from app.services.interview_repository import get_interview_by_access_token
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,8 @@ async def interview_control_channel(websocket: WebSocket, access_token: str) -> 
     try:
         # Единственный тип сообщения от кандидата в этом канале — `candidate_input`
         # (contracts/control-channel.md). Пересылка в сторону live-agent-моста — T028,
-        # ещё не реализована; здесь только читаем, чтобы соединение не подвисало на recv().
+        # ещё не реализована; здесь MVP-персистенция (`record_candidate_input`) —
+        # см. план, «Recording depth: MVP».
         while True:
             raw = await websocket.receive_text()
             try:
@@ -57,12 +59,8 @@ async def interview_control_channel(websocket: WebSocket, access_token: str) -> 
                 continue
             if message.get("type") != "candidate_input":
                 continue
-            logger.info(
-                "interview_ws: candidate_input получен (интервью %s, question_id=%s) — "
-                "пересылка в live-agent ещё не реализована (T028)",
-                interview_id,
-                message.get("question_id"),
-            )
+            async with SessionLocal() as session:
+                await InterviewEventService(session).record_candidate_input(interview_id, message)
     except WebSocketDisconnect:
         pass
     finally:
@@ -74,7 +72,9 @@ async def interview_control_channel(websocket: WebSocket, access_token: str) -> 
 
 async def _relay_control_events(websocket: WebSocket, redis: Redis, interview_id: str) -> None:
     async with SessionLocal() as session:
+        event_service = InterviewEventService(session)
         async for raw_event in subscribe_raw_events(redis, interview_id):
+            await event_service.record_event(interview_id, raw_event)
             control_event = await to_control_event(session, raw_event)
             if control_event is None:
                 continue

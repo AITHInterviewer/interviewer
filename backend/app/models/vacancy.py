@@ -26,11 +26,13 @@ class Vacancy(Base):
     __tablename__ = "vacancy"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    recruiter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("recruiter.id"), nullable=False)
+    recruiter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("internal_users.id"), nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     grade: Mapped[str] = mapped_column(Text, nullable=False)
     required_skills: Mapped[list[str]] = mapped_column(_text_array, nullable=False, default=list)
     nice_to_have_skills: Mapped[list[str]] = mapped_column(_text_array, nullable=False, default=list)
-    status: Mapped[str] = mapped_column(Enum("draft", "ready", name="vacancy_status"), default="draft")
+    status: Mapped[str] = mapped_column(
+        Enum("draft", "pending_review", "ready", name="vacancy_status"), default="draft"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
