@@ -10,6 +10,15 @@ jobs:
       run:
         shell: powershell
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Recreate stt with updated env (drop HF_HUB_OFFLINE, add XET disable)
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --force-recreate stt
+
+      - name: Wait a moment for the server to come up
+        run: Start-Sleep -Seconds 5
+
       - name: List currently loaded/available models
         continue-on-error: true
         run: |
@@ -17,10 +26,6 @@ jobs:
             Invoke-WebRequest -Uri http://localhost:3905/v1/models -UseBasicParsing | Select-Object -ExpandProperty Content
           } catch {
             Write-Output "FAILED: $_"
-            if ($_.Exception.Response) {
-              $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-              Write-Output $reader.ReadToEnd()
-            }
           }
 
       - name: Trigger a real transcription to force model load (tiny silent wav)
@@ -39,15 +44,15 @@ jobs:
             Write-Output $response.Content
           } catch {
             Write-Output "REQUEST FAILED: $_"
-            if ($_.Exception.Response) {
-              $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-              Write-Output $reader.ReadToEnd()
-            }
           }
 
       - name: GPU process check after transcription attempt
         continue-on-error: true
         run: docker exec live-agent-stt-1 nvidia-smi
+
+      - name: Inspect large-v3 cache dir
+        continue-on-error: true
+        run: docker exec live-agent-stt-1 find /root/.cache/huggingface/hub -maxdepth 4 2>&1
 
       - name: Full STT logs
         run: docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 300
