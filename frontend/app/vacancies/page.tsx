@@ -11,15 +11,22 @@ import { Button } from "@/components/ui/button";
 import type { Vacancy } from "@/lib/api";
 import { loadVacancies } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav } from "@/lib/nav";
+import { buildNav, OWNER_LABEL, VACANCY_STATUS_LABEL } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
 
 function statusTone(status: Vacancy["status"]): "positive" | "warning" | undefined {
-  if (status === "ready") return "positive";
-  if (status === "pending_review") return "warning";
+  if (status === "active" || status === "ready") return "positive";
+  if (status === "calibration" || status === "pending_review" || status === "changes_requested") {
+    return "warning";
+  }
   return undefined;
+}
+
+function ownerLabel(vacancy: Vacancy): string {
+  const owner = vacancy.owner_next ?? (vacancy.status === "calibration" || vacancy.status === "pending_review" ? "expert" : "recruiter");
+  return OWNER_LABEL[owner];
 }
 
 export default function VacanciesPage() {
@@ -49,7 +56,7 @@ export default function VacanciesPage() {
       })
       .catch((caughtError: unknown) => {
         if (!cancelled) {
-          setError(normalizeError(caughtError, "Could not load vacancies."));
+          setError(normalizeError(caughtError, "Не удалось загрузить вакансии."));
         }
       })
       .finally(() => {
@@ -66,7 +73,7 @@ export default function VacanciesPage() {
   if (loading || !landing) {
     return (
       <main className="workspace">
-        <ScreenState kind="loading" title="Loading" text="Checking your session..." />
+        <ScreenState kind="loading" title="Загрузка" text="Проверяем сессию…" />
       </main>
     );
   }
@@ -75,12 +82,12 @@ export default function VacanciesPage() {
 
   if (!canAccess) {
     return (
-      <AppShell nav={nav} title="Vacancies">
+      <AppShell nav={nav} title="Вакансии">
         <div className="workspace">
           <ScreenState
             kind="error"
             title="Access denied"
-            text="Your roles do not grant access to vacancy management or review."
+            text="Ваши роли не дают доступ к вакансиям или их калибровке."
           />
         </div>
       </AppShell>
@@ -88,11 +95,11 @@ export default function VacanciesPage() {
   }
 
   return (
-    <AppShell nav={nav} title="Vacancies">
+    <AppShell nav={nav} title="Вакансии">
       <div className="workspace">
         <PageHeader
-          path="Vacancies"
-          title="Vacancies"
+          path="Вакансии"
+          title="Вакансии"
           actions={
             canManage ? (
               <Button asChild>
@@ -102,18 +109,18 @@ export default function VacanciesPage() {
           }
         />
 
-        {vacanciesLoading ? <ScreenState kind="loading" title="Loading" text="Loading vacancies..." /> : null}
-        {error ? <ScreenState kind="error" title="Could not load vacancies" text={error} /> : null}
+        {vacanciesLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем вакансии…" /> : null}
+        {error ? <ScreenState kind="error" title="Не удалось загрузить вакансии" text={error} /> : null}
 
         {!vacanciesLoading && !error ? (
           vacancies.length > 0 ? (
             <table className="vacancies-table">
               <thead>
                 <tr>
-                  <th>Title</th>
-                  <th>Grade</th>
-                  <th>Status</th>
-                  <th>Created</th>
+                  <th>Название</th>
+                  <th>Статус</th>
+                  <th>Следующий шаг</th>
+                  <th>Кандидаты</th>
                 </tr>
               </thead>
               <tbody>
@@ -122,13 +129,13 @@ export default function VacanciesPage() {
                     <td>
                       <Link href={`/vacancies/${vacancy.id}`}>{vacancy.title}</Link>
                     </td>
-                    <td>{vacancy.grade}</td>
                     <td>
                       <span className="status" data-tone={statusTone(vacancy.status)}>
-                        {vacancy.status}
+                        {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
                       </span>
                     </td>
-                    <td>{new Date(vacancy.created_at).toLocaleDateString()}</td>
+                    <td>{ownerLabel(vacancy)}</td>
+                    <td>{vacancy.candidate_count ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -137,7 +144,7 @@ export default function VacanciesPage() {
             <ScreenState
               kind="empty"
               title="No vacancies yet"
-              text="Create a vacancy to start the review and interview pipeline."
+              text="Создайте вакансию, чтобы начать калибровку и интервью."
             />
           )
         ) : null}

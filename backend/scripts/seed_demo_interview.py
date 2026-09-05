@@ -75,7 +75,7 @@ async def main() -> None:
                 title=_DEMO_VACANCY_TITLE,
                 description="Разработка и поддержка высоконагруженных микросервисов на Python.",
                 grade="middle+",
-                status="ready",
+                status="active",
             )
             session.add(vacancy)
             await session.flush()
@@ -105,7 +105,7 @@ async def main() -> None:
         frontend_url = os.environ.get("PUBLIC_FRONTEND_URL", "http://localhost:3000")
         print(f"interview_id={interview.id}")
         print(f"access_token={access_token}")
-        print(f"URL: {frontend_url}/interview/{access_token}")
+        print(f"URL: {frontend_url}/i/{access_token}")
 
 
 if __name__ == "__main__":

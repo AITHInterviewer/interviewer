@@ -56,7 +56,9 @@ describe("VacanciesPage", () => {
   });
 
   it("shows an access-denied state for users with neither recruiter nor question-review access", async () => {
-    vi.mocked(loadLanding).mockResolvedValue(landingFor([{ id: "area.hiring_manager_review", label: "Hiring manager", path: "/internal/hiring-manager" }]));
+    vi.mocked(loadLanding).mockResolvedValue(
+      landingFor([{ id: "area.hiring_manager_review", label: "Hiring manager", path: "/internal/hiring-manager" }]),
+    );
 
     renderPage();
 
@@ -88,7 +90,7 @@ describe("VacanciesPage", () => {
           grade: "middle",
           required_skills: [],
           nice_to_have_skills: [],
-          status: "pending_review",
+          status: "calibration",
           created_at: "2026-01-01T00:00:00Z",
         },
       ],
@@ -97,6 +99,7 @@ describe("VacanciesPage", () => {
     renderPage();
 
     expect(await screen.findByText(/backend developer/i)).toBeInTheDocument();
+    expect(await screen.findByText(/на калибровке/i)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /create vacancy/i })).not.toBeInTheDocument();
   });
 });

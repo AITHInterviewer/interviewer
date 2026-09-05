@@ -4,6 +4,7 @@ from . import (
     health,
     interviews_admin,
     mock_interview,
+    pilot,
     roles,
     vacancies,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "health",
     "interviews_admin",
     "mock_interview",
+    "pilot",
     "roles",
     "vacancies",
 ]

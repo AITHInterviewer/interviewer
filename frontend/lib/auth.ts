@@ -1,23 +1,42 @@
 "use client";
 
 import {
+  activateVacancy,
   addQuestion,
   approveVacancy,
+  archiveVacancy,
+  closeClarification,
   createInternalUser,
   createInterview,
   createVacancy,
   deleteQuestion,
+  fetchAnonymizedStats,
   fetchCurrentUser,
+  fetchExpertQueue,
   fetchLanding,
   fetchRoleRegistry,
   generateQuestions,
+  getInterview,
   getInterviewEvents,
+  getManagerCandidate,
   getVacancy,
+  grantManagerOpinion,
+  handoffToManager,
+  listClarifications,
+  listHiringManagers,
   listInterviews,
   listInternalUsers,
+  listManagerCandidates,
+  listRubricVersions,
   listVacancies,
   loginUser,
+  pauseVacancy,
   registerRecruiter,
+  requestExpertAudit,
+  requestExtraAnswer,
+  requestVacancyChanges,
+  resumeVacancy,
+  sendVacancyToExpert,
   updateQuestion,
   updateRoleAssignments,
   updateVacancy,
@@ -306,4 +325,95 @@ export async function loadInterviewEvents(interviewId: string) {
   }
 
   return getInterviewEvents(session.token, interviewId);
+}
+
+export async function loadInterview(interviewId: string) {
+  return getInterview(requireToken(), interviewId);
+}
+
+function requireToken() {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+  return session.token;
+}
+
+export async function sendManagedVacancyToExpert(vacancyId: string) {
+  return sendVacancyToExpert(requireToken(), vacancyId);
+}
+
+export async function requestManagedVacancyChanges(vacancyId: string, reason: string) {
+  return requestVacancyChanges(requireToken(), vacancyId, reason);
+}
+
+export async function activateManagedVacancy(vacancyId: string) {
+  return activateVacancy(requireToken(), vacancyId);
+}
+
+export async function pauseManagedVacancy(vacancyId: string) {
+  return pauseVacancy(requireToken(), vacancyId);
+}
+
+export async function resumeManagedVacancy(vacancyId: string) {
+  return resumeVacancy(requireToken(), vacancyId);
+}
+
+export async function archiveManagedVacancy(vacancyId: string) {
+  return archiveVacancy(requireToken(), vacancyId);
+}
+
+export async function loadAnonymizedStats(vacancyId: string) {
+  return fetchAnonymizedStats(requireToken(), vacancyId);
+}
+
+export async function requestManagedExtra(interviewId: string) {
+  return requestExtraAnswer(requireToken(), interviewId);
+}
+
+export async function requestManagedAudit(interviewId: string) {
+  return requestExpertAudit(requireToken(), interviewId);
+}
+
+export async function closeManagedClarification(
+  interviewId: string,
+  clarificationId: string,
+  reason: string,
+) {
+  return closeClarification(requireToken(), interviewId, clarificationId, reason);
+}
+
+export async function handoffManagedInterview(
+  interviewId: string,
+  body: { to_manager_id: string; summary: string },
+) {
+  return handoffToManager(requireToken(), interviewId, body);
+}
+
+export async function grantManagedOpinion(interviewId: string, managerId: string) {
+  return grantManagerOpinion(requireToken(), interviewId, managerId);
+}
+
+export async function loadManagerCandidates() {
+  return listManagerCandidates(requireToken());
+}
+
+export async function loadManagerCandidate(interviewId: string) {
+  return getManagerCandidate(requireToken(), interviewId);
+}
+
+export async function loadExpertQueue() {
+  return fetchExpertQueue(requireToken());
+}
+
+export async function loadClarifications(interviewId: string) {
+  return listClarifications(requireToken(), interviewId);
+}
+
+export async function loadRubricVersions(vacancyId: string) {
+  return listRubricVersions(requireToken(), vacancyId);
+}
+
+export async function loadHiringManagers() {
+  return listHiringManagers(requireToken());
 }

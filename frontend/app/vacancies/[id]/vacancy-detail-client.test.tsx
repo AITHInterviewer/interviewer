@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
@@ -21,8 +21,13 @@ vi.mock("@/lib/auth", async () => {
     loadLanding: vi.fn(),
     loadVacancy: vi.fn(),
     loadInterviews: vi.fn(),
+    loadAnonymizedStats: vi.fn(),
     generateVacancyQuestions: vi.fn(),
     createManagedInterview: vi.fn(),
+    sendManagedVacancyToExpert: vi.fn(),
+    activateManagedVacancy: vi.fn(),
+    pauseManagedVacancy: vi.fn(),
+    resumeManagedVacancy: vi.fn(),
   };
 });
 
@@ -66,24 +71,27 @@ describe("VacancyDetailClient", () => {
     vi.mocked(loadInterviews).mockResolvedValue({ items: [] });
   });
 
-  it("shows the vacancy overview and a disabled interview form while the vacancy is not ready", async () => {
+  it("disables invite until the vacancy is active", async () => {
     renderClient("v1");
 
     expect(await screen.findByRole("heading", { name: /backend developer/i })).toBeInTheDocument();
-    expect(screen.getByText(/no interviews yet/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /create interview/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /пригласить кандидата/i })).toBeDisabled();
+    expect(
+      screen.getByText(/сначала эксперт одобряет версию, затем активируйте вакансию/i),
+    ).toBeInTheDocument();
   });
 
-  it("enables the create-interview form once the vacancy is ready", async () => {
-    vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "ready" });
+  it("enables the invite form once the vacancy is active", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "active" });
 
     renderClient("v1");
 
     await screen.findByRole("heading", { name: /backend developer/i });
-    expect(screen.getByLabelText(/resume file/i)).not.toBeDisabled();
+    expect(screen.getByLabelText(/файл резюме/i)).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: /пригласить кандидата/i })).not.toBeDisabled();
   });
 
-  it("hides recruiter-only actions for users without the recruiter area", async () => {
+  it("hides recruiter-only invite for users without the recruiter area", async () => {
     vi.mocked(loadLanding).mockResolvedValue({
       session: { token: "token", user: { id: "1", name: "Expert", email: "e@example.com", roles: ["expert"] } },
       landing: {
@@ -97,8 +105,7 @@ describe("VacancyDetailClient", () => {
     renderClient("v1");
 
     await screen.findByRole("heading", { name: /backend developer/i });
-    expect(screen.queryByRole("button", { name: /generate questions/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /settings/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /questions/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /пригласить кандидата/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /вопросы/i })).toBeInTheDocument();
   });
 });

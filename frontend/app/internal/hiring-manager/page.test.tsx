@@ -3,6 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replace = vi.fn();
 
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...props }: React.ComponentProps<"a">) => (
+    <a href={href as string} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace, push: vi.fn() }),
   usePathname: () => "/internal/hiring-manager",
@@ -45,7 +53,7 @@ describe("HiringManagerPage", () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/vacancies"));
   });
 
-  it("renders the placeholder workspace for hiring managers", async () => {
+  it("redirects hiring managers to /manager", async () => {
     vi.mocked(loadLanding).mockResolvedValue({
       session: { token: "token", user: { id: "1", name: "Manager", email: "m@example.com", roles: ["hiring_manager"] } },
       landing: {
@@ -60,6 +68,7 @@ describe("HiringManagerPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/hiring manager workspace is reserved/i)).toBeInTheDocument();
+    expect(await screen.findByText(/переходим к списку встреч/i)).toBeInTheDocument();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/manager"));
   });
 });

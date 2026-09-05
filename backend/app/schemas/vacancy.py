@@ -36,10 +36,13 @@ class VacancyResponse(BaseModel):
     nice_to_have_skills: list[str]
     status: str
     created_at: datetime
+    owner_next: str = "recruiter"
     questions: list[QuestionResponse] = Field(default_factory=list)
 
     @classmethod
     def from_model(cls, vacancy, questions: list) -> "VacancyResponse":
+        from app.services.vacancy_service import VacancyService
+
         return cls(
             id=vacancy.id,
             recruiter_id=vacancy.recruiter_id,
@@ -50,8 +53,13 @@ class VacancyResponse(BaseModel):
             nice_to_have_skills=list(vacancy.nice_to_have_skills),
             status=vacancy.status,
             created_at=vacancy.created_at,
+            owner_next=VacancyService.owner_next(vacancy.status),
             questions=[QuestionResponse.model_validate(q) for q in questions],
         )
+
+
+class ChangeRequestBody(BaseModel):
+    reason: str = Field(min_length=1, max_length=2000)
 
 
 class VacancyListResponse(BaseModel):

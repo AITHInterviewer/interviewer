@@ -1,11 +1,15 @@
 "use client";
 
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
+import { CalibrationSubnav } from "@/components/chrome/CalibrationSubnav";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { VacancyContextNav } from "@/components/chrome/VacancyContextNav";
 import {
   QuestionEditForm,
   emptyQuestionForm,
@@ -13,7 +17,7 @@ import {
   toQuestionInput,
   type QuestionFormState,
 } from "@/components/vacancies/question-edit-form";
-import type { Question, VacancyDetail } from "@/lib/api";
+import type { Question, VacancyDetail, VacancyStatus } from "@/lib/api";
 import {
   addManagedQuestion,
   approveManagedVacancy,
@@ -25,9 +29,13 @@ import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
 
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
+const RECRUITER_AREA = "area.recruiter_workspace";
+const APPROVABLE_STATUSES: VacancyStatus[] = ["calibration", "pending_review"];
 
 export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
   const { landing, loading } = useProtectedLanding();
+  const searchParams = useSearchParams();
+  const fromRecruiter = searchParams.get("from") === "recruiter";
 
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [vacancyLoading, setVacancyLoading] = useState(true);
@@ -42,7 +50,10 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
   const [approveStatus, setApproveStatus] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
 
-  const canEditQuestions = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
+  const hasEditAction = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
+  const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
+  const canEditQuestions = hasEditAction && !fromRecruiter;
+  const canApprove = vacancy ? APPROVABLE_STATUSES.includes(vacancy.status) : false;
 
   async function refreshVacancy() {
     try {
@@ -125,7 +136,7 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
 
     try {
       await approveManagedVacancy(vacancy.id);
-      setApproveStatus("Vacancy approved.");
+      setApproveStatus("Vacancy approved");
       await refreshVacancy();
     } catch (caughtError) {
       setApproveError(normalizeError(caughtError, "Could not approve the vacancy."));
@@ -143,6 +154,7 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
   }
 
   const nav = buildNav(landing);
+  const querySuffix = fromRecruiter ? "?from=recruiter" : "";
 
   return (
     <AppShell nav={nav} title="Questions">
@@ -153,10 +165,19 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
         {!vacancyLoading && vacancy ? (
           <>
             <PageHeader
-              path={`Vacancies / ${vacancy.title}`}
-              title="Questions"
-              description={`${vacancy.questions.length} question(s) · status: ${vacancy.status}`}
+              path={`Вакансии / ${vacancy.title}`}
+              title="Вопросы"
+              description={`${vacancy.questions.length} вопрос(ов)`}
             />
+            {fromRecruiter ? (
+              <VacancyContextNav vacancyId={vacancy.id} includeSettings={canManage} />
+            ) : (
+              <CalibrationSubnav vacancyId={vacancy.id} />
+            )}
+            <p className="page-actions">
+              <Link href={`/vacancies/${vacancy.id}/rubric${querySuffix}`}>Рубрика</Link>
+              <Link href={`/vacancies/${vacancy.id}/approve${querySuffix}`}>Утверждение</Link>
+            </p>
 
             {questionActionError ? <p className="form-error">{questionActionError}</p> : null}
 
@@ -239,12 +260,17 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
                   <button
                     className="button button--primary"
                     type="button"
-                    disabled={approving || vacancy.status === "ready"}
+                    disabled={approving || !canApprove}
                     onClick={() => void handleApprove()}
                   >
-                    {approving ? "Approving..." : "Approve vacancy"}
+                    {approving ? "Одобряем…" : "Approve vacancy"}
                   </button>
                 </div>
+                {!canApprove ? (
+                  <p className="disabled-hint">
+                    Одобрить можно, когда вакансия на калибровке, в черновике или после извлечения требований.
+                  </p>
+                ) : null}
               </>
             ) : null}
           </>

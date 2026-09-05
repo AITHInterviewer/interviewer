@@ -7,7 +7,9 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import { createManagedVacancy } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
+import type { VacancyDetail } from "@/lib/api";
+import { createManagedVacancy, generateVacancyQuestions, sendManagedVacancyToExpert } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
 
@@ -31,11 +33,14 @@ export default function NewVacancyPage() {
   const [niceToHaveSkills, setNiceToHaveSkills] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [preview, setPreview] = useState<VacancyDetail | null>(null);
+  const [sending, setSending] = useState(false);
+  const [sentStatus, setSentStatus] = useState<string | null>(null);
 
   if (loading || !landing) {
     return (
       <main className="workspace">
-        <ScreenState kind="loading" title="Loading" text="Checking your session..." />
+        <ScreenState kind="loading" title="Загрузка" text="Проверяем сессию…" />
       </main>
     );
   }
@@ -53,54 +58,106 @@ export default function NewVacancyPage() {
         requiredSkills: splitSkills(requiredSkills),
         niceToHaveSkills: splitSkills(niceToHaveSkills),
       });
-      router.push(`/vacancies/${vacancy.id}`);
+      const generated = await generateVacancyQuestions(vacancy.id);
+      setPreview(generated);
     } catch (caughtError) {
-      setError(normalizeError(caughtError, "Could not create the vacancy."));
+      setError(normalizeError(caughtError, "Не удалось создать вакансию или собрать вопросы."));
     } finally {
       setSubmitting(false);
     }
   }
 
+  async function handleSendToExpert() {
+    if (!preview) {
+      return;
+    }
+    setSending(true);
+    setError(null);
+    setSentStatus(null);
+    try {
+      await sendManagedVacancyToExpert(preview.id);
+      setSentStatus("Версия ушла эксперту на калибровку. Письмо мы не отправляем.");
+      router.push(`/vacancies/${preview.id}`);
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, "Не удалось отправить эксперту."));
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
-    <AppShell nav={buildNav(landing)} title="New vacancy">
+    <AppShell nav={buildNav(landing)} title="Новая вакансия">
       <div className="workspace workspace--form">
-        <PageHeader path="Vacancies / New" title="Create vacancy" description="Skills fields accept comma-separated values." />
-        <form className="form-surface" onSubmit={handleSubmit}>
-          <label>
-            Title
-            <input value={title} onChange={(event) => setTitle(event.target.value)} required />
-          </label>
-          <label>
-            Description
-            <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
-          </label>
-          <label>
-            Grade
-            <input value={grade} onChange={(event) => setGrade(event.target.value)} required />
-          </label>
-          <label>
-            Required skills
-            <input
-              value={requiredSkills}
-              onChange={(event) => setRequiredSkills(event.target.value)}
-              placeholder="python, sql"
-            />
-          </label>
-          <label>
-            Nice-to-have skills
-            <input
-              value={niceToHaveSkills}
-              onChange={(event) => setNiceToHaveSkills(event.target.value)}
-              placeholder="docker, kubernetes"
-            />
-          </label>
-          {error ? <p className="form-error">{error}</p> : null}
-          <div className="form-actions">
-            <button className="button button--primary" type="submit" disabled={submitting}>
-              {submitting ? "Creating..." : "Create vacancy"}
-            </button>
-          </div>
-        </form>
+        <PageHeader
+          path="Вакансии / Новая"
+          title="Новая вакансия"
+          description="Навыки указывайте через запятую. После сборки вопросов версию можно отправить эксперту."
+        />
+
+        {!preview ? (
+          <form className="form-surface" onSubmit={handleSubmit}>
+            <label>
+              Название
+              <input value={title} onChange={(event) => setTitle(event.target.value)} required />
+            </label>
+            <label>
+              Описание
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
+            </label>
+            <label>
+              Грейд
+              <input value={grade} onChange={(event) => setGrade(event.target.value)} required />
+            </label>
+            <label>
+              Обязательные навыки
+              <input
+                value={requiredSkills}
+                onChange={(event) => setRequiredSkills(event.target.value)}
+                placeholder="python, sql"
+              />
+            </label>
+            <label>
+              Желательные навыки
+              <input
+                value={niceToHaveSkills}
+                onChange={(event) => setNiceToHaveSkills(event.target.value)}
+                placeholder="docker, kubernetes"
+              />
+            </label>
+            {error ? <p className="form-error">{error}</p> : null}
+            <div className="form-actions">
+              <button className="button button--primary" type="submit" disabled={submitting}>
+                {submitting ? "Собираем вопросы…" : "Создать и собрать вопросы"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <section className="form-surface">
+            <p className="path">{preview.title}</p>
+            <h2>Требования и вопросы</h2>
+            <p>
+              Обязательные навыки: {preview.required_skills.join(", ") || "не указаны"}. Грейд:{" "}
+              {preview.grade}.
+            </p>
+            {preview.questions.length > 0 ? (
+              <ol>
+                {preview.questions.map((question) => (
+                  <li key={question.id}>{question.text}</li>
+                ))}
+              </ol>
+            ) : (
+              <p>Вопросы не пришли. Открыть вакансию и проверить можно после отправки или с доски.</p>
+            )}
+            {error ? <p className="form-error">{error}</p> : null}
+            {sentStatus ? <p className="success-message">{sentStatus}</p> : null}
+            <div className="form-actions">
+              <Button type="button" disabled={sending} onClick={() => void handleSendToExpert()}>
+                {sending ? "Отправляем…" : "Отправить эксперту"}
+              </Button>
+            </div>
+            <p className="disabled-hint">Эксперт увидит эту версию в очереди калибровки. Мы не шлём письмо за вас.</p>
+          </section>
+        )}
       </div>
     </AppShell>
   );

@@ -13,6 +13,7 @@ from app.routers import (
     interview_ws,
     interviews_admin,
     mock_interview,
+    pilot,
     roles,
     vacancies,
 )
@@ -48,3 +49,4 @@ app.include_router(auth.router)
 app.include_router(roles.router)
 app.include_router(vacancies.router)
 app.include_router(interviews_admin.router)
+app.include_router(pilot.router)
