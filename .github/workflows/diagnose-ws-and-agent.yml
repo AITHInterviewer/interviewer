@@ -12,33 +12,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: check uploaded files exist
+      - name: live-agent logs (full)
         run: |
-          Get-ChildItem C:\ai-interviewer-assets\ -ErrorAction Stop | Format-Table Name, Length
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
 
-      - name: copy irina.onnx into the container as model.onnx
-        run: |
-          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q tts
-          Write-Output "container: $containerId"
-          # Найдено предыдущим прогоном (find без /root, тот путь уже частично докачан speaches -
-          # config.json/README/.gitattributes есть, не хватало только model.onnx).
-          $targetDir = "/home/ubuntu/.cache/huggingface/hub/models--speaches-ai--piper-ru_RU-irina-medium/snapshots/22531dbcaa340f4370e1c86027a4794769842fea"
-          docker cp C:\ai-interviewer-assets\irina.onnx "${containerId}:${targetDir}/model.onnx"
-          docker exec $containerId ls -la $targetDir
-
-      - name: verify with a real synth call
+      - name: livekit-server logs (tail)
         if: always()
         run: |
-          Set-Content -Path probe_verify.py -Encoding utf8 -Value @'
-          import json, urllib.request, urllib.error
-          body = json.dumps({"model": "speaches-ai/piper-ru_RU-irina-medium", "voice": "irina", "input": "privet, eto test"}).encode()
-          req = urllib.request.Request("http://tts:8000/v1/audio/speech", data=body, headers={"Content-Type": "application/json"})
-          try:
-              r = urllib.request.urlopen(req, timeout=30)
-              data = r.read()
-              print("STATUS", r.status, "BYTES", len(data))
-          except urllib.error.HTTPError as e:
-              print("STATUS", e.code)
-              print(e.read().decode("utf-8", "replace"))
-          '@
-          Get-Content probe_verify.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server --tail 100
+
+      - name: tts logs (tail)
+        if: always()
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs tts --tail 60
