@@ -11,10 +11,20 @@ jobs:
         shell: powershell
     steps:
       - name: List currently loaded/available models
+        continue-on-error: true
         run: |
-          Invoke-WebRequest -Uri http://localhost:3905/v1/models -UseBasicParsing | Select-Object -ExpandProperty Content
+          try {
+            Invoke-WebRequest -Uri http://localhost:3905/v1/models -UseBasicParsing | Select-Object -ExpandProperty Content
+          } catch {
+            Write-Output "FAILED: $_"
+            if ($_.Exception.Response) {
+              $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+              Write-Output $reader.ReadToEnd()
+            }
+          }
 
       - name: Trigger a real transcription to force model load (tiny silent wav)
+        continue-on-error: true
         run: |
           $wavBase64 = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA="
           $bytes = [Convert]::FromBase64String($wavBase64)
@@ -36,7 +46,8 @@ jobs:
           }
 
       - name: GPU process check after transcription attempt
+        continue-on-error: true
         run: docker exec live-agent-stt-1 nvidia-smi
 
-      - name: Recent STT logs
-        run: docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 150
+      - name: Full STT logs
+        run: docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 300
