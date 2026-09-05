@@ -28,3 +28,8 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 async def get_db() -> AsyncIterator[AsyncSession]:
     async with SessionLocal() as session:
         yield session
+
+
+# Alias used by the internal auth/roles feature (specs/006-recruiter-auth), which
+# depends on this name.
+get_db_session = get_db

@@ -8,4 +8,5 @@ import { afterEach } from "vitest";
 // queryBy*-проверки «элемента нет» ложно падают.
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
 });

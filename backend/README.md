@@ -14,6 +14,11 @@
   `specs/004-candidate-interview-flow/tasks.md`, «Known Gaps».
 - `app/routers/mock_interview.py` — временный контур ручной проверки STT/TTS, не часть
   боевой архитектуры (см. его docstring).
+- Реализован auth-контур для внутренних пользователей (specs/006-recruiter-auth,
+  007-multi-role-assignment): ORM-модели `InternalUser`/`InternalRoleAssignment`,
+  репозиторий, сервисы, DI-зависимости и Alembic-миграции.
+- Эндпоинты `POST /api/v1/auth/register`, `POST /api/v1/auth/login`, `GET /api/v1/auth/me`,
+  `POST /api/v1/internal-users`, `GET /api/v1/internal-users/me/landing`.
 
 ## Стек
 
@@ -25,17 +30,25 @@
 ## Установка и запуск
 
 ```bash
+docker compose -f ../infra/docker-compose.yml up -d postgres
 cd backend
 uv sync --extra dev
 cp .env.example .env
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
 API будет доступен на `http://localhost:8000/health`.
 
+Для хостового запуска `backend/.env` должен указывать на `localhost:5432`.
+Для `backend/docker-compose.yml` Postgres хост переопределяется на контейнерный `postgres`.
+
+После запуска также доступны auth-роуты под `/api/v1`.
+
 ## Команды
 
 ```bash
+uv run alembic upgrade head
 uv run ruff check app/ tests/
 uv run pytest -q
 ```
@@ -65,6 +78,8 @@ docker compose -f ../docker-compose.dev.yml up --build
 
 - `backend/.env` управляет mutable runtime-настройками
 - `CORS_ORIGINS` должен включать локальный frontend URL baseline
+- `DATABASE_URL` задаёт основной async database connection string
+- `JWT_SECRET` и `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` управляют подписью и временем жизни access token
 
 ## Зависимости и образ
 
@@ -102,3 +117,5 @@ DATABASE_URL=postgresql+asyncpg://ainterviewer:ainterviewer@localhost:3901/ainte
 - Пересылка `candidate_input` из WS в `live-agent` (T028).
 - CRUD рекрутёра / вакансий (остальной скоуп specs/003-recruiter-vacancy-management —
   сейчас поднята только схема таблиц, без эндпоинтов).
+- Добавить persisted revocation/rotation стратегию, если auth-модель выйдет за рамки MVP bearer session.
+- Расширить role-specific workflows для `hiring_manager` и `expert` поверх уже готовой auth-модели.

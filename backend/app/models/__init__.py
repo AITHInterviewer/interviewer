@@ -9,6 +9,16 @@ from app.models.answer import Answer
 from app.models.interview import Interview
 from app.models.question import Question
 from app.models.recruiter import Recruiter
+from app.models.role_assignment import InternalRoleAssignment
+from app.models.user import InternalUser
 from app.models.vacancy import Vacancy
 
-__all__ = ["Answer", "Interview", "Question", "Recruiter", "Vacancy"]
+__all__ = [
+    "Answer",
+    "Interview",
+    "InternalRoleAssignment",
+    "InternalUser",
+    "Question",
+    "Recruiter",
+    "Vacancy",
+]

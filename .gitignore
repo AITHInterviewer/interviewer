@@ -35,6 +35,10 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Local SQLite DBs
+*.db
+*.sqlite3
+
 # Logs / temp
 *.log
 *.tmp

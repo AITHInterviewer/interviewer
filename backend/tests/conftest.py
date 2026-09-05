@@ -1,52 +1,92 @@
-"""Тестовая БД — SQLite в памяти (aiosqlite), не реальный Postgres.
+"""Тестовая БД — файловый SQLite (aiosqlite), не реальный Postgres.
 
-Причина: `DATABASE_URL` (asyncpg) указывает на Postgres, которого нет в песочнице, где
-писался код (нет Docker/сети до реальной БД). Модели используют `.with_variant(...,
-"sqlite")` именно для этого случая (см. `app/models/vacancy.py`, `question.py`,
-`answer.py`) — на боевой Postgres-DSN это не влияет, там применяется основной тип.
+`DATABASE_URL` по умолчанию (asyncpg) указывает на Postgres, недоступный в тестовом
+окружении, поэтому здесь — до импорта `app.db`/`app.main` — он подменяется на SQLite.
+Модели используют `.with_variant(..., "sqlite")` именно для этого случая (см.
+`app/models/vacancy.py`, `question.py`, `answer.py`) — на боевой Postgres-DSN это не
+влияет, там применяется основной тип.
 
-`override_get_db` подменяет `app.db.get_db` на сессию к этому SQLite-движку — тесты не
-трогают `DATABASE_URL`/боевой engine из `app/db.py` вообще.
+`reset_database` (autouse) пересоздаёт схему на общем `app.db.engine` перед каждым
+тестом — и `db_session`, и запросы через ASGI-приложение (`client` или
+`AsyncClient(transport=ASGITransport(app=app))` внутри теста) видят одни и те же
+данные, поскольку все ходят в один и тот же engine/DB-файл.
+
+`reset_database`/`cleanup_test_db` используют `asyncio.run(...)` вместо async-фикстур:
+`tests/test_interview_ws.py` держит синхронные (не `@pytest.mark.anyio`) тест-функции
+с собственным изолированным engine, и anyio-плагин pytest не умеет прогонять async
+autouse-фикстуры для таких тестов — sync-обёртка работает одинаково для обоих стилей.
 """
 
 from __future__ import annotations
 
+import asyncio
+import os
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from pathlib import Path
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import Base, get_db
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///./test_auth.db")
+os.environ.setdefault("JWT_SECRET", "test-jwt-secret")
+
+from app.db import Base, SessionLocal, engine
 from app.main import app
 from app.models import Interview, Question, Recruiter, Vacancy  # регистрирует все модели в Base.metadata
+from app.services.role_service import RoleService
+
+# httpx's ASGITransport does not execute the FastAPI lifespan, so the registry
+# is initialized here as well; the lifespan does the same at real startup.
+app.state.role_service = RoleService()
+
+
+@pytest.fixture(autouse=True)
+def reset_role_service():
+    app.state.role_service = RoleService()
+    yield
+    app.state.role_service = RoleService()
+
+
+async def _create_schema() -> None:
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.drop_all)
+        await connection.run_sync(Base.metadata.create_all)
+
+
+async def _drop_schema() -> None:
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.drop_all)
+
+
+@pytest.fixture(autouse=True)
+def reset_database() -> Iterator[None]:
+    asyncio.run(_create_schema())
+    yield
+    asyncio.run(_drop_schema())
+
+
+@pytest.fixture
+async def client() -> AsyncIterator[AsyncClient]:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as current_client:
+        yield current_client
+
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_test_db() -> Iterator[None]:
+    yield
+
+    asyncio.run(engine.dispose())
+    test_db = Path("test_auth.db")
+    if test_db.exists():
+        test_db.unlink()
 
 
 @pytest.fixture
 async def db_session() -> AsyncIterator[AsyncSession]:
-    # StaticPool — один и тот же физический in-memory SQLite для всех подключений этого
-    # engine; без него каждый checkout соединения открывал бы отдельную пустую `:memory:`
-    # базу (и override_get_db ниже не видел бы данных, засеянных через `db_session`).
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False}
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-
-    async def override_get_db() -> AsyncIterator[AsyncSession]:
-        async with session_factory() as session:
-            yield session
-
-    app.dependency_overrides[get_db] = override_get_db
-    try:
-        async with session_factory() as session:
-            yield session
-    finally:
-        app.dependency_overrides.pop(get_db, None)
-        await engine.dispose()
+    async with SessionLocal() as session:
+        yield session
 
 
 async def seed_demo_interview(
@@ -88,3 +128,39 @@ async def seed_demo_interview(
     session.add(interview)
     await session.commit()
     return interview
+
+
+async def register_recruiter(client: AsyncClient, email: str = "recruiter@example.com") -> str:
+    response = await client.post(
+        "/api/v1/auth/register",
+        json={"name": "Recruiter One", "email": email, "password": "StrongPass123"},
+    )
+    assert response.status_code == 201
+    return response.json()["access_token"]
+
+
+async def create_internal_user(
+    client: AsyncClient,
+    token: str,
+    *,
+    email: str,
+    roles: list[str],
+    name: str = "Managed User",
+    temporary_password: str = "TempPass123",
+) -> dict:
+    response = await client.post(
+        "/api/v1/internal-users",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"name": name, "email": email, "roles": roles, "temporary_password": temporary_password},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+async def login(client: AsyncClient, email: str, password: str = "TempPass123") -> str:
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert response.status_code == 200
+    return response.json()["access_token"]

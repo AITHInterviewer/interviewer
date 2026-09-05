@@ -9,6 +9,7 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "sqlalchemy[asyncio]",
     "asyncpg",
+    "aiosqlite",
     "alembic",
     "pydantic-settings",
     "celery[redis]",
@@ -21,6 +22,9 @@ dependencies = [
     # contracts/livekit-token.md) — backend подписывает токен, secret никогда не уходит
     # на frontend.
     "livekit-api>=0.7",
+    "passlib[bcrypt]>=1.7",
+    "python-jose[cryptography]>=3.3",
+    "email-validator>=2.2",
 ]
 
 [project.optional-dependencies]

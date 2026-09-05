@@ -1,16 +1,39 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ainterviewer
+      POSTGRES_PASSWORD: ainterviewer
+      POSTGRES_DB: ainterviewer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ainterviewer -d ainterviewer"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   backend:
     build:
       context: ./backend
       target: dev
+    command: ["/bin/sh", "-c", "uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
     env_file:
       - ./backend/.env
+    environment:
+      POSTGRES_HOST: postgres
+      DATABASE_URL: postgresql+asyncpg://ainterviewer:ainterviewer@postgres:5432/ainterviewer
     ports:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
       - ./backend/tests:/app/tests
       - ./backend/scripts:/app/scripts
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test:
         [
@@ -40,5 +63,6 @@ services:
       - frontend-next:/app/.next
 
 volumes:
+  postgres-data:
   frontend-node-modules:
   frontend-next:
