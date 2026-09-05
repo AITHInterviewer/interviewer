@@ -94,19 +94,24 @@ export function InterviewRoom({
         </div>
 
         <div className="space-y-3">
-          <div
-            className={`relative aspect-video overflow-hidden rounded-xl border-4 bg-muted/30 transition-colors duration-150 ${
-              candidateSpeaking ? "border-primary shadow-[0_0_0_4px_hsl(var(--primary)/0.25)]" : "border-transparent"
-            }`}
-          >
-            <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+          {/* relative-обёртка снаружи overflow-hidden-плитки видео — иначе всплывающее
+              меню DeviceSettings обрезается границами плитки (overflow-hidden), даже
+              будучи абсолютно спозиционированным поверх неё. */}
+          <div className="relative">
             <div
-              className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-white transition-opacity ${
-                candidateSpeaking ? "bg-primary opacity-100" : "opacity-0"
+              className={`aspect-video overflow-hidden rounded-xl border-4 bg-muted/30 transition-colors duration-150 ${
+                candidateSpeaking ? "border-primary shadow-[0_0_0_4px_hsl(var(--primary)/0.25)]" : "border-transparent"
               }`}
             >
-              <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
-              Вы говорите
+              <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+              <div
+                className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-white transition-opacity ${
+                  candidateSpeaking ? "bg-primary opacity-100" : "opacity-0"
+                }`}
+              >
+                <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                Вы говорите
+              </div>
             </div>
             <div className="absolute right-2 top-2">
               <DeviceSettings liveKitRef={liveKitRef} />
