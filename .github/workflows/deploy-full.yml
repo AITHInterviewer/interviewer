@@ -306,8 +306,17 @@ jobs:
             up -d --force-recreate livekit-server
 
       - name: Build and (re)start live-agent (+ its stt/tts)
+        # --force-recreate on live-agent specifically: real incident (2026-09-05) — Compose
+        # didn't detect live-agent/.env's content change (TTS_BASE_URL updated in a
+        # previous step) as a reason to recreate the container, so it kept running with a
+        # stale env until the NEXT deploy that happened to also trigger a rebuild for an
+        # unrelated reason. The agent then silently tried to reach TTS on the wrong
+        # port/URL - a stale ClientConnectorError on every reply, not an error anyone
+        # would connect to "the .env step ran fine". Same class of bug as livekit-server's
+        # bind-mounted config (see infra section) - `up` alone doesn't recreate on a
+        # bind-mounted/env_file-only change, only `--force-recreate` does reliably.
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --remove-orphans
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --force-recreate --remove-orphans
 
       - name: Build and (re)start evaluation-agent's stt-accurate
         run: |
