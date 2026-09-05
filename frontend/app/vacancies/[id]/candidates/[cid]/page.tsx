@@ -1,15 +1,22 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { SkeletonText } from "@/components/ui/skeleton";
+import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
-import type { ClarificationRequest, Interview, InterviewEventsResponse, StaffManager } from "@/lib/api";
+import type {
+  ClarificationRequest,
+  Interview,
+  InterviewEventsResponse,
+  StaffManager,
+  VacancyDetail,
+} from "@/lib/api";
 import { ApiError } from "@/lib/api";
 import {
   closeManagedClarification,
@@ -19,11 +26,19 @@ import {
   loadHiringManagers,
   loadInterview,
   loadInterviewEvents,
+  loadVacancy,
   requestManagedAudit,
   requestManagedExtra,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { interviewStageLabel } from "@/lib/pipeline";
+import {
+  buildRequirementMap,
+  COVERAGE_LABEL,
+  mandatorySummary,
+  uncoveredRequirements,
+  type RequirementCoverage,
+} from "@/lib/report";
 import { buildNav } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
@@ -41,6 +56,13 @@ function reportLabel(interview: Interview): string {
   if (interview.report_status === "updated_extra") return "Отчёт обновлён после доп. ответа кандидата.";
   if (interview.report_status === "expert_reviewed") return "Эксперт разобрал отчёт и оставил отметку.";
   return "Отчёт готовится. Обычно это занимает около часа после сдачи.";
+}
+
+/** Тон пилюли под покрытие требования. Зелёный только там, где ответ есть. */
+function coverageTone(coverage: RequirementCoverage): StatusTone {
+  if (coverage === "answered") return "confirmed";
+  if (coverage === "asked") return "insufficient";
+  return "unchecked";
 }
 
 /** Статус уточнения словами: коды open/closed в интерфейс не выносим. */
@@ -67,6 +89,17 @@ export default function VacancyCandidatePage() {
   const [summary, setSummary] = useState("");
   const [closeReason, setCloseReason] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
+  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+
+  const requirements = useMemo(
+    () => (vacancy ? buildRequirementMap(vacancy, vacancy.questions, events?.answers ?? []) : []),
+    [events, vacancy],
+  );
+  const mandatory = mandatorySummary(requirements);
+  const uncovered = uncoveredRequirements(requirements);
+  const selected =
+    requirements.find((row) => row.skill === selectedSkill) ?? requirements[0] ?? null;
 
   async function refreshClarifications() {
     const response = await loadClarifications(params.cid);
@@ -86,10 +119,11 @@ export default function VacancyCandidatePage() {
           return;
         }
         setInterview(item);
-        const [clarificationResponse, managerResponse, eventsPayload] = await Promise.all([
+        const [clarificationResponse, managerResponse, eventsPayload, vacancyDetail] = await Promise.all([
           loadClarifications(params.cid),
           canManage ? loadHiringManagers() : Promise.resolve({ items: [] as StaffManager[] }),
           loadInterviewEvents(params.cid).catch(() => null),
+          loadVacancy(params.id).catch(() => null),
         ]);
         if (cancelled) {
           return;
@@ -97,6 +131,7 @@ export default function VacancyCandidatePage() {
         setClarifications(clarificationResponse.items);
         setManagers(managerResponse.items);
         setEvents(eventsPayload);
+        setVacancy(vacancyDetail);
       } catch (caughtError) {
         if (!cancelled) {
           setError(normalizeError(caughtError, "Не удалось загрузить карточку."));
@@ -112,7 +147,7 @@ export default function VacancyCandidatePage() {
     return () => {
       cancelled = true;
     };
-  }, [landing, params.cid, canManage]);
+  }, [landing, params.cid, params.id, canManage]);
 
   const openClarifications = clarifications.filter((item) => OPEN_CLARIFICATION.has(item.status));
   const handoffBlocked = openClarifications.length > 0;
@@ -232,28 +267,117 @@ export default function VacancyCandidatePage() {
             {error ? <p className="form-error">{error}</p> : null}
             {status ? <p className="success-message">{status}</p> : null}
 
-            <section className="plain-section">
-              <h2>Технический отчёт</h2>
-              <p>{reportLabel(interview)}</p>
-              {events?.answers.length ? (
-                <ul className="stack-list">
-                  {events.answers.map((answer) => (
-                    <li className="answer-record" key={answer.id}>
-                      <strong>{answer.question_text ?? "Вопрос без текста"}</strong>
-                      {answer.transcript_text ? (
-                        <blockquote>{answer.transcript_text}</blockquote>
-                      ) : (
-                        <p className="muted-copy">Расшифровка этого ответа ещё не готова.</p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>
-                  Расшифровок ещё нет. Когда ответы обработаются, здесь появятся цитаты с
-                  таймкодами по каждому требованию.
+            <section className="report-summary">
+              <div>
+                <h2>Что видно из ответов</h2>
+                <p className="muted-copy">
+                  Это наблюдения системы, не оценка. {reportLabel(interview)}
                 </p>
-              )}
+              </div>
+              {mandatory.answered < mandatory.total ? (
+                <p className="report-gap">
+                  Без ответа осталось обязательное:{" "}
+                  {requirements
+                    .filter((row) => row.mandatory && row.coverage !== "answered")
+                    .map((row) => row.skill)
+                    .join(", ")}
+                  . Логичный шаг — точечный доп. вопрос или разговор, а не решение вслепую.
+                </p>
+              ) : null}
+              <dl className="report-figures">
+                <div>
+                  <dt>Обязательные требования</dt>
+                  <dd>
+                    закрыты ответом {mandatory.answered} из {mandatory.total}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Ответов с расшифровкой</dt>
+                  <dd>
+                    {events?.answers.filter((item) => item.transcript_text).length ?? 0} из{" "}
+                    {vacancy?.questions.length ?? 0}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Не закрыл ни один вопрос</dt>
+                  <dd>{uncovered.length === 0 ? "таких требований нет" : uncovered.map((row) => row.skill).join(", ")}</dd>
+                </div>
+              </dl>
+            </section>
+
+            <section className="requirement-map">
+              <div className="requirement-map__list">
+                <header>
+                  <h2>Карта требований</h2>
+                  <span className="muted-copy">Выберите строку, чтобы увидеть ответ целиком</span>
+                </header>
+                {requirements.length === 0 ? (
+                  <p className="muted-copy" style={{ padding: "16px 20px" }}>
+                    У вакансии не заполнены требования, сопоставлять нечего.
+                  </p>
+                ) : (
+                  requirements.map((row) => (
+                    <button
+                      className="requirement-row"
+                      type="button"
+                      key={row.skill}
+                      data-selected={row.skill === selectedSkill}
+                      onClick={() => setSelectedSkill(row.skill)}
+                    >
+                      <span>
+                        <strong>{row.skill}</strong>
+                        <span className="muted-copy">
+                          {row.mandatory ? "Обязательное" : "Желательное"}
+                          {row.questions.length > 0
+                            ? ` · вопрос ${row.questions.map((question) => question.order).join(", ")}`
+                            : " · вопроса нет"}
+                        </span>
+                      </span>
+                      <StatusPill tone={coverageTone(row.coverage)}>{COVERAGE_LABEL[row.coverage]}</StatusPill>
+                    </button>
+                  ))
+                )}
+              </div>
+
+              <aside className="requirement-detail">
+                {selected ? (
+                  <>
+                    <div>
+                      <h2>{selected.skill}</h2>
+                      <span className="muted-copy">
+                        {selected.mandatory ? "Обязательное требование" : "Желательное требование"}
+                      </span>
+                    </div>
+                    {selected.answers.length > 0 ? (
+                      selected.answers.map(({ question, answer }) => (
+                        <div className="answer-record" key={answer.id}>
+                          <strong>
+                            Вопрос {question.order}. {question.text}
+                          </strong>
+                          <blockquote>{answer.transcript_text}</blockquote>
+                          {question.reference_answer ? (
+                            <p className="muted-copy">
+                              Эксперт ждал: {question.reference_answer}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))
+                    ) : selected.coverage === "asked" ? (
+                      <p className="muted-copy">
+                        Вопрос {selected.questions.map((question) => question.order).join(", ")} задавали, но
+                        расшифровки ответа нет. Это пробел в данных, а не минус кандидату.
+                      </p>
+                    ) : (
+                      <p className="muted-copy">
+                        Ни один вопрос комплекта не закрывает это требование. Дыра в калибровке: её
+                        стоит закрыть эксперту, а не считать ответом кандидата.
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="muted-copy">Выберите требование слева.</p>
+                )}
+              </aside>
             </section>
 
             {canManage ? (

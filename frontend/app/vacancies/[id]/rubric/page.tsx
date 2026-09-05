@@ -8,10 +8,12 @@ import { AppShell } from "@/components/chrome/AppShell";
 import { CalibrationSubnav } from "@/components/chrome/CalibrationSubnav";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { StatusPill } from "@/components/ui/status-pill";
 import type { RubricVersion, VacancyDetail } from "@/lib/api";
 import { loadRubricVersions, loadVacancy } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
+import { buildRequirementMap, uncoveredRequirements } from "@/lib/report";
 
 /** Что зафиксировано в версии рубрики. Сырой JSON пользователю не показываем. */
 function snapshotText(snapshot?: Record<string, unknown>): string {
@@ -61,6 +63,9 @@ function RubricInner() {
     };
   }, [landing, vacancyId]);
 
+  const coverage = vacancy ? buildRequirementMap(vacancy, vacancy.questions, []) : [];
+  const gaps = uncoveredRequirements(coverage);
+
   if (loading || !landing) {
     return (
       <main className="workspace">
@@ -82,9 +87,43 @@ function RubricInner() {
               title="Требования"
               description={fromRecruiter ? "Только просмотр." : "Калибровка версии."}
             />
-            <section className="plain-section">
-              <h2>Обязательные навыки</h2>
-              <p>{vacancy.required_skills.join(", ") || "Не указаны."}</p>
+            {gaps.length > 0 ? (
+              <p className="report-gap">
+                Ни один вопрос комплекта не закрывает: {gaps.map((row) => row.skill).join(", ")}. Пока
+                это так, в отчёте по такому требованию будет стоять «вопрос не задавался».
+              </p>
+            ) : null}
+
+            <section className="requirement-map__list" style={{ marginTop: 20 }}>
+              <header>
+                <h2>Требования и покрытие</h2>
+                <span className="muted-copy">
+                  {coverage.filter((row) => row.coverage !== "not-covered").length} из {coverage.length}{" "}
+                  закрыты вопросами
+                </span>
+              </header>
+              {coverage.length === 0 ? (
+                <p className="muted-copy" style={{ padding: "16px 20px" }}>
+                  Требования вакансии не заполнены. Добавьте их в настройках, тогда появится покрытие.
+                </p>
+              ) : (
+                coverage.map((row) => (
+                  <div className="requirement-row" key={row.skill}>
+                    <span>
+                      <strong>{row.skill}</strong>
+                      <span className="muted-copy">
+                        {row.mandatory ? "Обязательное" : "Желательное"}
+                        {row.questions.length > 0
+                          ? ` · закрывает вопрос ${row.questions.map((question) => question.order).join(", ")}`
+                          : " · вопроса нет"}
+                      </span>
+                    </span>
+                    <StatusPill tone={row.coverage === "not-covered" ? "unchecked" : "confirmed"}>
+                      {row.coverage === "not-covered" ? "Нет вопроса" : "Вопрос есть"}
+                    </StatusPill>
+                  </div>
+                ))
+              )}
             </section>
             <section className="plain-section">
               <h2>Ранее одобренные версии</h2>
