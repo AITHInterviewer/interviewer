@@ -234,7 +234,7 @@ jobs:
           DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
         run: |
           $env:TLS_DOMAIN = "ainterviewer.duckdns.org"
-          docker compose --project-directory . -f infra/docker-compose.yml run --rm acme
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml run --rm acme
 
       - name: Build and (re)start infra + backend + frontend
         # livekit-server теперь тоже здесь — см. шаг "Reserve livekit UDP port range"
