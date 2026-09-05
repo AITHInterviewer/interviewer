@@ -104,7 +104,11 @@ jobs:
             }
           }
           if (-not $ok) {
-            Write-Error "backend did not become healthy in time"
+            # Write-Error is a TERMINATING error for this runner's PowerShell steps —
+            # it aborts the script immediately, so the docker logs line below never ran
+            # (found the hard way debugging the vacancy-interview-flow deploy). Write-Output
+            # instead so the diagnostic actually prints before the explicit exit 1.
+            Write-Output "ERROR: backend did not become healthy in time"
             docker compose -f docker-compose.dev.yml logs backend --tail 100
             exit 1
           }
