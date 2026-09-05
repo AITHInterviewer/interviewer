@@ -17,7 +17,7 @@ import {
   updateManagedVacancy,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { buildNav, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 
@@ -138,7 +138,10 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   return (
     <AppShell nav={nav} title="Настройки вакансии">
       <div className="workspace workspace--form">
-        <PageHeader path={`Вакансии / ${vacancy?.title ?? vacancyId}`} title="Настройки" />
+        <PageHeader
+          breadcrumbs={vacancyBreadcrumbs(vacancyId, vacancy?.title ?? vacancyId, "Настройки")}
+          title="Настройки"
+        />
 
         {vacancyLoading ? <ScreenState kind="loading" title="Загружаю" text="Открываю вакансию." /> : null}
         {vacancyError ? <ScreenState kind="error" title="Вакансия не открылась" text={vacancyError} /> : null}

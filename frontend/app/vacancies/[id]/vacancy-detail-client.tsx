@@ -24,7 +24,7 @@ import {
   sendManagedVacancyToExpert,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { buildNav, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
 import { groupInterviews, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
@@ -268,7 +268,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
         {!vacancyLoading && vacancy ? (
           <>
             <PageHeader
-              path="Вакансии"
+              breadcrumbs={vacancyBreadcrumbs(vacancyId, vacancy.title, "Доска")}
               title={vacancy.title}
               description={
                 <>

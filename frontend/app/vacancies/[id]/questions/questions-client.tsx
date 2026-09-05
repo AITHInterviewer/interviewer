@@ -8,6 +8,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { CalibrationSubnav } from "@/components/chrome/CalibrationSubnav";
 import { PageHeader } from "@/components/chrome/PageHeader";
+import { ViewModeBanner } from "@/components/chrome/ViewModeBanner";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import {
   QuestionEditForm,
@@ -25,7 +26,7 @@ import {
   updateManagedQuestion,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav } from "@/lib/nav";
+import { buildNav, isRecruiterViewMode, vacancyBreadcrumbs } from "@/lib/nav";
 import {
   QUESTION_DIFFICULTY_LABEL,
   QUESTION_FORMAT_LABEL,
@@ -39,7 +40,7 @@ const APPROVABLE_STATUSES: VacancyStatus[] = ["calibration", "pending_review"];
 export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
   const { landing, loading } = useProtectedLanding();
   const searchParams = useSearchParams();
-  const fromRecruiter = searchParams.get("from") === "recruiter";
+  const fromRecruiter = isRecruiterViewMode(searchParams.get("from"));
 
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [vacancyLoading, setVacancyLoading] = useState(true);
@@ -181,11 +182,12 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
         {!vacancyLoading && vacancy ? (
           <>
             <PageHeader
-              path={`Вакансии / ${vacancy.title}`}
+              breadcrumbs={vacancyBreadcrumbs(vacancy.id, vacancy.title, "Вопросы")}
               title="Вопросы"
               description={`Комплект из ${vacancy.questions.length} вопросов. Одинаковые основные вопросы для всех кандидатов.`}
             />
-            {fromRecruiter ? null : <CalibrationSubnav vacancyId={vacancy.id} />}
+            <CalibrationSubnav vacancyId={vacancy.id} />
+            {fromRecruiter ? <ViewModeBanner /> : null}
             {questionActionError ? <p className="form-error">{questionActionError}</p> : null}
 
             {vacancy.questions.length > 0 ? (
@@ -210,7 +212,7 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
                           <span>{QUESTION_DIFFICULTY_LABEL[question.difficulty] ?? question.difficulty}</span>
                           <span>
                             {question.skill_tag?.length
-                              ? `Закрывает: ${question.skill_tag.join(", ")}`
+                              ? `Требование: ${question.skill_tag.join(", ")}`
                               : "Требование не указано"}
                           </span>
                         </div>

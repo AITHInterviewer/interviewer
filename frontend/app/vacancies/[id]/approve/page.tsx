@@ -7,13 +7,14 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { CalibrationSubnav } from "@/components/chrome/CalibrationSubnav";
 import { PageHeader } from "@/components/chrome/PageHeader";
+import { ViewModeBanner } from "@/components/chrome/ViewModeBanner";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { VacancyDetail, VacancyStatus } from "@/lib/api";
 import { approveManagedVacancy, loadVacancy, requestManagedVacancyChanges } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { buildNav, isRecruiterViewMode, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
 
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
 const APPROVABLE_STATUSES: VacancyStatus[] = ["calibration", "pending_review"];
@@ -22,7 +23,7 @@ function ApproveInner() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const vacancyId = params.id;
-  const fromRecruiter = searchParams.get("from") === "recruiter";
+  const fromRecruiter = isRecruiterViewMode(searchParams.get("from"));
   const { landing, loading } = useProtectedLanding();
 
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
@@ -111,12 +112,15 @@ function ApproveInner() {
         {vacancy ? (
           <>
             <PageHeader
-              path={`Вакансии / ${vacancy.title}`}
+              breadcrumbs={vacancyBreadcrumbs(vacancyId, vacancy.title, "Утверждение")}
               title="Утверждение версии"
               description={`Статус вакансии: ${VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}.`}
             />
             <CalibrationSubnav vacancyId={vacancyId} />
-            {!canEdit ? <p>Режим просмотра. Утверждение доступно эксперту</p> : null}
+            {fromRecruiter ? <ViewModeBanner /> : null}
+            {!canEdit && !fromRecruiter ? (
+              <p>Режим просмотра. Утверждение доступно эксперту</p>
+            ) : null}
             {error ? <p className="form-error">{error}</p> : null}
             {status ? <p className="success-message">{status}</p> : null}
             <section>

@@ -108,7 +108,7 @@ describe("VacancyApprovePage", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/режим просмотра\. утверждение доступно эксперту/i)).toBeInTheDocument();
+    expect(await screen.findByText(/режим просмотра\. редактирование недоступно/i)).toBeInTheDocument();
     expect(screen.getByText(/вопросов в комплекте: 1/i)).toBeInTheDocument();
     expect(screen.getByText(/обязательные навыки: python, sql/i)).toBeInTheDocument();
     expect(screen.getAllByText(/backend developer/i).length).toBeGreaterThan(0);

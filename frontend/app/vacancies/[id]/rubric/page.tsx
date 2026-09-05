@@ -7,6 +7,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { CalibrationSubnav } from "@/components/chrome/CalibrationSubnav";
 import { PageHeader } from "@/components/chrome/PageHeader";
+import { ViewModeBanner } from "@/components/chrome/ViewModeBanner";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -14,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import type { RubricVersion, VacancyDetail } from "@/lib/api";
 import { loadRubricVersions, loadVacancy, updateManagedVacancy } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav } from "@/lib/nav";
+import { buildNav, isRecruiterViewMode, vacancyBreadcrumbs } from "@/lib/nav";
 import { buildRequirementMap, uncoveredRequirements } from "@/lib/report";
 
 /** Что зафиксировано в версии рубрики. Сырой JSON пользователю не показываем. */
@@ -37,7 +38,7 @@ function RubricInner() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
   const vacancyId = params.id;
-  const fromRecruiter = searchParams.get("from") === "recruiter";
+  const fromRecruiter = isRecruiterViewMode(searchParams.get("from"));
   const { landing, loading } = useProtectedLanding();
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [versions, setVersions] = useState<RubricVersion[]>([]);
@@ -80,7 +81,7 @@ function RubricInner() {
   }, [landing, vacancyId]);
 
   const coverage = vacancy ? buildRequirementMap(vacancy, vacancy.questions, []) : [];
-  const gaps = uncoveredRequirements(coverage);
+  const mandatoryGaps = uncoveredRequirements(coverage).filter((row) => row.mandatory);
   const canEditSkills = landing?.available_areas.some((area) => area.id === "area.recruiter_workspace") ?? false;
 
   async function handleSaveSkills(event: FormEvent<HTMLFormElement>) {
@@ -118,8 +119,8 @@ function RubricInner() {
         {vacancy ? (
           <>
             <PageHeader
-              path={`Вакансии / ${vacancy.title}`}
-              title="Требования"
+              breadcrumbs={vacancyBreadcrumbs(vacancyId, vacancy.title, "Критерии и требования")}
+              title="Критерии и требования"
               description={
                 canEditSkills
                   ? "Список навыков сохраняется в вакансии, как в настройках. Вопросы и утверждение версии — у эксперта."
@@ -128,7 +129,8 @@ function RubricInner() {
                     : "Требование закрывается вопросом комплекта. Где вопроса нет, в отчёте будет пробел."
               }
             />
-            {fromRecruiter ? null : <CalibrationSubnav vacancyId={vacancyId} />}
+            <CalibrationSubnav vacancyId={vacancyId} />
+            {fromRecruiter ? <ViewModeBanner /> : null}
             <section className="plain-section" style={{ marginTop: 20 }}>
               <h2>Состав требований</h2>
               {canEditSkills ? (
@@ -164,10 +166,11 @@ function RubricInner() {
                 </p>
               )}
             </section>
-            {gaps.length > 0 ? (
+            {mandatoryGaps.length > 0 ? (
               <p className="report-gap">
-                Ни один вопрос комплекта не закрывает: {gaps.map((row) => row.skill).join(", ")}. Пока
-                это так, в отчёте по такому требованию будет стоять «вопрос не задавался».
+                Ни один вопрос комплекта не закрывает обязательные требования:{" "}
+                {mandatoryGaps.map((row) => row.skill).join(", ")}. Пока это так, в отчёте по ним
+                будет стоять «вопрос не задавался».
               </p>
             ) : null}
 
@@ -191,7 +194,7 @@ function RubricInner() {
                       <span className="muted-copy">
                         {row.mandatory ? "Обязательное" : "Желательное"}
                         {row.questions.length > 0
-                          ? ` · закрывает вопрос ${row.questions.map((question) => question.order).join(", ")}`
+                          ? ` · требование: вопрос ${row.questions.map((question) => question.order).join(", ")}`
                           : " · вопроса нет"}
                       </span>
                     </span>
