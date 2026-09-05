@@ -14,7 +14,7 @@ import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import type { Vacancy } from "@/lib/api";
 import { loadVacancies } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, OWNER_LABEL, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { buildNav, vacancyNextStep, VACANCY_STATUS_LABEL } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
@@ -25,11 +25,6 @@ function statusTone(status: Vacancy["status"]): StatusTone {
     return "warning";
   }
   return "neutral";
-}
-
-function ownerLabel(vacancy: Vacancy): string {
-  const owner = vacancy.owner_next ?? (vacancy.status === "calibration" || vacancy.status === "pending_review" ? "expert" : "recruiter");
-  return OWNER_LABEL[owner];
 }
 
 export default function VacanciesPage() {
@@ -183,7 +178,7 @@ export default function VacanciesPage() {
                         {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
                       </StatusPill>
                     </td>
-                    <td>{ownerLabel(vacancy)}</td>
+                    <td>{vacancyNextStep(vacancy)}</td>
                     <td>{vacancy.candidate_count ?? "—"}</td>
                   </tr>
                 ))}

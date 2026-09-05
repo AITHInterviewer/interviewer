@@ -103,6 +103,8 @@ describe("VacanciesPage", () => {
     const row = (await screen.findByText(/backend developer/i)).closest("tr");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText(/на калибровке/i)).toBeInTheDocument();
+    expect(within(row as HTMLElement).getByText("Эксперт проверяет комплект")).toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText(/^Эксперт$/)).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /новая вакансия/i })).not.toBeInTheDocument();
   });
 });

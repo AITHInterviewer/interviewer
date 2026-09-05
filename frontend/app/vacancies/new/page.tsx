@@ -8,7 +8,7 @@ import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
-import type { VacancyDetail } from "@/lib/api";
+import type { Vacancy, VacancyDetail } from "@/lib/api";
 import { createManagedVacancy, generateVacancyQuestions, sendManagedVacancyToExpert } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
@@ -34,6 +34,7 @@ export default function NewVacancyPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<VacancyDetail | null>(null);
+  const [createdVacancy, setCreatedVacancy] = useState<Vacancy | null>(null);
   const [sending, setSending] = useState(false);
   const [sentStatus, setSentStatus] = useState<string | null>(null);
 
@@ -45,23 +46,55 @@ export default function NewVacancyPage() {
     );
   }
 
+  async function assembleQuestions(vacancyId: string) {
+    const generated = await generateVacancyQuestions(vacancyId);
+    setPreview(generated);
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError(null);
 
+    let vacancyId = createdVacancy?.id ?? null;
     try {
-      const vacancy = await createManagedVacancy({
-        title,
-        description,
-        grade,
-        requiredSkills: splitSkills(requiredSkills),
-        niceToHaveSkills: splitSkills(niceToHaveSkills),
-      });
-      const generated = await generateVacancyQuestions(vacancy.id);
-      setPreview(generated);
+      if (!vacancyId) {
+        const vacancy = await createManagedVacancy({
+          title,
+          description,
+          grade,
+          requiredSkills: splitSkills(requiredSkills),
+          niceToHaveSkills: splitSkills(niceToHaveSkills),
+        });
+        vacancyId = vacancy.id;
+        setCreatedVacancy(vacancy);
+      }
+      await assembleQuestions(vacancyId);
     } catch (caughtError) {
-      setError(normalizeError(caughtError, "Не удалось создать вакансию или собрать вопросы."));
+      if (vacancyId) {
+        setError(
+          "Вакансия создана, вопросы не собрались. Повторите сборку — новую вакансию создавать не нужно.",
+        );
+      } else {
+        setError(normalizeError(caughtError, "Не удалось создать вакансию или собрать вопросы."));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleRetryGenerate() {
+    if (!createdVacancy) {
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await assembleQuestions(createdVacancy.id);
+    } catch {
+      setError(
+        "Вакансия создана, вопросы не собрались. Повторите сборку — новую вакансию создавать не нужно.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -124,14 +157,27 @@ export default function NewVacancyPage() {
                 placeholder="docker, kubernetes"
               />
             </label>
+            {createdVacancy ? <p>Вакансия сохранена: {createdVacancy.title}</p> : null}
             {error ? <p className="form-error">{error}</p> : null}
             <div className="form-actions">
-              <button className="button button--primary" type="submit" disabled={submitting}>
-                {submitting ? "Собираем вопросы…" : "Создать и собрать вопросы"}
-              </button>
+              {createdVacancy ? (
+                <button
+                  className="button button--primary"
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => void handleRetryGenerate()}
+                >
+                  {submitting ? "Собираем вопросы…" : "Собрать вопросы снова"}
+                </button>
+              ) : (
+                <button className="button button--primary" type="submit" disabled={submitting}>
+                  {submitting ? "Собираем вопросы…" : "Создать и собрать вопросы"}
+                </button>
+              )}
             </div>
             <p className="disabled-hint">
-              Дальше по порядку: создаём вакансию, собираем вопросы, отправляем эксперту.
+              Создадим вакансию и соберём вопросы. Затем вы сможете отправить комплект эксперту на
+              калибровку. Письмо эксперту не отправляется.
             </p>
           </form>
         ) : (
