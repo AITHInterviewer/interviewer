@@ -2,12 +2,13 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, Uuid
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
 
 if TYPE_CHECKING:
+    from app.models.interview_link import InterviewLink
     from app.models.vacancy_question import VacancyQuestion
     from app.models.vacancy_review_decision import VacancyReviewDecision
 
@@ -28,6 +29,7 @@ class Vacancy(Base):
     nice_to_have_skills: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False, index=True)
     status_before_archive: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    interview_time_limit_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by_recruiter_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("internal_users.id"), nullable=False, index=True
     )
@@ -58,4 +60,9 @@ class Vacancy(Base):
         back_populates="vacancy",
         cascade="all, delete-orphan",
         order_by="VacancyReviewDecision.created_at.asc()",
+    )
+    interview_links: Mapped[list["InterviewLink"]] = relationship(
+        back_populates="vacancy",
+        cascade="all, delete-orphan",
+        order_by="InterviewLink.created_at.desc()",
     )

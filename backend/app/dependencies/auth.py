@@ -6,10 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db_session
 from app.models.user import InternalUser
+from app.repositories.interview_link_repository import InterviewLinkRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.vacancy_repository import VacancyRepository
 from app.roles.catalog import AREA_EXPERT_QUESTIONS, AREA_RECRUITER_WORKSPACE
 from app.services.auth_service import AuthenticationError, AuthService
+from app.services.interview_link_service import InterviewLinkService
 from app.services.role_service import RoleService
 from app.services.vacancy_service import VacancyReviewService, VacancyService
 
@@ -51,6 +53,19 @@ def get_vacancy_review_service(
     vacancy_service: Annotated[VacancyService, Depends(get_vacancy_service)],
 ) -> VacancyReviewService:
     return VacancyReviewService(vacancy_repository, vacancy_service)
+
+
+def get_interview_link_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> InterviewLinkRepository:
+    return InterviewLinkRepository(session)
+
+
+def get_interview_link_service(
+    link_repository: Annotated[InterviewLinkRepository, Depends(get_interview_link_repository)],
+    vacancy_repository: Annotated[VacancyRepository, Depends(get_vacancy_repository)],
+) -> InterviewLinkService:
+    return InterviewLinkService(link_repository, vacancy_repository)
 
 
 async def get_current_user(

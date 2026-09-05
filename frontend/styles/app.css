@@ -470,3 +470,36 @@ input::placeholder, textarea::placeholder { color: var(--ink-tertiary); }
 @media (max-width: 720px) {
   .vacancy-form-grid { grid-template-columns: 1fr; }
 }
+
+/* Candidate interview links (feature 009) */
+.link-dialog { width: min(560px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-panel); background: var(--surface-raised); color: var(--ink); }
+.link-dialog::backdrop { background: rgb(0 0 0 / .45); }
+.link-dialog__panel { padding: 18px; }
+.link-dialog__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+.link-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.link-list__row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
+.link-list__info { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.link-list__meta { color: var(--ink-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Public candidate interview page (feature 009) */
+.interview-page { display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 24px; background: var(--canvas); }
+.interview-card { width: min(520px, 100%); padding: 28px; display: grid; gap: 14px; }
+.interview-card__eyebrow { margin: 0; color: var(--ink-tertiary); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+.interview-card h1 { margin: 0; font-size: 24px; line-height: 1.2; }
+.interview-card__hint { margin: 0; color: var(--ink-secondary); font-size: 13px; line-height: 1.5; }
+.interview-facts { display: grid; gap: 10px; margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-muted); }
+.interview-facts div { display: flex; justify-content: space-between; gap: 12px; }
+.interview-facts dt { color: var(--ink-secondary); font-size: 13px; }
+.interview-facts dd { margin: 0; font-size: 13px; font-weight: 600; text-align: right; }
+.interview-countdown { margin: 0; font-family: var(--font-mono); font-size: 48px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+.interview-start { width: 100%; }
+
+@media (max-width: 560px) {
+  .interview-card { padding: 20px; }
+  .interview-countdown { font-size: 36px; }
+}
+.link-list__row { flex-wrap: wrap; }
+.link-list__actions { display: flex; gap: 4px; }
+.link-list__confirm { display: flex; align-items: center; gap: 8px; width: 100%; padding-top: 8px; border-top: 1px solid var(--border); font-size: 12px; color: var(--ink-secondary); }
+.link-list__confirm input { min-height: 34px; }

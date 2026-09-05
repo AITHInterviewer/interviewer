@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import models as _models  # noqa: F401
 from app.config import settings
 from app.db import Base, engine
-from app.routers import auth, expert_vacancies, health, questions, roles, vacancies
+from app.routers import auth, expert_vacancies, health, interview_links, questions, roles, vacancies
 from app.services.role_service import RoleService
 
 
@@ -38,3 +38,4 @@ app.include_router(roles.router)
 app.include_router(questions.router)
 app.include_router(vacancies.router)
 app.include_router(expert_vacancies.router)
+app.include_router(interview_links.router)

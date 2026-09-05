@@ -21,6 +21,7 @@ import {
 import { getSession, loadLanding } from "@/lib/auth";
 import { hasViewerPermission, skillsFromText } from "@/lib/vacancies";
 
+import { CandidateLinkSection } from "./candidate-link-section";
 import { createVacancyDraft, VacancyFormSections, type VacancyDraft } from "./vacancy-form-sections";
 import { type QuestionDraft, VacancyQuestionList } from "./vacancy-question-list";
 import { ReviewStatePanel } from "./review-state-panel";
@@ -28,6 +29,18 @@ import { ReviewStatePanel } from "./review-state-panel";
 type VacancyWorkspaceProps = {
   vacancyId: string;
 };
+
+function parseTimeLimit(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
 
 async function loadVacancy(vacancyId: string): Promise<{ vacancy: VacancyDetail; mode: "recruiter" | "expert" }> {
   const session = getSession();
@@ -200,6 +213,7 @@ export function VacancyWorkspace({ vacancyId }: VacancyWorkspaceProps) {
       ideal_candidate_profile: draftRef.current.ideal_candidate_profile,
       required_skills: skillsFromText(draftRef.current.required_skills),
       nice_to_have_skills: skillsFromText(draftRef.current.nice_to_have_skills),
+      interview_time_limit_minutes: parseTimeLimit(draftRef.current.interview_time_limit_minutes),
     });
     applyVacancy(next, "recruiter", { preserveQuestionDrafts: true });
     return next;
@@ -356,6 +370,7 @@ export function VacancyWorkspace({ vacancyId }: VacancyWorkspaceProps) {
             newQuestionText={newQuestionText}
             onNewQuestionTextChange={setNewQuestionText}
           />
+          {session ? <CandidateLinkSection vacancy={vacancy} token={session.token} /> : null}
         </div>
 
         <ReviewStatePanel

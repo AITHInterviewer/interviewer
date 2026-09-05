@@ -83,6 +83,7 @@ class VacancyService:
             ideal_candidate_profile=payload.ideal_candidate_profile,
             required_skills=self._normalize_strings(payload.required_skills),
             nice_to_have_skills=self._normalize_strings(payload.nice_to_have_skills),
+            interview_time_limit_minutes=payload.interview_time_limit_minutes,
             status=DRAFT_STATUS,
             created_by_recruiter_id=managing_recruiter_id,
             created_by_user_id=actor.id,
@@ -115,6 +116,8 @@ class VacancyService:
         ideal_candidate_profile: str | None = None,
         required_skills: list[str] | None = None,
         nice_to_have_skills: list[str] | None = None,
+        interview_time_limit_minutes: int | None = None,
+        interview_time_limit_provided: bool = False,
         expected_updated_at: datetime,
     ) -> VacancyDetailResponse:
         vacancy = await self._get_vacancy_or_raise(vacancy_id)
@@ -143,6 +146,12 @@ class VacancyService:
             if vacancy.nice_to_have_skills != normalized:
                 vacancy.nice_to_have_skills = normalized
                 significant_changed = True
+
+        if interview_time_limit_provided and (
+            vacancy.interview_time_limit_minutes != interview_time_limit_minutes
+        ):
+            vacancy.interview_time_limit_minutes = interview_time_limit_minutes
+            significant_changed = True
 
         self.apply_recruiter_mutation_side_effects(
             vacancy, significant_changed=significant_changed
@@ -368,6 +377,7 @@ class VacancyService:
             grade=vacancy.grade,
             status=vacancy.status,
             question_count=len(vacancy.questions),
+            interview_time_limit_minutes=vacancy.interview_time_limit_minutes,
             updated_at=vacancy.updated_at,
             submitted_at=vacancy.submitted_at,
             approved_at=vacancy.approved_at,
@@ -424,6 +434,7 @@ class VacancyService:
             created_by_recruiter_id=str(vacancy.created_by_recruiter_id),
             created_by_user_id=str(vacancy.created_by_user_id),
             managing_recruiter_id=str(vacancy.managing_recruiter_id),
+            interview_time_limit_minutes=vacancy.interview_time_limit_minutes,
             created_at=vacancy.created_at,
             updated_at=vacancy.updated_at,
             questions=questions,
@@ -434,18 +445,22 @@ class VacancyService:
     def viewer_permissions(self, vacancy: Vacancy, *, viewer: str) -> list[str]:
         permissions: list[str] = ["vacancy.review_history.view"]
         if viewer == "recruiter":
+            permissions.append("vacancy.links.view")
             if vacancy.status == ARCHIVED_STATUS:
                 permissions.append("vacancy.restore")
-                return permissions
+                return list(dict.fromkeys(permissions))
+            permissions.append("vacancy.links.manage")
             permissions.extend(RECRUITER_EDIT_PERMISSIONS[:2])
             if vacancy.status in {DRAFT_STATUS, CHANGES_REQUESTED_STATUS}:
                 permissions.append("vacancy.submit")
             permissions.append("vacancy.archive")
             return list(dict.fromkeys(permissions))
 
-        if viewer == "expert" and vacancy.status == REVIEWABLE_STATUS:
-            permissions.extend(EXPERT_REVIEW_PERMISSIONS[:1])
-            permissions.extend(["vacancy.approve", "vacancy.request_changes"])
+        if viewer == "expert":
+            permissions.append("vacancy.links.view")
+            if vacancy.status == REVIEWABLE_STATUS:
+                permissions.extend(EXPERT_REVIEW_PERMISSIONS[:1])
+                permissions.extend(["vacancy.approve", "vacancy.request_changes"])
         return list(dict.fromkeys(permissions))
 
 

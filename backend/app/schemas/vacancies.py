@@ -15,6 +15,8 @@ ViewerPermission = Literal[
     "vacancy.archive",
     "vacancy.restore",
     "vacancy.review_history.view",
+    "vacancy.links.view",
+    "vacancy.links.manage",
 ]
 
 
@@ -29,6 +31,7 @@ class VacancyCreateRequest(BaseModel):
     ideal_candidate_profile: str | None = None
     required_skills: list[str] = Field(default_factory=list)
     nice_to_have_skills: list[str] = Field(default_factory=list)
+    interview_time_limit_minutes: int | None = Field(default=None, ge=5, le=240)
 
 
 class VacancyUpdateRequest(ExpectedUpdateRequest):
@@ -38,6 +41,7 @@ class VacancyUpdateRequest(ExpectedUpdateRequest):
     ideal_candidate_profile: str | None = None
     required_skills: list[str] | None = None
     nice_to_have_skills: list[str] | None = None
+    interview_time_limit_minutes: int | None = Field(default=None, ge=5, le=240)
 
 
 class QuestionPayloadBase(BaseModel):
@@ -102,6 +106,7 @@ class VacancySummaryResponse(BaseModel):
     grade: VacancyGrade | None = None
     status: VacancyStatus
     question_count: int
+    interview_time_limit_minutes: int | None = None
     updated_at: datetime
     submitted_at: datetime | None = None
     approved_at: datetime | None = None
@@ -120,6 +125,7 @@ class VacancyDetailResponse(BaseModel):
     created_by_recruiter_id: str
     created_by_user_id: str
     managing_recruiter_id: str
+    interview_time_limit_minutes: int | None = None
     created_at: datetime
     updated_at: datetime
     questions: list[VacancyQuestionResponse]

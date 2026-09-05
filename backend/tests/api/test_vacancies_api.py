@@ -247,3 +247,53 @@ async def test_stale_write_conflict_returns_409(client) -> None:
     )
 
     assert second.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_recruiter_can_set_and_clear_interview_time_limit(client) -> None:
+    token = await register_recruiter(client)
+    vacancy = await create_vacancy(client, token)
+
+    updated = await client.patch(
+        f"/api/v1/vacancies/{vacancy['id']}",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"expected_updated_at": vacancy["updated_at"], "interview_time_limit_minutes": 30},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["interview_time_limit_minutes"] == 30
+
+    cleared = await client.patch(
+        f"/api/v1/vacancies/{vacancy['id']}",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "expected_updated_at": updated.json()["updated_at"],
+            "interview_time_limit_minutes": None,
+        },
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["interview_time_limit_minutes"] is None
+
+
+@pytest.mark.anyio
+async def test_interview_time_limit_range_is_validated(client) -> None:
+    token = await register_recruiter(client)
+    vacancy = await create_vacancy(client, token)
+
+    for invalid in (3, 500):
+        response = await client.patch(
+            f"/api/v1/vacancies/{vacancy['id']}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "expected_updated_at": vacancy["updated_at"],
+                "interview_time_limit_minutes": invalid,
+            },
+        )
+        assert response.status_code == 422
+
+    created = await client.post(
+        "/api/v1/vacancies",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"title": "With limit", "interview_time_limit_minutes": 45},
+    )
+    assert created.status_code == 201
+    assert created.json()["interview_time_limit_minutes"] == 45

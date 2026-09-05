@@ -58,7 +58,9 @@ export type ViewerPermission =
   | "vacancy.request_changes"
   | "vacancy.archive"
   | "vacancy.restore"
-  | "vacancy.review_history.view";
+  | "vacancy.review_history.view"
+  | "vacancy.links.view"
+  | "vacancy.links.manage";
 
 export type VacancyQuestion = {
   id: string;
@@ -94,6 +96,7 @@ export type VacancySummary = {
   grade?: VacancyGrade | null;
   status: VacancyStatus;
   question_count: number;
+  interview_time_limit_minutes?: number | null;
   updated_at: string;
   submitted_at?: string | null;
   approved_at?: string | null;
@@ -112,6 +115,7 @@ export type VacancyDetail = {
   created_by_recruiter_id: string;
   created_by_user_id: string;
   managing_recruiter_id: string;
+  interview_time_limit_minutes?: number | null;
   created_at: string;
   updated_at: string;
   questions: VacancyQuestion[];
@@ -217,6 +221,7 @@ export function createRecruiterVacancy(
     ideal_candidate_profile?: string | null;
     required_skills?: string[];
     nice_to_have_skills?: string[];
+    interview_time_limit_minutes?: number | null;
   },
 ) {
   return request<VacancyDetail>("/api/v1/vacancies", { method: "POST", token, body });
@@ -237,6 +242,7 @@ export function updateRecruiterVacancy(
     ideal_candidate_profile?: string | null;
     required_skills?: string[];
     nice_to_have_skills?: string[];
+    interview_time_limit_minutes?: number | null;
   },
 ) {
   return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}`, { method: "PATCH", token, body });
@@ -380,6 +386,95 @@ export function requestExpertVacancyChanges(
   body: { expected_updated_at: string; comment?: string },
 ) {
   return request<VacancyDetail>(`/api/v1/expert/vacancies/${vacancyId}/request-changes`, {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
+export type InterviewLinkStatus =
+  | "active"
+  | "in_progress"
+  | "completed"
+  | "expired"
+  | "revoked"
+  | "blocked";
+
+export type InterviewLinkItem = {
+  id: string;
+  token: string;
+  candidate_first_name: string;
+  candidate_last_name: string;
+  candidate_social: string;
+  candidate_email?: string | null;
+  expires_at: string;
+  status: InterviewLinkStatus;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+};
+
+export type InterviewLinkListResponse = {
+  items: InterviewLinkItem[];
+};
+
+export type InterviewUnavailableReason = "expired" | "revoked" | "vacancy_closed";
+
+export type InterviewCard = {
+  state: "available" | "in_progress" | "completed" | "unavailable";
+  reason?: InterviewUnavailableReason | null;
+  vacancy_title: string;
+  candidate_first_name: string;
+  candidate_last_name?: string | null;
+  expires_at?: string | null;
+  deadline_at?: string | null;
+  interview_time_limit_minutes?: number | null;
+};
+
+export function listVacancyLinks(token: string, vacancyId: string) {
+  return request<InterviewLinkListResponse>(`/api/v1/vacancies/${vacancyId}/links`, { token });
+}
+
+export function createVacancyLink(
+  token: string,
+  vacancyId: string,
+  body: {
+    candidate_first_name: string;
+    candidate_last_name: string;
+    candidate_social: string;
+    candidate_email?: string | null;
+    expires_at: string;
+  },
+) {
+  return request<InterviewLinkItem>(`/api/v1/vacancies/${vacancyId}/links`, {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
+export function getInterviewCard(linkToken: string) {
+  return request<InterviewCard>(`/api/v1/interview-links/${linkToken}`);
+}
+
+export function startInterview(linkToken: string) {
+  return request<InterviewCard>(`/api/v1/interview-links/${linkToken}/start`, { method: "POST" });
+}
+
+export function revokeVacancyLink(token: string, vacancyId: string, linkId: string) {
+  return request<InterviewLinkItem>(`/api/v1/vacancies/${vacancyId}/links/${linkId}/revoke`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function extendVacancyLink(
+  token: string,
+  vacancyId: string,
+  linkId: string,
+  body: { expires_at: string },
+) {
+  return request<InterviewLinkItem>(`/api/v1/vacancies/${vacancyId}/links/${linkId}/extend`, {
     method: "POST",
     token,
     body,

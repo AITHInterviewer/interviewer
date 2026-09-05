@@ -102,6 +102,7 @@ async def create_vacancy(
     ideal_candidate_profile: str | None = "Pragmatic and clear communicator.",
     required_skills: list[str] | None = None,
     nice_to_have_skills: list[str] | None = None,
+    interview_time_limit_minutes: int | None = None,
 ) -> dict:
     response = await client.post(
         "/api/v1/vacancies",
@@ -113,6 +114,7 @@ async def create_vacancy(
             "ideal_candidate_profile": ideal_candidate_profile,
             "required_skills": required_skills or ["Python"],
             "nice_to_have_skills": nice_to_have_skills or ["Docker"],
+            "interview_time_limit_minutes": interview_time_limit_minutes,
         },
     )
     assert response.status_code == 201

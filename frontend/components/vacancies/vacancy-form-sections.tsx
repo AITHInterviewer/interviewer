@@ -10,6 +10,7 @@ export type VacancyDraft = {
   ideal_candidate_profile: string;
   required_skills: string;
   nice_to_have_skills: string;
+  interview_time_limit_minutes: string;
 };
 
 type VacancyFormSectionsProps = {
@@ -27,6 +28,10 @@ export function createVacancyDraft(vacancy: VacancyDetail): VacancyDraft {
     ideal_candidate_profile: vacancy.ideal_candidate_profile ?? "",
     required_skills: skillsToText(vacancy.required_skills),
     nice_to_have_skills: skillsToText(vacancy.nice_to_have_skills),
+    interview_time_limit_minutes:
+      vacancy.interview_time_limit_minutes === null || vacancy.interview_time_limit_minutes === undefined
+        ? "45"
+        : String(vacancy.interview_time_limit_minutes),
   };
 }
 
@@ -95,6 +100,19 @@ export function VacancyFormSections({ vacancy, draft, readOnly, onChange }: Vaca
               onChange={(event) => patch("required_skills", event.target.value)}
               placeholder="Python, FastAPI"
             />
+          </label>
+          <label>
+            Interview time limit (minutes)
+            <input
+              type="number"
+              min={5}
+              max={240}
+              value={draft.interview_time_limit_minutes}
+              readOnly={readOnly}
+              onChange={(event) => patch("interview_time_limit_minutes", event.target.value)}
+              placeholder="45"
+            />
+            <span className="field-hint">How long a candidate has to pass the interview once started. 5–240 minutes; empty means not set.</span>
           </label>
           <label>
             Nice-to-have skills

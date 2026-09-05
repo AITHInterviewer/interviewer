@@ -86,6 +86,8 @@ async def update_vacancy(
             ideal_candidate_profile=payload.ideal_candidate_profile,
             required_skills=payload.required_skills,
             nice_to_have_skills=payload.nice_to_have_skills,
+            interview_time_limit_minutes=payload.interview_time_limit_minutes,
+            interview_time_limit_provided="interview_time_limit_minutes" in payload.model_fields_set,
             expected_updated_at=payload.expected_updated_at,
         )
     except Exception as exc:
