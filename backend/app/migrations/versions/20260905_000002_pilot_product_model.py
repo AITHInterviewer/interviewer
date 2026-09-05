@@ -17,6 +17,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20260905_000002"
@@ -101,92 +102,125 @@ def _upgrade_sqlite_vacancy_status() -> None:
         )
 
 
+def _pg_enum_has_label(type_name: str, label: str) -> bool:
+    result = op.get_bind().execute(
+        sa.text(
+            "SELECT 1 FROM pg_enum e "
+            "JOIN pg_type t ON e.enumtypid = t.oid "
+            "WHERE t.typname = :type_name AND e.enumlabel = :label"
+        ),
+        {"type_name": type_name, "label": label},
+    )
+    return result.first() is not None
+
+
 def upgrade() -> None:
+    # create_all on an earlier deploy can leave pilot tables behind while
+    # alembic_version is still 20260905_000001 — skip objects that exist.
     bind = op.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    interview_cols = {c["name"] for c in insp.get_columns("interview")} if "interview" in tables else set()
+    interview_fks = {
+        fk.get("name") for fk in insp.get_foreign_keys("interview") if fk.get("name")
+    } if "interview" in tables else set()
+
     if bind.dialect.name == "postgresql":
-        _upgrade_postgres_vacancy_status()
+        if not _pg_enum_has_label("vacancy_status", "calibration"):
+            _upgrade_postgres_vacancy_status()
     else:
         _upgrade_sqlite_vacancy_status()
 
-    op.create_table(
-        "rubric_version",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("vacancy_id", sa.Uuid(), nullable=False),
-        sa.Column("version_number", sa.Integer(), nullable=False),
-        sa.Column("approved_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("approved_by_id", sa.Uuid(), nullable=True),
-        sa.Column("snapshot", _json_type(), nullable=False),
-        sa.ForeignKeyConstraint(["vacancy_id"], ["vacancy.id"]),
-        sa.ForeignKeyConstraint(["approved_by_id"], ["internal_users.id"]),
-        sa.PrimaryKeyConstraint("id"),
-    )
+    if "rubric_version" not in tables:
+        op.create_table(
+            "rubric_version",
+            sa.Column("id", sa.Uuid(), nullable=False),
+            sa.Column("vacancy_id", sa.Uuid(), nullable=False),
+            sa.Column("version_number", sa.Integer(), nullable=False),
+            sa.Column("approved_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column("approved_by_id", sa.Uuid(), nullable=True),
+            sa.Column("snapshot", _json_type(), nullable=False),
+            sa.ForeignKeyConstraint(["vacancy_id"], ["vacancy.id"]),
+            sa.ForeignKeyConstraint(["approved_by_id"], ["internal_users.id"]),
+            sa.PrimaryKeyConstraint("id"),
+        )
 
-    op.add_column(
-        "interview",
-        sa.Column("product_state", sa.Text(), server_default="invited", nullable=False),
-    )
-    op.add_column("interview", sa.Column("consented_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column("interview", sa.Column("rubric_version_id", sa.Uuid(), nullable=True))
-    op.add_column(
-        "interview",
-        sa.Column("report_status", sa.Text(), server_default="processing", nullable=False),
-    )
-    op.add_column("interview", sa.Column("report_json", _json_type(), nullable=True))
-    op.add_column(
-        "interview",
-        sa.Column("recruiter_decision", sa.Text(), server_default="awaiting", nullable=False),
-    )
-    op.create_foreign_key(
-        "interview_rubric_version_id_fkey",
-        "interview",
-        "rubric_version",
-        ["rubric_version_id"],
-        ["id"],
-    )
+    if "product_state" not in interview_cols:
+        op.add_column(
+            "interview",
+            sa.Column("product_state", sa.Text(), server_default="invited", nullable=False),
+        )
+    if "consented_at" not in interview_cols:
+        op.add_column("interview", sa.Column("consented_at", sa.DateTime(timezone=True), nullable=True))
+    if "rubric_version_id" not in interview_cols:
+        op.add_column("interview", sa.Column("rubric_version_id", sa.Uuid(), nullable=True))
+    if "report_status" not in interview_cols:
+        op.add_column(
+            "interview",
+            sa.Column("report_status", sa.Text(), server_default="processing", nullable=False),
+        )
+    if "report_json" not in interview_cols:
+        op.add_column("interview", sa.Column("report_json", _json_type(), nullable=True))
+    if "recruiter_decision" not in interview_cols:
+        op.add_column(
+            "interview",
+            sa.Column("recruiter_decision", sa.Text(), server_default="awaiting", nullable=False),
+        )
+    if "interview_rubric_version_id_fkey" not in interview_fks:
+        op.create_foreign_key(
+            "interview_rubric_version_id_fkey",
+            "interview",
+            "rubric_version",
+            ["rubric_version_id"],
+            ["id"],
+        )
 
-    op.create_table(
-        "clarification_request",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("interview_id", sa.Uuid(), nullable=False),
-        sa.Column("type", sa.Text(), nullable=False),
-        sa.Column("status", sa.Text(), nullable=False),
-        sa.Column("created_by_id", sa.Uuid(), nullable=False),
-        sa.Column("close_reason", sa.Text(), nullable=True),
-        sa.Column("extra_token", sa.Text(), nullable=True),
-        sa.ForeignKeyConstraint(["interview_id"], ["interview.id"]),
-        sa.ForeignKeyConstraint(["created_by_id"], ["internal_users.id"]),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("extra_token"),
-    )
+    if "clarification_request" not in tables:
+        op.create_table(
+            "clarification_request",
+            sa.Column("id", sa.Uuid(), nullable=False),
+            sa.Column("interview_id", sa.Uuid(), nullable=False),
+            sa.Column("type", sa.Text(), nullable=False),
+            sa.Column("status", sa.Text(), nullable=False),
+            sa.Column("created_by_id", sa.Uuid(), nullable=False),
+            sa.Column("close_reason", sa.Text(), nullable=True),
+            sa.Column("extra_token", sa.Text(), nullable=True),
+            sa.ForeignKeyConstraint(["interview_id"], ["interview.id"]),
+            sa.ForeignKeyConstraint(["created_by_id"], ["internal_users.id"]),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("extra_token"),
+        )
 
-    op.create_table(
-        "handoff",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("interview_id", sa.Uuid(), nullable=False),
-        sa.Column("from_recruiter_id", sa.Uuid(), nullable=False),
-        sa.Column("to_manager_id", sa.Uuid(), nullable=False),
-        sa.Column("summary", sa.Text(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(["interview_id"], ["interview.id"]),
-        sa.ForeignKeyConstraint(["from_recruiter_id"], ["internal_users.id"]),
-        sa.ForeignKeyConstraint(["to_manager_id"], ["internal_users.id"]),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("interview_id"),
-    )
+    if "handoff" not in tables:
+        op.create_table(
+            "handoff",
+            sa.Column("id", sa.Uuid(), nullable=False),
+            sa.Column("interview_id", sa.Uuid(), nullable=False),
+            sa.Column("from_recruiter_id", sa.Uuid(), nullable=False),
+            sa.Column("to_manager_id", sa.Uuid(), nullable=False),
+            sa.Column("summary", sa.Text(), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.ForeignKeyConstraint(["interview_id"], ["interview.id"]),
+            sa.ForeignKeyConstraint(["from_recruiter_id"], ["internal_users.id"]),
+            sa.ForeignKeyConstraint(["to_manager_id"], ["internal_users.id"]),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("interview_id"),
+        )
 
-    op.create_table(
-        "manager_opinion_grant",
-        sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("interview_id", sa.Uuid(), nullable=False),
-        sa.Column("manager_id", sa.Uuid(), nullable=False),
-        sa.Column("granted_by_id", sa.Uuid(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(["interview_id"], ["interview.id"]),
-        sa.ForeignKeyConstraint(["manager_id"], ["internal_users.id"]),
-        sa.ForeignKeyConstraint(["granted_by_id"], ["internal_users.id"]),
-        sa.PrimaryKeyConstraint("id"),
-    )
+    if "manager_opinion_grant" not in tables:
+        op.create_table(
+            "manager_opinion_grant",
+            sa.Column("id", sa.Uuid(), nullable=False),
+            sa.Column("interview_id", sa.Uuid(), nullable=False),
+            sa.Column("manager_id", sa.Uuid(), nullable=False),
+            sa.Column("granted_by_id", sa.Uuid(), nullable=False),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
+            sa.ForeignKeyConstraint(["interview_id"], ["interview.id"]),
+            sa.ForeignKeyConstraint(["manager_id"], ["internal_users.id"]),
+            sa.ForeignKeyConstraint(["granted_by_id"], ["internal_users.id"]),
+            sa.PrimaryKeyConstraint("id"),
+        )
 
 
 def _downgrade_postgres_vacancy_status() -> None:
