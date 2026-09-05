@@ -10,6 +10,11 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: stt logs (full, no tail limit)
+      - name: live-agent logs (full)
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
+
+      - name: stt logs (tail)
+        if: always()
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 80
