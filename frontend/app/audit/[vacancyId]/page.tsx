@@ -15,6 +15,21 @@ import { buildNav } from "@/lib/nav";
 
 const EXPERT_AREA = "area.expert_questions";
 
+function auditRowContext(item: ExpertQueueResponse["audits"][number]): string {
+  const requirement = item.requirement?.trim();
+  const reason = item.reason?.trim();
+  if (requirement && reason) {
+    return `Требование: ${requirement}. ${reason}`;
+  }
+  if (requirement) {
+    return `Требование: ${requirement}. Причина запроса в очереди не пришла — откройте карточку.`;
+  }
+  if (reason) {
+    return `${reason} Конкретное требование в очереди не указано — откройте карточку.`;
+  }
+  return "Требование и причина запроса в очереди не пришли. Откройте карточку: там отчёт целиком.";
+}
+
 export default function AuditVacancyPage() {
   const params = useParams<{ vacancyId: string }>();
   const { landing, loading } = useProtectedLanding({ requiredArea: EXPERT_AREA });
@@ -72,6 +87,7 @@ export default function AuditVacancyPage() {
                   <Link href={`/audit/${params.vacancyId}/${item.interview.id}`}>
                     {item.interview.candidate_name ?? "Кандидат без имени"}
                   </Link>
+                  <p>{auditRowContext(item)}</p>
                 </li>
               ))}
             </ul>

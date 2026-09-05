@@ -7,6 +7,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SkeletonTable } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { ManagerCandidate } from "@/lib/api";
 import { loadManagerCandidates } from "@/lib/auth";
@@ -15,12 +16,8 @@ import { buildNav } from "@/lib/nav";
 
 const HIRING_MANAGER_AREA = "area.hiring_manager_review";
 
-function accessLabel(access: ManagerCandidate["access"]): string {
-  return access === "handoff" ? "Передача" : "Мнение";
-}
-
-function actionLabel(item: ManagerCandidate): string {
-  return item.access === "handoff" ? "Нужна встреча" : "Нужно мнение";
+function accessTask(item: ManagerCandidate): string {
+  return item.access === "handoff" ? "Передан вам, нужна встреча" : "Спросили мнение";
 }
 
 function formatWhen(value?: string | null): string {
@@ -31,7 +28,7 @@ function formatWhen(value?: string | null): string {
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
-  return parsed.toLocaleString("ru-RU");
+  return parsed.toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 }
 
 export default function ManagerListPage() {
@@ -75,10 +72,10 @@ export default function ManagerListPage() {
   }
 
   return (
-    <AppShell nav={buildNav(landing)} title="К встречам">
+    <AppShell nav={buildNav(landing)} title="Встречи">
       <div className="workspace">
         <PageHeader path="Менеджер" title="Кандидаты к встрече" />
-        {pageLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем передачи…" /> : null}
+        {pageLoading ? <SkeletonTable rows={3} columns={5} label="Загружаю кандидатов" /> : null}
         {error ? <ScreenState kind="error" title="Нет списка" text={error} /> : null}
         {!pageLoading && !error ? (
           items.length > 0 ? (
@@ -89,7 +86,6 @@ export default function ManagerListPage() {
                   <th>Вакансия</th>
                   <th>Кто передал</th>
                   <th>Когда</th>
-                  <th>Доступ</th>
                   <th>Что сделать</th>
                   <th></th>
                 </tr>
@@ -101,8 +97,7 @@ export default function ManagerListPage() {
                     <td>{item.vacancy_title}</td>
                     <td>{item.from_recruiter_name ?? "—"}</td>
                     <td>{formatWhen(item.handed_off_at)}</td>
-                    <td>{accessLabel(item.access)}</td>
-                    <td>{actionLabel(item)}</td>
+                    <td>{accessTask(item)}</td>
                     <td>
                       <Button asChild variant="secondary">
                         <Link href={`/manager/${item.interview.id}`}>Открыть</Link>

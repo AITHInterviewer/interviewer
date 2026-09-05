@@ -6,8 +6,10 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import { VacancyContextNav } from "@/components/chrome/VacancyContextNav";
+import { Modal } from "@/components/ui/overlay";
 import { Button } from "@/components/ui/button";
+import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { Tag } from "@/components/ui/tag";
 import { CandidateCard } from "@/components/ui/candidate-card";
 import { ToastStack, type ToastItem } from "@/components/ui/toast";
 import type { AnonymizedStats, Interview, VacancyDetail } from "@/lib/api";
@@ -24,17 +26,26 @@ import {
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, VACANCY_STATUS_LABEL } from "@/lib/nav";
-import { groupInterviews, KANBAN_COLUMNS } from "@/lib/pipeline";
+import { groupInterviews, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
+
+/** Пустая колонка говорит, чего в ней ждать, а не молчит белым полем. */
+const COLUMN_EMPTY: Record<string, string> = {
+  invited: "Никого не пригласили",
+  live: "Сейчас никто не отвечает",
+  action: "Ничего не ждёт вашего вмешательства",
+  decide: "Готовых отчётов нет",
+  done: "Решений пока не было",
+};
 const HIRING_MANAGER_AREA = "area.hiring_manager_review";
 
-function statusTone(status: VacancyDetail["status"]): "positive" | "warning" | undefined {
-  if (status === "active" || status === "ready") return "positive";
+function statusTone(status: VacancyDetail["status"]): StatusTone {
+  if (status === "active" || status === "ready" || status === "approved") return "positive";
   if (status === "calibration" || status === "pending_review" || status === "changes_requested") {
     return "warning";
   }
-  return undefined;
+  return "neutral";
 }
 
 function inviteLink(accessToken: string): string {
@@ -63,6 +74,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const [interviewFormSubmitting, setInterviewFormSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
@@ -71,8 +83,8 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
 
   async function refreshVacancy() {
     try {
-      setVacancyError(null);
       const detail = await loadVacancy(vacancyId);
+      setVacancyError(null);
       setVacancy(detail);
     } catch (caughtError) {
       setVacancyError(normalizeError(caughtError, "Не удалось загрузить вакансию."));
@@ -83,8 +95,8 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
 
   async function refreshInterviews() {
     try {
-      setInterviewsError(null);
       const response = await loadInterviews(vacancyId);
+      setInterviewsError(null);
       setInterviews(response.items);
     } catch (caughtError) {
       setInterviewsError(normalizeError(caughtError, "Не удалось загрузить интервью."));
@@ -97,6 +109,9 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     if (!landing) {
       return;
     }
+    // Первичная загрузка данных экрана: состояние меняется уже после await,
+    // но правило видит вызов из тела эффекта. Каскадных перерисовок здесь нет.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshVacancy();
     if (showAnonymized) {
       loadAnonymizedStats(vacancyId)
@@ -150,7 +165,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   async function handleCreateInterview(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!resumeFile) {
-      setInterviewFormError("Нужен файл резюме.");
+      setInterviewFormError("Приложите резюме: без него эксперт не поймёт контекст ответов.");
       return;
     }
 
@@ -169,7 +184,8 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
       } catch {
         // Clipboard can fail; the toast still shows the path.
       }
-      pushToast("Ссылка готова. Отправьте её сами.");
+      pushToast("Ссылка готова и скопирована. Отправьте её кандидату сами.");
+      setInviteOpen(false);
       setCandidateName("");
       setResumeFile(null);
       await refreshInterviews();
@@ -214,12 +230,35 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
             <PageHeader
               path="Вакансии"
               title={vacancy.title}
-              description={vacancy.description}
+              description={
+                <>
+                  <p>{vacancy.description}</p>
+                  {vacancy.required_skills.length > 0 ? (
+                    <p className="table-tags">
+                      {vacancy.required_skills.map((skill) => (
+                        <Tag key={skill} label={skill} />
+                      ))}
+                    </p>
+                  ) : null}
+                </>
+              }
               actions={
                 <>
-                  <span className="status" data-tone={statusTone(vacancy.status)}>
+                  <StatusPill tone={statusTone(vacancy.status)}>
                     {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
-                  </span>
+                  </StatusPill>
+                  {canManage ? (
+                    <span>
+                      <Button type="button" disabled={!canInvite} onClick={() => setInviteOpen(true)}>
+                        Пригласить кандидата
+                      </Button>
+                      {!canInvite ? (
+                        <p className="disabled-hint">
+                          Пригласить можно после того, как эксперт одобрит версию и вакансия станет активной.
+                        </p>
+                      ) : null}
+                    </span>
+                  ) : null}
                   {showGenerate ? (
                     <Button
                       type="button"
@@ -227,7 +266,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                       disabled={actionBusy}
                       onClick={() => void handleGenerateQuestions()}
                     >
-                      {actionBusy ? "Generating..." : "Generate questions"}
+                      Собрать вопросы
                     </Button>
                   ) : null}
                   {showSend ? (
@@ -281,7 +320,6 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                 </>
               }
             />
-            <VacancyContextNav vacancyId={vacancy.id} includeSettings={canManage} />
             {actionError ? <p className="form-error">{actionError}</p> : null}
 
             {showAnonymized ? (
@@ -310,7 +348,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                     {interviews.length === 0 ? (
                       <ScreenState
                         kind="empty"
-                        title="No interviews yet"
+                        title="Кандидатов пока нет"
                         text="После активации вакансии здесь появится доска кандидатов."
                       />
                     ) : null}
@@ -324,15 +362,19 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                               <span>{items.length}</span>
                             </div>
                             <div className="candidate-stack">
-                              {items.map((interview) => (
-                                <CandidateCard
-                                  key={interview.id}
-                                  name={interview.candidate_name ?? "Без имени"}
-                                  stage={interview.product_state ?? interview.status}
-                                  href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
-                                  action="Открыть"
-                                />
-                              ))}
+                              {items.length === 0 ? (
+                                <p className="kanban-column__empty">{COLUMN_EMPTY[column.id]}</p>
+                              ) : (
+                                items.map((interview) => (
+                                  <CandidateCard
+                                    key={interview.id}
+                                    name={interview.candidate_name ?? "Без имени"}
+                                    stage={interviewStageLabel(interview)}
+                                    href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
+                                    action="Открыть"
+                                  />
+                                ))
+                              )}
                             </div>
                           </div>
                         );
@@ -342,8 +384,15 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                 ) : null}
 
                 {canManage ? (
+                  <Modal
+                    open={inviteOpen}
+                    title="Пригласить кандидата"
+                    onClose={() => setInviteOpen(false)}
+                  >
                   <form className="form-surface" onSubmit={handleCreateInterview}>
-                    <p className="path">Пригласить кандидата</p>
+                    <p className="muted-copy">
+                      Система готовит ссылку и копирует её в буфер. Письмо кандидату отправляете вы.
+                    </p>
                     <label>
                       Имя кандидата (необязательно)
                       <input
@@ -353,29 +402,32 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                       />
                     </label>
                     <label>
-                      Файл резюме
+                      Резюме кандидата
                       <input
                         type="file"
                         onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
                         disabled={!canInvite}
                       />
+                      <span className="field-hint">
+                        Резюме увидят эксперт и нанимающий менеджер рядом с отчётом.
+                      </span>
                     </label>
                     {interviewFormError ? <p className="form-error">{interviewFormError}</p> : null}
                     <div className="form-actions">
-                      <button
-                        className="button button--primary"
+                      <Button
                         type="submit"
-                        disabled={!canInvite || interviewFormSubmitting}
+                        disabled={!canInvite}
+                        loading={interviewFormSubmitting}
+                        loadingLabel="Готовлю ссылку…"
                       >
-                        {interviewFormSubmitting ? "Создаём ссылку…" : "Пригласить кандидата"}
-                      </button>
+                        Подготовить ссылку
+                      </Button>
+                      <Button type="button" variant="secondary" onClick={() => setInviteOpen(false)}>
+                        Отмена
+                      </Button>
                     </div>
-                    {!canInvite ? (
-                      <p className="disabled-hint">
-                        Сначала эксперт одобряет версию, затем активируйте вакансию.
-                      </p>
-                    ) : null}
                   </form>
+                  </Modal>
                 ) : null}
               </>
             )}

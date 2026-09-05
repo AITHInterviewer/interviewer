@@ -41,10 +41,10 @@ describe("RegisterPage", () => {
 
     render(<RegisterPage />);
 
-    fireEvent.change(screen.getByLabelText(/full name/i), { target: { value: "Recruiter" } });
-    fireEvent.change(screen.getByLabelText(/work email/i), { target: { value: "recruiter@example.com" } });
-    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "StrongPass123" } });
-    fireEvent.submit(screen.getByRole("button", { name: /create recruiter account/i }).closest("form")!);
+    fireEvent.change(screen.getByLabelText(/имя и фамилия/i), { target: { value: "Recruiter" } });
+    fireEvent.change(screen.getByLabelText(/рабочая почта/i), { target: { value: "recruiter@example.com" } });
+    fireEvent.change(screen.getByLabelText(/^пароль$/i), { target: { value: "StrongPass123" } });
+    fireEvent.submit(screen.getByRole("button", { name: /создать аккаунт/i }).closest("form")!);
 
     await waitFor(() => expect(signUpRecruiter).toHaveBeenCalled());
     await waitFor(() => expect(push).toHaveBeenCalledWith("/internal/recruiter"));

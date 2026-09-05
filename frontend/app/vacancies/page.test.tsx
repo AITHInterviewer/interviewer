@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replace = vi.fn();
@@ -62,7 +62,7 @@ describe("VacanciesPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/access denied/i)).toBeInTheDocument();
+    expect(await screen.findByText(/доступа к вакансиям нет/i)).toBeInTheDocument();
   });
 
   it("shows the empty state and a create-vacancy action for recruiters", async () => {
@@ -72,8 +72,8 @@ describe("VacanciesPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/no vacancies yet/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /create vacancy/i })).toHaveAttribute("href", "/vacancies/new");
+    expect(await screen.findByText(/вакансий пока нет/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /новая вакансия/i })).toHaveAttribute("href", "/vacancies/new");
   });
 
   it("lists vacancies for experts without showing the create action", async () => {
@@ -99,7 +99,10 @@ describe("VacanciesPage", () => {
     renderPage();
 
     expect(await screen.findByText(/backend developer/i)).toBeInTheDocument();
-    expect(await screen.findByText(/на калибровке/i)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /create vacancy/i })).not.toBeInTheDocument();
+    // Статус есть и в строке таблицы, и в фильтре — проверяем именно пилюлю в таблице.
+    const row = (await screen.findByText(/backend developer/i)).closest("tr");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText(/на калибровке/i)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /новая вакансия/i })).not.toBeInTheDocument();
   });
 });

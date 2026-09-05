@@ -33,7 +33,7 @@ export default function LoginPage() {
       if (caughtError instanceof ApiError) {
         setError(caughtError.message);
       } else {
-        setError("Could not sign in.");
+        setError("Не удалось войти. Проверьте почту и пароль.");
       }
     } finally {
       setSubmitting(false);
@@ -42,13 +42,13 @@ export default function LoginPage() {
 
   return (
     <AuthShell
-      eyebrow="Internal / Login"
-      title="Sign in to the internal workspace"
-      description="Use your internal account."
+      eyebrow="Вход для сотрудников"
+      title="Вход в рабочий кабинет"
+      description="Рабочая почта и пароль, которые выдал администратор."
     >
       <form className="form-surface" onSubmit={handleSubmit}>
         <label>
-          Work email
+          Рабочая почта
           <input
             name="email"
             type="email"
@@ -58,7 +58,7 @@ export default function LoginPage() {
           />
         </label>
         <label>
-          Password
+          Пароль
           <input
             name="password"
             type="password"
@@ -68,13 +68,21 @@ export default function LoginPage() {
             required
           />
         </label>
-        {error ? <p className="form-error">{error}</p> : null}
+        {error ? (
+          <>
+            <p className="form-error">{error}</p>
+            <p className="disabled-hint">
+              Если пароль не подошёл, напишите на{" "}
+              <a href="mailto:help@napoleon-it.ru">help@napoleon-it.ru</a>.
+            </p>
+          </>
+        ) : null}
         <div className="form-actions">
           <button className="button button--primary" type="submit" disabled={submitting}>
-            {submitting ? "Signing in..." : "Sign in"}
+            Войти
           </button>
-          <button className="button button--secondary" type="button" disabled title="Registration is temporarily disabled — use an admin account for the demo">
-            Register
+          <button className="button button--secondary" type="button" disabled title="Самостоятельная регистрация выключена: аккаунт заводит администратор">
+            Регистрация
           </button>
         </div>
       </form>

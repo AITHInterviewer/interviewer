@@ -29,10 +29,9 @@ export default function InternalEntryPage() {
 
   return (
     <main className="auth-shell">
-      <section className="loading-panel">
-        <span className="status">Protected area</span>
-        <strong>Checking your internal session...</strong>
-        <p>If no active session is found, you will be redirected to sign in.</p>
+      <section className="loading-panel" role="status">
+        <strong>Проверяю доступ</strong>
+        <p>Если сессия закончилась, откроется страница входа.</p>
       </section>
     </main>
   );

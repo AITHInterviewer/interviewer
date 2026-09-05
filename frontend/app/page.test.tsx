@@ -33,7 +33,7 @@ describe("HomePage", () => {
     render(<HomePage />);
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
-    expect(screen.getByText(/preparing your workspace/i)).toBeInTheDocument();
+    expect(screen.getByText(/открываю кабинет/i)).toBeInTheDocument();
   });
 
   it("redirects an existing session to the internal landing resolver", async () => {

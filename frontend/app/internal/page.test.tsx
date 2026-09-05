@@ -20,7 +20,7 @@ describe("InternalEntryPage", () => {
 
     render(<InternalEntryPage />);
 
-    expect(screen.getByText(/checking your internal session/i)).toBeInTheDocument();
+    expect(screen.getByText(/проверяю доступ/i)).toBeInTheDocument();
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
   });
 

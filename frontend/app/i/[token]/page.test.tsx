@@ -48,6 +48,25 @@ describe("CandidateInvitePage", () => {
     render(<InvitationPage />);
 
     expect(await screen.findByRole("heading", { name: /вас пригласили на интервью/i })).toBeInTheDocument();
+    expect(
+      screen.getByText(/дата, до которой нужно ответить, в приглашении не указана/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the deadline from the invitation payload", async () => {
+    vi.mocked(fetchCandidateInterview).mockResolvedValue({
+      interview_id: "int-1",
+      status: "created",
+      vacancy_title: "Backend-разработчик",
+      questions_total: 6,
+      estimated_duration_min: { min: 25, max: 40 },
+      product_state: "invited",
+      consented: false,
+      deadline: "2026-09-12T18:00:00Z",
+    });
+    render(<InvitationPage />);
+
+    expect(await screen.findByText(/срок: 12 сентября 2026/i)).toBeInTheDocument();
   });
 
   it("opens /i/expired when the interview token is missing", async () => {

@@ -2,7 +2,10 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-/** Шесть словесных статусов требования плюс метка пилота. Новых значений не заводим. */
+/**
+ * Шесть словесных статусов требования плюс метка пилота, а также четыре
+ * общих тона для статусов вакансии и доступа. Новых значений не заводим.
+ */
 export type StatusTone =
   | "confirmed"
   | "partial"
@@ -10,9 +13,13 @@ export type StatusTone =
   | "insufficient"
   | "unchecked"
   | "contradiction"
-  | "pilot";
+  | "pilot"
+  | "positive"
+  | "warning"
+  | "danger"
+  | "neutral";
 
-const LABELS: Record<StatusTone, string> = {
+const LABELS: Partial<Record<StatusTone, string>> = {
   confirmed: "Подтверждено",
   partial: "Частично",
   unconfirmed: "Не подтверждено",

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "tw-animate-css";
 @import "./product.css";
 
 :root {
@@ -32,7 +33,6 @@
   --radius-control: 8px;
   --radius-panel: 12px;
   --radius-pill: 999px;
-  --text-path: 12px;
   --text-logo: 12px;
   --text-meta: 14px;
   --text-mono: 14px;
@@ -76,13 +76,55 @@
   --focus: 0 0 0 3px rgb(117 110 255 / 0.3);
 }
 
+/* Мост к shadcn/ui: его компоненты читают tailwind-цвета primary, muted,
+   accent и sidebar. Значения берём из токенов эталона, чтобы бренд остался наш.
+   Внимание: у shadcn «accent» — это поверхность под наведением, а не бренд.
+   Бренд-синий уходит в «primary». Наши CSS-классы читают var(--accent) напрямую
+   и этой подменой не задеты. */
 @theme inline {
+  /* наши имена, как было */
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
   --color-ink: var(--ink);
-  --color-accent: var(--accent);
   --color-border: var(--border);
   --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  /* имена shadcn */
+  --color-background: var(--canvas);
+  --color-foreground: var(--ink);
+  --color-card: var(--surface-raised);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--surface-raised);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-ink);
+  --color-secondary: var(--surface-muted);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--surface-muted);
+  --color-muted-foreground: var(--ink-tertiary);
+  --color-accent: var(--surface-selected);
+  --color-accent-foreground: var(--accent);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--surface-raised);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+
+  /* сайдбар shadcn */
+  --color-sidebar: var(--surface-raised);
+  --color-sidebar-foreground: var(--ink);
+  --color-sidebar-primary: var(--accent);
+  --color-sidebar-primary-foreground: var(--accent-ink);
+  --color-sidebar-accent: var(--surface-selected);
+  --color-sidebar-accent-foreground: var(--accent);
+  --color-sidebar-border: var(--border);
+  --color-sidebar-ring: var(--accent);
+
+  /* радиусы: rounded-lg у shadcn = наш контрол 8px */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: var(--radius-control);
+  --radius-xl: var(--radius-panel);
 }
 
 * {

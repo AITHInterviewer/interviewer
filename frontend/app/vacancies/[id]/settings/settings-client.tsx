@@ -6,8 +6,8 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import { VacancyContextNav } from "@/components/chrome/VacancyContextNav";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/overlay";
 import type { VacancyDetail } from "@/lib/api";
 import {
   archiveManagedVacancy,
@@ -44,6 +44,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   useEffect(() => {
     if (!landing) {
@@ -66,7 +67,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
       })
       .catch((caughtError: unknown) => {
         if (!cancelled) {
-          setVacancyError(normalizeError(caughtError, "Could not load the vacancy."));
+          setVacancyError(normalizeError(caughtError, "Не удалось открыть вакансию."));
         }
       })
       .finally(() => {
@@ -83,7 +84,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   if (loading || !landing) {
     return (
       <main className="workspace">
-        <ScreenState kind="loading" title="Loading" text="Checking your session..." />
+        <ScreenState kind="loading" title="Проверяю доступ" text="Секунду, читаю вашу сессию." />
       </main>
     );
   }
@@ -92,7 +93,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
     run: () => Promise<{ status: VacancyDetail["status"] }>,
     fallback: string,
     successText: string,
-  ) {
+  ): Promise<boolean> {
     setLifecycleBusy(true);
     setError(null);
     setStatus(null);
@@ -100,8 +101,10 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
       const updated = await run();
       setVacancy((current) => (current ? { ...current, ...updated } : current));
       setStatus(successText);
+      return true;
     } catch (caughtError) {
       setError(normalizeError(caughtError, fallback));
+      return false;
     } finally {
       setLifecycleBusy(false);
     }
@@ -122,9 +125,9 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
         niceToHaveSkills: splitSkills(niceToHaveSkills),
       });
       setVacancy((current) => (current ? { ...current, ...updated } : current));
-      setStatus("Vacancy updated.");
+      setStatus("Изменения сохранены.");
     } catch (caughtError) {
-      setError(normalizeError(caughtError, "Could not update the vacancy."));
+      setError(normalizeError(caughtError, "Не удалось сохранить изменения."));
     } finally {
       setSubmitting(false);
     }
@@ -133,19 +136,19 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   const nav = buildNav(landing);
 
   return (
-    <AppShell nav={nav} title="Vacancy settings">
+    <AppShell nav={nav} title="Настройки вакансии">
       <div className="workspace workspace--form">
         <PageHeader path={`Вакансии / ${vacancy?.title ?? vacancyId}`} title="Настройки" />
-        <VacancyContextNav vacancyId={vacancyId} />
 
-        {vacancyLoading ? <ScreenState kind="loading" title="Loading" text="Loading vacancy..." /> : null}
-        {vacancyError ? <ScreenState kind="error" title="Could not load vacancy" text={vacancyError} /> : null}
+        {vacancyLoading ? <ScreenState kind="loading" title="Загружаю" text="Открываю вакансию." /> : null}
+        {vacancyError ? <ScreenState kind="error" title="Вакансия не открылась" text={vacancyError} /> : null}
 
         {!vacancyLoading && vacancy ? (
-          <form className="form-surface" onSubmit={handleSubmit}>
-            <p>
-              Текущий статус: {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
-            </p>
+          <>
+          <section className="form-panel">
+            <div className="form-surface">
+            <h2>Жизненный цикл</h2>
+            <p>Сейчас: {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}.</p>
             {vacancy.status === "active" ||
             vacancy.status === "paused" ||
             vacancy.status === "approved" ? (
@@ -154,7 +157,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
                   <Button
                     type="button"
                     variant="secondary"
-                    disabled={lifecycleBusy}
+                    loading={lifecycleBusy}
                     onClick={() =>
                       void runLifecycle(
                         () => pauseManagedVacancy(vacancyId),
@@ -170,7 +173,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
                   <Button
                     type="button"
                     variant="secondary"
-                    disabled={lifecycleBusy}
+                    loading={lifecycleBusy}
                     onClick={() =>
                       void runLifecycle(
                         () => resumeManagedVacancy(vacancyId),
@@ -182,36 +185,33 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
                     Возобновить
                   </Button>
                 ) : null}
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={lifecycleBusy}
-                  onClick={() =>
-                    void runLifecycle(
-                      () => archiveManagedVacancy(vacancyId),
-                      "Не удалось архивировать вакансию.",
-                      "Вакансия в архиве.",
-                    )
-                  }
-                >
+                <Button type="button" variant="secondary" disabled={lifecycleBusy} onClick={() => setArchiveOpen(true)}>
                   Архив
                 </Button>
               </div>
-            ) : null}
+            ) : (
+              <p className="disabled-hint">
+                Пауза и архив доступны, когда вакансия одобрена, активна или уже на паузе.
+              </p>
+            )}
+            </div>
+          </section>
+
+          <form className="form-panel form-surface" onSubmit={handleSubmit}>
             <label>
-              Title
+              Название
               <input value={title} onChange={(event) => setTitle(event.target.value)} required />
             </label>
             <label>
-              Description
+              Описание
               <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
             </label>
             <label>
-              Grade
+              Грейд
               <input value={grade} onChange={(event) => setGrade(event.target.value)} required />
             </label>
             <label>
-              Required skills
+              Обязательные навыки
               <input
                 value={requiredSkills}
                 onChange={(event) => setRequiredSkills(event.target.value)}
@@ -219,7 +219,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
               />
             </label>
             <label>
-              Nice-to-have skills
+              Желательные навыки
               <input
                 value={niceToHaveSkills}
                 onChange={(event) => setNiceToHaveSkills(event.target.value)}
@@ -230,10 +230,40 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
             {status ? <p className="success-message">{status}</p> : null}
             <div className="form-actions">
               <button className="button button--primary" type="submit" disabled={submitting}>
-                {submitting ? "Saving..." : "Save changes"}
+                Сохранить
               </button>
             </div>
           </form>
+
+          <Modal open={archiveOpen} title="Архивировать вакансию?" onClose={() => setArchiveOpen(false)}>
+            <p>
+              Вакансия уйдёт из активных. Новых приглашений не будет, уже выданные ссылки перестанут
+              открывать интервью.
+            </p>
+            {error ? <p className="form-error">{error}</p> : null}
+            <div className="form-actions">
+              <Button
+                type="button"
+                loading={lifecycleBusy}
+                loadingLabel="Архивируем…"
+                onClick={() =>
+                  void runLifecycle(
+                    () => archiveManagedVacancy(vacancyId),
+                    "Не удалось архивировать вакансию.",
+                    "Вакансия в архиве.",
+                  ).then((ok) => {
+                    if (ok) setArchiveOpen(false);
+                  })
+                }
+              >
+                Архивировать
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setArchiveOpen(false)}>
+                Отмена
+              </Button>
+            </div>
+          </Modal>
+          </>
         ) : null}
       </div>
     </AppShell>

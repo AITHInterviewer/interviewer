@@ -10,8 +10,8 @@ import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
-import type { ManagerCandidate, RubricVersion } from "@/lib/api";
-import { loadManagerCandidate, loadRubricVersions } from "@/lib/auth";
+import type { InterviewEventsResponse, ManagerCandidate, RubricVersion } from "@/lib/api";
+import { loadInterviewEvents, loadManagerCandidate, loadRubricVersions } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
 
@@ -22,6 +22,8 @@ export default function ManagerCandidatePage() {
   const { landing, loading } = useProtectedLanding({ requiredArea: HIRING_MANAGER_AREA });
   const [candidate, setCandidate] = useState<ManagerCandidate | null>(null);
   const [rubric, setRubric] = useState<RubricVersion | null>(null);
+  const [events, setEvents] = useState<InterviewEventsResponse | null>(null);
+  const [answersDenied, setAnswersDenied] = useState(false);
   const [denied, setDenied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
@@ -39,6 +41,12 @@ export default function ManagerCandidatePage() {
           return;
         }
         setCandidate(item);
+        // Ответы кандидата менеджеру может не отдать бэкенд: тогда честно об этом пишем.
+        const answersPayload = await loadInterviewEvents(item.interview.id).catch(() => null);
+        if (!cancelled) {
+          setEvents(answersPayload);
+          setAnswersDenied(answersPayload === null);
+        }
         if (item.interview.rubric_version_id) {
           try {
             const versions = await loadRubricVersions(item.interview.vacancy_id);
@@ -90,7 +98,7 @@ export default function ManagerCandidatePage() {
         <div className="workspace">
           <ScreenState
             kind="error"
-            title="Access denied"
+            title="Доступа к карточке нет"
             text="Этот кандидат вам ещё не передан. Дождитесь передачи или запроса мнения."
             action={
               <Button asChild variant="secondary">
@@ -136,29 +144,66 @@ export default function ManagerCandidatePage() {
     <AppShell nav={nav} title="Перед встречей">
       <div className="workspace">
         <PageHeader
-          path={`${candidate.interview.candidate_name ?? "Кандидат"} · ${candidate.vacancy_title}`}
+          path="Встречи"
           title={candidate.interview.candidate_name ?? "Кандидат без имени"}
           description={
-            candidate.access === "handoff"
-              ? `Передача от ${candidate.from_recruiter_name ?? "рекрутера"}`
-              : "Открыто только мнение, без передачи кандидата."
+            <>
+              <p>
+                {candidate.vacancy_title}.{" "}
+                {candidate.access === "handoff"
+                  ? `Передал ${candidate.from_recruiter_name ?? "рекрутер"}: с человеком нужна встреча.`
+                  : "Рекрутер спросил ваше мнение: кандидат вам не передан."}
+              </p>
+              <p className="muted-copy">
+                Здесь только то, что нужно перед разговором. Прокторинга и оценки тут нет: решение
+                принимает человек.
+              </p>
+            </>
+          }
+          actions={
+            <Button asChild variant="secondary">
+              <Link href="/manager">К встречам</Link>
+            </Button>
           }
         />
         <section className="plain-section">
-          <h2>Вакансия</h2>
-          <p>{candidate.vacancy_title}</p>
+          <h2>Что передал рекрутер</h2>
+          <p>{candidate.summary || "Рекрутер не оставил комментарий: смотрите ответы ниже."}</p>
         </section>
+
         <section className="plain-section">
-          <h2>Саммари рекрутера</h2>
-          <p>{candidate.summary || "Саммари не приложили."}</p>
+          <h2>Что человек уже рассказал</h2>
+          <p className="muted-copy">
+            Это ответы с интервью. Их не нужно переспрашивать на встрече: лучше идти дальше от них.
+          </p>
+          {events?.answers.length ? (
+            <ul className="stack-list">
+              {events.answers.map((answer) => (
+                <li className="answer-record" key={answer.id}>
+                  <strong>{answer.question_text ?? "Вопрос без текста"}</strong>
+                  {answer.transcript_text ? (
+                    <blockquote>{answer.transcript_text}</blockquote>
+                  ) : (
+                    <p className="muted-copy">Расшифровка этого ответа ещё не готова.</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : answersDenied ? (
+            <p className="muted-copy">
+              Ответы вам пока не открыты. Попросите рекрутера прислать отчёт или откройте встречу без них.
+            </p>
+          ) : (
+            <p className="muted-copy">Расшифровок нет: кандидат сдал интервью недавно.</p>
+          )}
         </section>
         {candidate.interview.rubric_version_id ? (
           <section className="plain-section">
-            <h2>Версия рубрики</h2>
+            <h2>По какой версии требований оценивали</h2>
             {rubric ? (
               <p>
                 Версия {rubric.version_number}
-                {rubric.approved_at ? `, ${new Date(rubric.approved_at).toLocaleString("ru-RU")}` : ""}
+                {rubric.approved_at ? `, ${new Date(rubric.approved_at).toLocaleString("ru-RU", { day: "numeric", month: "long" })}` : ""}
               </p>
             ) : (
               <p>Версия {candidate.interview.rubric_version_id}</p>

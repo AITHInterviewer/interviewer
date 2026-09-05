@@ -8,6 +8,7 @@ import { AppShell } from "@/components/chrome/AppShell";
 import { CalibrationSubnav } from "@/components/chrome/CalibrationSubnav";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SkeletonText } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { VacancyDetail, VacancyStatus } from "@/lib/api";
 import { approveManagedVacancy, loadVacancy, requestManagedVacancyChanges } from "@/lib/auth";
@@ -106,23 +107,43 @@ function ApproveInner() {
   return (
     <AppShell nav={buildNav(landing)} title="Утверждение">
       <div className="workspace workspace--form">
-        <CalibrationSubnav vacancyId={vacancyId} />
-        {vacancyLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем версию…" /> : null}
+        {vacancyLoading ? <SkeletonText lines={3} label="Загружаю версию" /> : null}
         {vacancy ? (
           <>
             <PageHeader
               path={`Вакансии / ${vacancy.title}`}
               title="Утверждение версии"
-              description={`Сейчас: ${VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}`}
+              description={`Статус вакансии: ${VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}.`}
             />
+            <CalibrationSubnav vacancyId={vacancyId} />
             {fromRecruiter ? <p>Только просмотр. Одобряет эксперт.</p> : null}
             {error ? <p className="form-error">{error}</p> : null}
             {status ? <p className="success-message">{status}</p> : null}
+            {!canEdit && !fromRecruiter ? (
+              <ScreenState
+                kind="empty"
+                title="Здесь нечего утверждать"
+                text="Версию рубрики одобряет технический эксперт. Вам она доступна только для просмотра."
+              />
+            ) : null}
+            {canEdit && !canApprove && !canRequestChanges ? (
+              <ScreenState
+                kind="empty"
+                title="Версия уже утверждена"
+                text="Вакансия в работе, менять версию не нужно. Если требования изменились, соберите новую версию на экране критериев."
+              />
+            ) : null}
             {canEdit ? (
               <>
                 <div className="form-actions">
-                  <Button type="button" disabled={busy || !canApprove} onClick={() => void handleApprove()}>
-                    {busy ? "Сохраняем…" : "Одобрить версию"}
+                  <Button
+                    type="button"
+                    disabled={!canApprove}
+                    loading={busy}
+                    loadingLabel="Сохраняю…"
+                    onClick={() => void handleApprove()}
+                  >
+                    Одобрить версию
                   </Button>
                 </div>
                 {!canApprove ? (

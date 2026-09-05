@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { Check, Clock } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
+import { CandidateDeadline } from "@/components/chrome/CandidateDeadline";
 import { CandidateGate } from "@/components/chrome/CandidateGate";
 import { Button } from "@/components/ui/button";
 import { isResumeOffered, markForwardProgress, routeParam } from "@/lib/candidate-flow";
@@ -21,6 +22,7 @@ export default function InvitationPage() {
           vacancyTitle={info.vacancy_title}
           questionsTotal={info.questions_total}
           duration={info.estimated_duration_min}
+          deadline={info.deadline}
           offerResume={isResumeOffered(info)}
           progressError={progressError}
           onOpenedError={setProgressError}
@@ -35,6 +37,7 @@ function InvitationBody({
   vacancyTitle,
   questionsTotal,
   duration,
+  deadline,
   offerResume,
   progressError,
   onOpenedError,
@@ -43,6 +46,7 @@ function InvitationBody({
   vacancyTitle: string;
   questionsTotal: number;
   duration: { min: number; max: number };
+  deadline?: string | null;
   offerResume: boolean;
   progressError: string | null;
   onOpenedError: (message: string | null) => void;
@@ -79,6 +83,7 @@ function InvitationBody({
           примерно {duration.min}–{duration.max} минут
         </span>
       </div>
+      <CandidateDeadline deadline={deadline} />
       {offerResume ? (
         <p>
           Похоже, вы уже начинали. Можно вернуться к тому же интервью по ссылке «Продолжить».
