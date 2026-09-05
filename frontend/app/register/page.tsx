@@ -45,7 +45,7 @@ export default function RegisterPage() {
   return (
     <AuthShell
       eyebrow="Регистрация сотрудника"
-      title="Первый аккаунт рекрутера"
+      title="Регистрация рекрутера"
       description="Аккаунт нужен, чтобы завести вакансию и приглашать кандидатов."
     >
       <form className="form-surface" onSubmit={handleSubmit}>
