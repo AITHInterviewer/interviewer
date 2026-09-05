@@ -3,7 +3,7 @@ const user = {
   id: "u-anna",
   name: "Анна Ковалёва",
   email: "anna@napoleon-it.ru",
-  roles: ["recruiter", "expert", "hiring_manager", "admin"],
+  roles: ["recruiter", "expert", "hiring_manager"],
 };
 
 const vacancies = [
@@ -23,7 +23,7 @@ const vacancies = [
     nice_to_have_skills: ["Code review", "Docker"],
     status: "active",
     created_at: "2026-09-01T10:00:00Z",
-    candidate_count: 7,
+    candidate_count: 3,
   },
   {
     id: "v-go",
@@ -190,6 +190,22 @@ export const fixtures = {
   },
 };
 
+/** Один снимок: на доске Дмитрий уже передан, Лидия ещё ждёт решения рекрутера. */
+function dmitryHandoff() {
+  const interview = fixtures.interviews.find((item) => item.id === "i-dmitry");
+  if (!interview) {
+    throw new Error("fixtures.mjs: нет интервью i-dmitry — карточку менеджера собирать не из чего");
+  }
+  return {
+    interview,
+    vacancy_title: "Middle+ Python Developer",
+    handed_off_at: "2026-09-04T12:00:00Z",
+    from_recruiter_name: "Анна Ковалёва",
+    summary: "Нужна вторая пара глаз по SQL.",
+    access: "handoff",
+  };
+}
+
 /** Подбирает ответ под путь запроса. */
 export function respond(pathname) {
   const p = pathname.replace(/\?.*$/, "");
@@ -244,34 +260,13 @@ export function respond(pathname) {
     };
   if (p.endsWith("/manager/candidates"))
     return {
-      items: [
-        {
-          interview: fixtures.interviews[0],
-          vacancy_title: "Middle+ Python Developer",
-          handed_off_at: "2026-09-05T08:00:00Z",
-          from_recruiter_name: "Анна Ковалёва",
-          summary: "Разбор инцидента раскрыт частично.",
-          access: "handoff",
-        },
-        {
-          interview: fixtures.interviews[1],
-          vacancy_title: "Middle+ Python Developer",
-          handed_off_at: "2026-09-04T12:00:00Z",
-          from_recruiter_name: "Анна Ковалёва",
-          summary: "Нужна вторая пара глаз по SQL.",
-          access: "opinion",
-        },
-      ],
+      items: [dmitryHandoff()],
     };
-  if (/\/manager\/candidates\/[^/]+$/.test(p))
-    return {
-      interview: fixtures.interviews[0],
-      vacancy_title: "Middle+ Python Developer",
-      handed_off_at: "2026-09-05T08:00:00Z",
-      from_recruiter_name: "Анна Ковалёва",
-      summary: "Разбор инцидента раскрыт частично.",
-      access: "handoff",
-    };
+  if (/\/manager\/candidates\/[^/]+$/.test(p)) {
+    const id = p.split("/").pop();
+    if (id === "i-dmitry") return dmitryHandoff();
+    return {};
+  }
   if (p.endsWith("/staff/hiring-managers")) return { items: [{ id: "u-igor", name: "Игорь Матвеев", email: "igor@napoleon-it.ru" }] };
   if (p.endsWith("/vacancies")) return { items: fixtures.vacancies };
   if (/\/vacancies\/[^/]+\/interviews$/.test(p)) return { items: fixtures.interviews };
@@ -296,9 +291,29 @@ export function respond(pathname) {
       ],
     };
   if (/\/vacancies\/[^/]+\/anonymized-stats$/.test(p))
-    return { invited: 7, completed: 4, awaiting_decision: 3 };
+    return { invited: 3, completed: 1, awaiting_decision: 1 };
   if (/\/vacancies\/[^/]+$/.test(p)) return { ...fixtures.vacancies[0], questions: fixtures.questions };
-  if (/\/interviews\/[^/]+\/events$/.test(p))
+  if (/\/interviews\/[^/]+\/events$/.test(p)) {
+    const id = p.split("/").slice(-2)[0];
+    const interview = fixtures.interviews.find((item) => item.id === id);
+    if (id === "i-dmitry") {
+      return {
+        interview: interview ?? fixtures.interviews[1],
+        events: [],
+        answers: [
+          {
+            id: "a-d2",
+            question_id: "q2",
+            question_text: "Запрос по заказам стал медленным.",
+            transcript_text:
+              "Смотрю фильтр и составной индекс по user_id и дате. Время до и после сравниваю чаще, чем план запроса.",
+          },
+        ],
+      };
+    }
+    if (id !== "i-lida") {
+      return { interview: interview ?? fixtures.interviews[0], events: [], answers: [] };
+    }
     return {
       interview: fixtures.interviews[0],
       events: [
@@ -340,7 +355,10 @@ export function respond(pathname) {
         },
       ],
     };
-  if (/\/interviews\/[^/]+\/clarifications$/.test(p))
+  }
+  if (/\/interviews\/[^/]+\/clarifications$/.test(p)) {
+    const id = p.split("/").slice(-2)[0];
+    if (id !== "i-lida") return { items: [] };
     return {
       items: [
         {
@@ -353,6 +371,10 @@ export function respond(pathname) {
         },
       ],
     };
-  if (/\/interviews\/[^/]+$/.test(p)) return fixtures.interviews[0];
+  }
+  if (/\/interviews\/[^/]+$/.test(p)) {
+    const id = p.split("/").pop();
+    return fixtures.interviews.find((item) => item.id === id) ?? {};
+  }
   return {};
 }
