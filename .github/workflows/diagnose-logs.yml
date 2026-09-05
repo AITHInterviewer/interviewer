@@ -1,4 +1,4 @@
-name: retry tts model download (self-hosted, temporary)
+name: retry tts model download v2 (self-hosted, temporary)
 
 on:
   workflow_dispatch: {}
@@ -10,16 +10,20 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: retry download (up to 3 times)
+      - name: retry download (up to 5 times, checking actual output)
         run: |
           $ok = $false
-          for ($i = 0; $i -lt 3; $i++) {
-            docker exec live-agent-tts-1 uv tool run speaches-cli model download speaches-ai/piper-ru_RU-ruslan-medium
-            if ($LASTEXITCODE -eq 0) { $ok = $true; break }
-            Write-Output "attempt $i failed, retrying..."
-            Start-Sleep -Seconds 5
+          for ($i = 0; $i -lt 5; $i++) {
+            $out = docker exec live-agent-tts-1 uv tool run speaches-cli model download speaches-ai/piper-ru_RU-ruslan-medium 2>&1 | Out-String
+            Write-Output "--- attempt $i output ---"
+            Write-Output $out
+            if ($out -notmatch "Internal Server Error" -and $out -notmatch "Error") {
+              $ok = $true
+              break
+            }
+            Start-Sleep -Seconds 8
           }
-          if (-not $ok) { exit 1 }
+          if (-not $ok) { Write-Output "all attempts failed"; exit 1 }
 
-      - name: models list
-        run: (Invoke-WebRequest -Uri http://localhost:3906/v1/models -TimeoutSec 15).Content
+      - name: recent tts log
+        run: docker logs --tail 20 live-agent-tts-1
