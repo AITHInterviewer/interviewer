@@ -66,9 +66,18 @@ services:
       # CPU float32 был реальным зафиксированным инцидентом ("агент перестал отвечать").
       - WHISPER__INFERENCE_DEVICE=cuda
       - WHISPER__COMPUTE_TYPE=float16
-      # HF_HUB_OFFLINE=1 — не ходить в сеть за проверкой модели, когда она уже в
-      # локальном кэше.
-      - HF_HUB_OFFLINE=1
+      # Тот же CDN-баг, что и у TTS ниже (xet-транспорт huggingface_hub падает с TLS
+      # handshake eof на этой сети) — large-v3 тоже реально качается с HF, не только
+      # Piper-голоса.
+      - HF_HUB_DISABLE_XET=1
+      - HF_HUB_DOWNLOAD_TIMEOUT=60
+      # HF_HUB_OFFLINE=1 намеренно НЕ включаем: реальный найденный баг (2026-09-05) —
+      # stt-cache на этом раннере ещё пустой (новый volume), а офлайн-режим блокирует
+      # ЛЮБОЙ сетевой вызов huggingface_hub, включая /v1/models (просто список моделей,
+      # без скачивания) — сервер падал 500 на каждый запрос с
+      # `huggingface_hub.errors.OfflineModeIsEnabled`, модель вообще не могла ни разу
+      # скачаться. Включать обратно можно только после того, как model.onnx/бинарник
+      # уже реально лежит в кэше (см. irina/ruslan-прецедент для TTS).
     deploy:
       resources:
         reservations:
