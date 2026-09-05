@@ -12,20 +12,31 @@ jobs:
     steps:
       - name: List currently loaded/available models
         run: |
-          docker exec live-agent-stt-1 curl -s http://localhost:8000/v1/models
+          Invoke-WebRequest -Uri http://localhost:3905/v1/models -UseBasicParsing | Select-Object -ExpandProperty Content
 
       - name: Trigger a real transcription to force model load (tiny silent wav)
         run: |
-          # 1-second silence, 16kHz mono WAV, base64-embedded so no external file needed.
           $wavBase64 = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA="
           $bytes = [Convert]::FromBase64String($wavBase64)
           [IO.File]::WriteAllBytes("silence.wav", $bytes)
-          docker cp silence.wav live-agent-stt-1:/tmp/silence.wav
-          Write-Output "--- transcription attempt (this triggers the large-v3 GPU model load if not already loaded) ---"
-          docker exec live-agent-stt-1 curl -s -w "`nHTTP_STATUS:%{http_code}`n" -X POST http://localhost:8000/v1/audio/transcriptions -F "file=@/tmp/silence.wav" -F "model=Systran/faster-whisper-large-v3"
+          $form = @{
+            file  = Get-Item "silence.wav"
+            model = "Systran/faster-whisper-large-v3"
+          }
+          try {
+            $response = Invoke-WebRequest -Uri http://localhost:3905/v1/audio/transcriptions -Method Post -Form $form -TimeoutSec 180 -UseBasicParsing
+            Write-Output "HTTP_STATUS:$($response.StatusCode)"
+            Write-Output $response.Content
+          } catch {
+            Write-Output "REQUEST FAILED: $_"
+            if ($_.Exception.Response) {
+              $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+              Write-Output $reader.ReadToEnd()
+            }
+          }
 
       - name: GPU process check after transcription attempt
         run: docker exec live-agent-stt-1 nvidia-smi
 
       - name: Recent STT logs
-        run: docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 100
+        run: docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 150
