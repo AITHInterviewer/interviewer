@@ -114,6 +114,30 @@ jobs:
           }
           Write-Output "backend healthy"
 
+      - name: Wait for frontend health
+        # Backend-only health checking let a broken frontend report "success" here before:
+        # `npm ci` (re)installing on every container start (docker-compose.dev.yml) plus a
+        # Next.js dev compile takes longer than the backend, so give it a bigger budget.
+        # A page that fails to compile (e.g. an unresolved import) serves HTTP 500, so a
+        # plain status-code check on a real route is enough to catch it.
+        run: |
+          $ok = $false
+          for ($i = 0; $i -lt 40; $i++) {
+            try {
+              Invoke-WebRequest -Uri http://localhost:3000/login -UseBasicParsing -TimeoutSec 5 | Out-Null
+              $ok = $true
+              break
+            } catch {
+              Start-Sleep -Seconds 5
+            }
+          }
+          if (-not $ok) {
+            Write-Output "ERROR: frontend did not become healthy in time"
+            docker compose -f docker-compose.dev.yml logs frontend --tail 200
+            exit 1
+          }
+          Write-Output "frontend healthy"
+
       - name: Print URLs
         run: |
           Write-Output "frontend: http://26.67.31.6:3000"

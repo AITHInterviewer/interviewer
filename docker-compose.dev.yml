@@ -54,6 +54,17 @@ services:
     build:
       context: ./frontend
       target: dev
+    # `frontend-node-modules` is a persistent named volume (kept across restarts so a plain
+    # `up` doesn't reinstall every time) — but that means it still holds whatever was
+    # installed the FIRST time it was created, even after `--build` refreshes the image with
+    # a newer package-lock.json (a volume mount masks the image's freshly-`npm ci`'d
+    # node_modules at runtime, it doesn't merge with it). Found in production the hard way:
+    # deploy-dev.yml reported success (it only health-checks the backend), but the live
+    # frontend 500'd on every page with "Module not found: Can't resolve
+    # '@phosphor-icons/react'" after a dependency was added — the volume from a deploy before
+    # that dependency existed was still mounted. `npm ci` on every container start keeps the
+    # volume in sync with package-lock.json (fast no-op when nothing changed).
+    command: ["/bin/sh", "-c", "npm ci && npm run dev -- --hostname 0.0.0.0 --port 3000"]
     env_file:
       - ./frontend/.env
     depends_on:

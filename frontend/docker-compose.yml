@@ -3,6 +3,10 @@ services:
     build:
       context: .
       target: dev
+    # See docker-compose.dev.yml (root) for why: the persistent node_modules volume below
+    # can mask a freshly-`npm ci`'d image after a dependency is added, so re-sync on every
+    # start rather than relying on the volume already matching package-lock.json.
+    command: ["/bin/sh", "-c", "npm ci && npm run dev -- --hostname 0.0.0.0 --port 3000"]
     env_file:
       - path: .env
         required: true
