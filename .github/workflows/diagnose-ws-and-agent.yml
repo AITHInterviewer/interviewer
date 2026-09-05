@@ -10,35 +10,17 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: disable all VPN/tunnel adapters (Radmin, hidemy.name, Tailscale), try download, always re-enable
+      - name: check adapter status and re-enable anything disabled
         run: |
-          $names = @("Radmin VPN", "hidemy.name_VPN", "Tailscale", "Ethernet 2", "Ethernet 3")
-          $disabled = @()
-          foreach ($n in $names) {
+          Get-NetAdapter | Format-Table Name, InterfaceDescription, Status, ifIndex -AutoSize
+          foreach ($n in @("Radmin VPN", "Tailscale")) {
             $a = Get-NetAdapter -Name $n -ErrorAction SilentlyContinue
-            if ($a -and $a.Status -eq "Up") {
-              Write-Output "Disabling $n"
-              Disable-NetAdapter -Name $n -Confirm:$false
-              $disabled += $n
-            }
-          }
-          Write-Output "Disabled: $($disabled -join ', ')"
-          Start-Sleep -Seconds 5
-          try {
-            Remove-Item "$env:TEMP\model.onnx" -ErrorAction SilentlyContinue
-            try {
-              $sw = [Diagnostics.Stopwatch]::StartNew()
-              Invoke-WebRequest -Uri "https://huggingface.co/speaches-ai/piper-ru_RU-irina-medium/resolve/main/model.onnx" `
-                -OutFile "$env:TEMP\model.onnx" -TimeoutSec 120
-              $sw.Stop()
-              $size = (Get-Item "$env:TEMP\model.onnx").Length
-              Write-Output "DOWNLOAD OK: $size bytes in $($sw.Elapsed)"
-            } catch {
-              Write-Output "DOWNLOAD FAILED: $($_.Exception.Message)"
-            }
-          } finally {
-            foreach ($n in $disabled) {
+            if ($a -and $a.Status -ne "Up") {
+              Write-Output "Re-enabling $n (was $($a.Status))"
               Enable-NetAdapter -Name $n -Confirm:$false
-              Write-Output "Re-enabled $n"
+            } else {
+              Write-Output "$n status: $($a.Status)"
             }
           }
+          Write-Output "--- looking for hidemy-related adapters by any name ---"
+          Get-NetAdapter | Where-Object { $_.InterfaceDescription -like "*WireGuard*" -or $_.Name -like "*hidemy*" } | Format-Table Name, InterfaceDescription, Status -AutoSize
