@@ -10,18 +10,35 @@ jobs:
       run:
         shell: powershell
     steps:
-      - uses: actions/checkout@v4
-
-      - name: list all downloadable piper ru voices via speaches registry
+      - name: disable all VPN/tunnel adapters (Radmin, hidemy.name, Tailscale), try download, always re-enable
         run: |
-          Get-Content live-agent\probe_registry.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
-
-      - name: list files in the model repo on HF (find the actual small metadata file name)
-        if: always()
-        run: |
+          $names = @("Radmin VPN", "hidemy.name_VPN", "Tailscale", "Ethernet 2", "Ethernet 3")
+          $disabled = @()
+          foreach ($n in $names) {
+            $a = Get-NetAdapter -Name $n -ErrorAction SilentlyContinue
+            if ($a -and $a.Status -eq "Up") {
+              Write-Output "Disabling $n"
+              Disable-NetAdapter -Name $n -Confirm:$false
+              $disabled += $n
+            }
+          }
+          Write-Output "Disabled: $($disabled -join ', ')"
+          Start-Sleep -Seconds 5
           try {
-            $r = Invoke-WebRequest -Uri "https://huggingface.co/api/models/speaches-ai/piper-ru_RU-irina-medium" -TimeoutSec 30 -UseBasicParsing
-            Write-Output $r.Content
-          } catch {
-            Write-Output "FAILED: $($_.Exception.Message)"
+            Remove-Item "$env:TEMP\model.onnx" -ErrorAction SilentlyContinue
+            try {
+              $sw = [Diagnostics.Stopwatch]::StartNew()
+              Invoke-WebRequest -Uri "https://huggingface.co/speaches-ai/piper-ru_RU-irina-medium/resolve/main/model.onnx" `
+                -OutFile "$env:TEMP\model.onnx" -TimeoutSec 120
+              $sw.Stop()
+              $size = (Get-Item "$env:TEMP\model.onnx").Length
+              Write-Output "DOWNLOAD OK: $size bytes in $($sw.Elapsed)"
+            } catch {
+              Write-Output "DOWNLOAD FAILED: $($_.Exception.Message)"
+            }
+          } finally {
+            foreach ($n in $disabled) {
+              Enable-NetAdapter -Name $n -Confirm:$false
+              Write-Output "Re-enabled $n"
+            }
           }
