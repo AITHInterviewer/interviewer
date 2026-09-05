@@ -10,36 +10,11 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: verify stt still has the model after redeploy
+      - name: live-agent logs (full)
         run: |
-          Set-Content -Path probe_stt.py -Encoding utf8 -Value @'
-          import struct, urllib.request, urllib.error
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
 
-          sample_rate = 16000
-          data = b"\x00\x00" * sample_rate
-          header = b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt " + struct.pack("<IHHIIHH", 16, 1, 1, sample_rate, sample_rate * 2, 2, 16) + b"data" + struct.pack("<I", len(data))
-          wav = header + data
-
-          boundary = "----probe"
-          body = (
-              f"--{boundary}\r\n"
-              f'Content-Disposition: form-data; name="file"; filename="test.wav"\r\n'
-              f"Content-Type: audio/wav\r\n\r\n"
-          ).encode() + wav + f"\r\n--{boundary}\r\n".encode() + (
-              f'Content-Disposition: form-data; name="model"\r\n\r\nSystran/faster-whisper-small\r\n--{boundary}--\r\n'
-          ).encode()
-
-          req = urllib.request.Request(
-              "http://stt:8000/v1/audio/transcriptions",
-              data=body,
-              headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-          )
-          try:
-              r = urllib.request.urlopen(req, timeout=30)
-              print("STATUS", r.status)
-              print(r.read()[:500])
-          except urllib.error.HTTPError as e:
-              print("STATUS", e.code)
-              print(e.read().decode("utf-8", "replace")[:1000])
-          '@
-          Get-Content probe_stt.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
+      - name: stt logs (tail)
+        if: always()
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 80
