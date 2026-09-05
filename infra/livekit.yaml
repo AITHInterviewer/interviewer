@@ -16,3 +16,9 @@ keys:
   devkey: secret
 room:
   auto_create: true
+
+# Встроенный TURN/TLS (обходной путь для медиа, когда candidate без Radmin VPN идёт через
+# внешний туннель) добавляется ТОЛЬКО в версии, которую пишет deploy-full.yml — там есть
+# настоящий TLS-сертификат (Let's Encrypt через DuckDNS DNS-01, см. workflow). Здесь, в
+# локальном дефолте, файлов сертификата нет — добавлять turn: с несуществующим cert_file
+# уронит livekit-server при обычном локальном запуске.
