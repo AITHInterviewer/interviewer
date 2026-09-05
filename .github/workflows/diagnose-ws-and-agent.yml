@@ -16,24 +16,13 @@ jobs:
         run: |
           Get-ChildItem C:\ai-interviewer-assets\ -ErrorAction Stop | Format-Table Name, Length
 
-      - name: find the tts container's cache snapshot dir for the irina voice
+      - name: copy irina.onnx into the container as model.onnx
         run: |
           $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q tts
           Write-Output "container: $containerId"
-          docker exec $containerId find / -xdev -iname "config.json" -path "*irina*" 2>$null
-
-      - name: copy irina.onnx into the container as model.onnx
-        if: always()
-        run: |
-          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q tts
-          $dir = docker exec $containerId find / -xdev -iname "config.json" -path "*irina*" 2>$null | Select-Object -First 1
-          $dir = $dir.Trim()
-          if (-not $dir) {
-            Write-Output "could not find the irina snapshot dir - see previous step output"
-            exit 1
-          }
-          $targetDir = Split-Path $dir -Parent
-          Write-Output "target dir: $targetDir"
+          # Найдено предыдущим прогоном (find без /root, тот путь уже частично докачан speaches -
+          # config.json/README/.gitattributes есть, не хватало только model.onnx).
+          $targetDir = "/home/ubuntu/.cache/huggingface/hub/models--speaches-ai--piper-ru_RU-irina-medium/snapshots/22531dbcaa340f4370e1c86027a4794769842fea"
           docker cp C:\ai-interviewer-assets\irina.onnx "${containerId}:${targetDir}/model.onnx"
           docker exec $containerId ls -la $targetDir
 
