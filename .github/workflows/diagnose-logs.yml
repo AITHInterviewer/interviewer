@@ -1,19 +1,46 @@
-name: diagnose agent silent again (self-hosted, temporary)
+name: probe fish speech api (self-hosted, temporary)
 
 on:
   workflow_dispatch: {}
 
 jobs:
-  logs:
+  probe:
     runs-on: self-hosted
     defaults:
       run:
         shell: powershell
     steps:
-      - name: live-agent recent log
+      - name: list all routes fish-speech actually registered
         continue-on-error: true
-        run: docker logs --tail 200 live-agent-live-agent-1
+        run: docker exec live-agent-tts-1 python3 -c "
+          import sys; sys.path.insert(0, '.');
+          from tools.server.views import routes
+          for r in routes.http_routes:
+              print(r.methods, r.path)
+          "
 
-      - name: tts recent log
+      - name: raw http probe of /v1/tts
         continue-on-error: true
-        run: docker logs --tail 100 live-agent-tts-1
+        run: |
+          try {
+            $resp = Invoke-WebRequest -Uri "http://localhost:3906/v1/tts" -Method Post -Body "{}" -ContentType "application/json" -TimeoutSec 15 -UseBasicParsing
+            Write-Output "status: $($resp.StatusCode)"
+            Write-Output $resp.Content
+          } catch {
+            Write-Output "FAILED: $($_.Exception.Message)"
+            if ($_.Exception.Response) {
+              $stream = $_.Exception.Response.GetResponseStream()
+              $reader = New-Object System.IO.StreamReader($stream)
+              Write-Output $reader.ReadToEnd()
+            }
+          }
+
+      - name: probe root and openapi
+        continue-on-error: true
+        run: |
+          Invoke-WebRequest -Uri "http://localhost:3906/" -TimeoutSec 10 -UseBasicParsing | Select-Object StatusCode
+          try {
+            (Invoke-WebRequest -Uri "http://localhost:3906/openapi.json" -TimeoutSec 10 -UseBasicParsing).Content
+          } catch {
+            Write-Output "no openapi.json: $($_.Exception.Message)"
+          }
