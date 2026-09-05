@@ -167,7 +167,12 @@ async def entrypoint(ctx: JobContext) -> None:
     logger.info("entrypoint: ctx.connect()...")
     await ctx.connect()
     logger.info("entrypoint: ctx.connect() done, session.start()...")
-    await session.start(agent=agent)
+    # room=ctx.room — реальный найденный баг (2026-09-05): без него AgentSession.start()
+    # не создаёт RoomIO вообще ("Create a default RoomIO if the input or output audio is
+    # not already set", см. докстринг) — TTS вызывался и реально синтезировал (подтверждено
+    # логами tts), но публиковать аудио было некуда, и STT кандидата тоже не читался.
+    # Молча, без единой ошибки — session.say() просто возвращает SpeechHandle сразу же.
+    await session.start(agent=agent, room=ctx.room)
     logger.info("entrypoint: session.start() done, engine.start()...")
 
     first_utterance = f"{INTRO_PHRASE} {await engine.start()}"
