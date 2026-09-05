@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     jwt_secret: str = "development-jwt-secret"
     jwt_access_token_expire_minutes: int = 60
 
+    # Shared secret для service-to-service доступа `live-agent` к
+    # `GET /api/v1/interviews/{id}/live-input` (план `kind-fluttering-reef.md`, раздел 3) —
+    # не JWT/сессия пользователя, отдельный header (см. app/dependencies/live_agent_auth.py).
+    live_agent_token: str = "development-live-agent-token"
+
     # PostgreSQL
     postgres_db: str = "ainterviewer"
     postgres_host: str = "localhost"

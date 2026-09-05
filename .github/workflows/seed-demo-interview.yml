@@ -214,9 +214,11 @@ jobs:
           TTS_API_KEY=not-needed
           STT_MODEL=whisper-1
           STT_LANGUAGE=ru
-          TTS_MODEL=speaches-ai/piper-ru_RU-irina-medium
-          TTS_VOICE=irina
+          TTS_MODEL=speaches-ai/piper-ru_RU-ruslan-medium
+          TTS_VOICE=ruslan
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
+          BACKEND_BASE_URL=http://backend:8000
+          LIVE_AGENT_TOKEN=development-live-agent-token
           LIVEKIT_URL=ws://livekit-server:7880
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret

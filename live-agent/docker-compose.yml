@@ -13,7 +13,14 @@
 # ВАЖНО про модель STT здесь: это ЖИВОЙ контур с бюджетом в единицы секунд — измерили
 # вживую, что `large-v3-turbo` на CPU даёт 20–30+ сек/реплику даже прогретым (float16→
 # float32 фолбэк без GPU), это и стало причиной "агент перестал отвечать". Большая точная
-# модель — законное место evaluation-agent (см. ../evaluation-agent/docker-compose.yml), не сюда.
+# модель была законным местом только evaluation-agent (см. ../evaluation-agent/docker-compose.yml),
+# не сюда — ЭТО БЫЛО ВЕРНО ДО GPU. С 2026-09-05 раннер имеет рабочую NVIDIA GPU (RTX 5070 Ti,
+# 16GB, `docker run --gpus all` подтверждён вживую), поэтому `large-v3` (не turbo — файл уже
+# скачан) теперь запускается явно на `cuda`/`float16` (см. `stt.environment` ниже), а не на CPU.
+# WHISPER__INFERENCE_DEVICE/WHISPER__COMPUTE_TYPE заданы ЯВНО (не `auto`) намеренно: именно
+# молчаливый фолбэк float16->float32-CPU (описанный абзацем выше) и был причиной зависания —
+# явные значения означают громкий отказ, если GPU в контейнере вдруг недоступна, вместо
+# повторения того же "агент перестал отвечать" без единой ошибки в логах.
 
 services:
   live-agent:
@@ -48,20 +55,27 @@ services:
     # "start"), не привязан к портам. Не проверено вживую (нужен реальный livekit-server).
 
   stt:
-    image: fedirz/faster-whisper-server:latest-cpu
+    image: fedirz/faster-whisper-server:latest-cuda
     ports:
       - "3905:8000"
     environment:
-      # small — быстро, но реальная жалоба на качество техтерминов ("очень плохо").
-      # medium — компромисс по точности, ВРЕМЕННО откачен обратно на small (2026-09-05):
-      # model.bin для medium (~1.5ГБ) так и не докачался — тот же нестабильный CDN-хост
-      # HuggingFace (us.aws.cdn.hf.co), что и с TTS-моделью, тут файл ещё больше и падает
-      # ещё стабильнее (blob остался 0-байтным .incomplete). small — тем же путём, что
-      # чинили TTS: скачать вручную на другой машине и docker cp в кэш контейнера.
-      - WHISPER__MODEL=Systran/faster-whisper-small
+      # large-v3 на GPU (см. докстринг в шапке файла) — модель уже скачана на раннере,
+      # calling session положит файл в кэш тем же способом, что и irina/ruslan для TTS.
+      - WHISPER__MODEL=Systran/faster-whisper-large-v3
+      # Явно cuda/float16 (не auto) — см. докстринг в шапке файла: молчаливый фолбэк на
+      # CPU float32 был реальным зафиксированным инцидентом ("агент перестал отвечать").
+      - WHISPER__INFERENCE_DEVICE=cuda
+      - WHISPER__COMPUTE_TYPE=float16
       # HF_HUB_OFFLINE=1 — не ходить в сеть за проверкой модели, когда она уже в
-      # локальном кэше (актуально после того, как small реально докачается).
+      # локальном кэше.
       - HF_HUB_OFFLINE=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     volumes:
       - stt-cache:/root/.cache/huggingface
 

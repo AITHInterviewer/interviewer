@@ -34,16 +34,20 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
 from livekit.agents import Agent, AgentSession, JobContext, ModelSettings, WorkerOptions, cli
 from livekit.agents.llm import ChatContext
 from livekit.agents.voice.room_io import RoomInputOptions
+from livekit.agents.voice.turn import InterruptionOptions, TurnHandlingOptions
 from livekit.plugins import openai as lk_openai
 from livekit.plugins import silero
 
 from .control_bridge import RedisEventSink
+from .echo_filter import is_likely_echo
 from .events import EventLog, EventSink
 from .llm_client import ClaudeAgentSDKLiveControlLLM
 from .prompts import INTRO_PHRASE
@@ -84,6 +88,12 @@ class InterviewerAgent(Agent):
             ),
         )
         self.engine = engine
+        # Раздел 2 задачи "live-interview quality pass" — эвристический фильтр эха
+        # собственной TTS-речи, просочившегося обратно через микрофон кандидата
+        # (см. echo_filter.is_likely_echo). Обновляется в трёх точках: сразу после
+        # вступления (тут же, при конструировании) и в llm_node — после бэкчаннела и
+        # после реальной реплики агента.
+        self._last_agent_utterance = ""
 
     async def llm_node(self, chat_ctx: ChatContext, tools: list, model_settings: ModelSettings):  # noqa: ARG002
         # ChatContext.messages — метод (список нужно ЗВАТЬ, `chat_ctx.messages()`), не
@@ -98,14 +108,21 @@ class InterviewerAgent(Agent):
         last_text = user_messages[-1].text_content or ""
         logger.info("llm_node: last_text=%r", last_text)
 
+        if is_likely_echo(last_text, self._last_agent_utterance):
+            logger.info("llm_node: last_text looks like agent echo, ignoring: %r", last_text)
+            return
+
         # Слой 1 — мгновенный бэкчаннел без LLM (раздел 9.2, п.4 архитектурного документа).
-        yield self.engine.backchannel_phrase()
+        backchannel = self.engine.backchannel_phrase()
+        self._last_agent_utterance = backchannel
+        yield backchannel
 
         # Слой 2 — собственно решение реактивного цикла (см. state_machine.py).
         logger.info("llm_node: calling engine.on_candidate_final_turn...")
         reply = await self.engine.on_candidate_final_turn(last_text)
         logger.info("llm_node: engine.on_candidate_final_turn returned %r", reply)
         if reply:
+            self._last_agent_utterance = reply
             yield reply
 
 
@@ -135,20 +152,62 @@ def _build_event_sinks(interview_id: str) -> list[EventSink]:
     return [RedisEventSink(redis, interview_id)]
 
 
-async def entrypoint(ctx: JobContext) -> None:
-    interview = InterviewInput.model_validate_json(MOCK_PATH.read_text(encoding="utf-8"))
+def _room_name_is_interview_uuid(room_name: str | None) -> bool:
+    """Раздел 3 задачи "live-interview quality pass": реальные интервью диспетчатся
+    LiveKit в комнату, чьё имя — UUID интервью из Postgres (contracts/livekit-token.md).
+    Локальные/ручные прогоны (console, scripts/simulate.py, mock_driver.py) либо не имеют
+    комнаты вообще, либо используют произвольное имя вроде "demo-001" — это отличает
+    "нужно тянуть реальные вопросы с backend" от "оставить мок как есть"."""
+    if not room_name:
+        return False
+    try:
+        uuid.UUID(room_name)
+    except ValueError:
+        return False
+    return True
 
+
+async def _load_interview_input(room_name: str | None) -> InterviewInput:
+    """Грузит `InterviewInput` — с backend по реальному UUID интервью, либо (для
+    локальных/ручных прогонов) из MOCK_PATH, как и раньше.
+
+    Раздел 3 задачи "live-interview quality pass": сознательно БЕЗ тихого фолбэка на мок
+    при сбое реального запроса — прогнать реальное интервью кандидата по вопросам чужой
+    вакансии хуже, чем вообще не начать job (см. план, раздел 3), поэтому ошибка здесь
+    логируется и пробрасывается дальше.
+    """
+    if _room_name_is_interview_uuid(room_name):
+        assert room_name is not None
+        url = f"{os.environ.get('BACKEND_BASE_URL', 'http://backend:8000')}/api/v1/interviews/{room_name}/live-input"
+        headers = {"X-Live-Agent-Token": os.environ["LIVE_AGENT_TOKEN"]}
+        logger.info("_load_interview_input: fetching real interview input from %s", url)
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+        except httpx.HTTPError:
+            logger.exception("_load_interview_input: failed to fetch interview input from %s", url)
+            raise
+        interview = InterviewInput.model_validate_json(response.text)
+        logger.info("_load_interview_input: loaded real interview %s from backend", interview.interview_id)
+        return interview
+
+    interview = InterviewInput.model_validate_json(MOCK_PATH.read_text(encoding="utf-8"))
     # КРИТИЧНО для specs/004-candidate-interview-flow: backend подписывается на Redis-канал
     # `live-agent:events:{Interview.id из Postgres}` — тот же id, что выпущен в
-    # LiveKit-токене как `room_name` (contracts/livekit-token.md). Вопросы по-прежнему
-    # захардкожены в MOCK_PATH (хардкод вакансии/вопросов — принятое упрощение, см. чат
-    # 2026-09-04), но САМ id интервью должен браться из комнаты, в которую продиспатчило
-    # LiveKit, а не из мок-файла — иначе backend слушает канал с реальным UUID, а
-    # live-agent публикует в канал "demo-001" (id из мок-файла), и они никогда не
-    # встречаются: control-канал молча не получает ни одного события.
-    room_name = ctx.job.room.name
+    # LiveKit-токене как `room_name` (contracts/livekit-token.md). Даже когда вопросы
+    # берутся из мока (нет реального UUID-имени комнаты), id интервью должен браться из
+    # комнаты, в которую продиспатчило LiveKit, а не из мок-файла — иначе backend слушает
+    # канал с реальным UUID, а live-agent публикует в канал "demo-001" (id из мок-файла),
+    # и они никогда не встречаются: control-канал молча не получает ни одного события.
     if room_name:
         interview.interview_id = room_name
+    return interview
+
+
+async def entrypoint(ctx: JobContext) -> None:
+    room_name = ctx.job.room.name
+    interview = await _load_interview_input(room_name)
 
     events = EventLog(
         AGENT_ROOT / "out" / f"{interview.interview_id}.jsonl",
@@ -174,16 +233,27 @@ async def entrypoint(ctx: JobContext) -> None:
         tts=lk_openai.TTS(
             base_url=os.environ["TTS_BASE_URL"],  # напр. http://localhost:8002/v1
             api_key=os.environ.get("TTS_API_KEY", "not-needed"),
-            voice=os.environ.get("TTS_VOICE", "irina"),
+            voice=os.environ.get("TTS_VOICE", "ruslan"),
             # Плагин по умолчанию шлёт model="gpt-4o-mini-tts" — реальный найденный баг,
             # с ним падают все self-hosted TTS-сервисы (не облачные имена моделей). Для
             # speaches.ai `model` — это полный HF repo id голоса
             # (speaches-ai/piper-ru_RU-<имя>-medium), не просто псевдоним вроде "tts-1".
-            model=os.environ.get("TTS_MODEL", "speaches-ai/piper-ru_RU-irina-medium"),
+            model=os.environ.get("TTS_MODEL", "speaches-ai/piper-ru_RU-ruslan-medium"),
         ),
         # Пауза детектится по VAD (Silero), не через LLM — раздел 3 архитектурного
         # документа: "живая пауза" не должна ждать ещё один сетевой запрос сверху.
-        turn_detection="vad",
+        # turn_handling (не плоский turn_detection=) — раздел 1 задачи "live-interview
+        # quality pass" (2026-09-05): подтверждено интроспекцией пакета
+        # (livekit/agents/voice/turn.py), что плоские kwargs типа min_interruption_duration
+        # — deprecated-алиасы, транслируемые в TurnHandlingOptions (agent_session.py,
+        # _migrate_turn_handling). min_duration 0.5s -> 1.0s: полсекунды любого
+        # VAD-звука (шум помещения, эхо собственной речи агента, кашель) засчитывалось
+        # как прерывание. resume_false_interruption/false_interruption_timeout оставлены
+        # на дефолтах (True/2.0) — уже компенсируют ложные срабатывания.
+        turn_handling=TurnHandlingOptions(
+            turn_detection="vad",
+            interruption=InterruptionOptions(min_duration=1.0),
+        ),
     )
 
     agent = InterviewerAgent(engine)
@@ -221,6 +291,7 @@ async def entrypoint(ctx: JobContext) -> None:
     logger.info("entrypoint: session.start() done, engine.start()...")
 
     first_utterance = f"{INTRO_PHRASE} {await engine.start()}"
+    agent._last_agent_utterance = first_utterance
     logger.info("entrypoint: engine.start() done, session.say()...")
     # add_to_chat_ctx=False: это вступление не должно попасть в chat_ctx как "assistant"-реплика,
     # потому что мы им всё равно не пользуемся в llm_node (см. класс выше) — она там просто лишняя.

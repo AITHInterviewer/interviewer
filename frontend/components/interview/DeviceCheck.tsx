@@ -115,7 +115,10 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
   const acquire = useCallback(async () => {
     setStatus("checking");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: { echoCancellation: true } });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -157,7 +160,7 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       const constraints: MediaStreamConstraints =
         kind === "video"
           ? { video: { deviceId: { exact: deviceId } } }
-          : { audio: { deviceId: { exact: deviceId }, echoCancellation: true } };
+          : { audio: { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true } };
       const replacement = await navigator.mediaDevices.getUserMedia(constraints);
       const newTrack = kind === "video" ? replacement.getVideoTracks()[0] : replacement.getAudioTracks()[0];
       const oldTracks = kind === "video" ? stream.getVideoTracks() : stream.getAudioTracks();
