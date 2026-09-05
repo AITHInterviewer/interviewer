@@ -18,14 +18,10 @@ export function formatDeadlineDate(value?: string | null): string | null {
   return parsed.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
 }
 
-export const CANDIDATE_STEPS = [
-  "Приглашение",
-  "Согласие",
-  "Проверка",
-  "Правила",
-  "Практика",
-  "Интервью",
-] as const;
+// Флоу сокращён до трёх шагов (было 6: Приглашение/Согласие/Проверка/Правила/Практика/
+// Интервью) — см. InterviewFlow.tsx: экран согласия, экран проверки устройств, само
+// интервью. Практика убрана совсем.
+export const CANDIDATE_STEPS = ["Согласие", "Устройства", "Интервью"] as const;
 
 export type CandidateStep = (typeof CANDIDATE_STEPS)[number];
 
@@ -38,18 +34,14 @@ export function isResumeOffered(info: CandidateInterviewInfo): boolean {
 }
 
 export function resumeHref(token: string, info: CandidateInterviewInfo): string {
-  if (!info.consented) {
-    return `/i/${token}/consent`;
-  }
   if (
-    info.product_state === "device_checked" ||
     info.product_state === "ready" ||
     info.product_state === "in_interview" ||
     info.product_state === "interrupted"
   ) {
     return `/i/${token}/live`;
   }
-  return `/i/${token}/check`;
+  return `/i/${token}`;
 }
 
 export async function markForwardProgress(

@@ -6,29 +6,20 @@ import { useRouter } from "next/navigation";
 import { CandidateShell } from "@/components/chrome/CandidateShell";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { ApiError, fetchCandidateInterview, type CandidateInterviewInfo } from "@/lib/api";
-import { CANDIDATE_STEPS, type CandidateStep } from "@/lib/candidate-flow";
+import { type CandidateStep } from "@/lib/candidate-flow";
 
 export function CandidateFrame({
-  current,
   vacancyTitle,
   children,
-  showStepper = true,
 }: {
+  /** Оставлен на вызывающей стороне как смысловая метка страницы — сам степпер в
+   * CandidateShell больше не рендерится (см. CandidateShell.tsx): он показывает только
+   * реальный роадмап вопросов, которым управляет агент во время интервью. */
   current: CandidateStep;
   vacancyTitle?: string;
   children: ReactNode;
-  showStepper?: boolean;
 }) {
-  return (
-    <CandidateShell
-      steps={[...CANDIDATE_STEPS]}
-      current={current}
-      vacancyTitle={vacancyTitle}
-      showStepper={showStepper}
-    >
-      {children}
-    </CandidateShell>
-  );
+  return <CandidateShell vacancyTitle={vacancyTitle}>{children}</CandidateShell>;
 }
 
 export function CandidateGate({

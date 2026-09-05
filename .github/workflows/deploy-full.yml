@@ -219,13 +219,11 @@ jobs:
           Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
           LLM_MODEL=claude-haiku-4-5
           STT_BASE_URL=http://stt:8000/v1
-          TTS_BASE_URL=http://tts:8000/v1
+          TTS_BASE_URL=http://tts:8080
           STT_API_KEY=not-needed
           TTS_API_KEY=not-needed
           STT_MODEL=whisper-1
           STT_LANGUAGE=ru
-          TTS_MODEL=speaches-ai/piper-ru_RU-ruslan-medium
-          TTS_VOICE=ruslan
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
           BACKEND_BASE_URL=http://backend:8000
           LIVE_AGENT_TOKEN=development-live-agent-token
@@ -308,22 +306,17 @@ jobs:
             up -d --force-recreate livekit-server
 
       - name: Build and (re)start live-agent (+ its stt/tts)
+        # --force-recreate on live-agent specifically: real incident (2026-09-05) — Compose
+        # didn't detect live-agent/.env's content change (TTS_BASE_URL updated in a
+        # previous step) as a reason to recreate the container, so it kept running with a
+        # stale env until the NEXT deploy that happened to also trigger a rebuild for an
+        # unrelated reason. The agent then silently tried to reach TTS on the wrong
+        # port/URL - a stale ClientConnectorError on every reply, not an error anyone
+        # would connect to "the .env step ran fine". Same class of bug as livekit-server's
+        # bind-mounted config (see infra section) - `up` alone doesn't recreate on a
+        # bind-mounted/env_file-only change, only `--force-recreate` does reliably.
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --remove-orphans
-
-      - name: Ensure TTS voice model is downloaded
-        # tts (live-agent/docker-compose.yml) has no volume for its model cache — voices are
-        # downloaded straight into the container's writable layer (see comment there:
-        # PermissionError with a named volume, root vs. non-root uid 1000). Any container
-        # recreation (image/tag change, `down`/`up`, host reboot) wipes that cache, and the
-        # agent then fails every reply with a 404 ("Model ... is not installed locally")
-        # instead of falling back or erroring loudly at startup - the interview just goes
-        # silent. `model download` is idempotent (a no-op if the voice is already cached).
-        # uvx isn't a separate binary in this image, only uv itself - "uvx foo" is
-        # equivalent to "uv tool run foo" (see 2026-09-04 diagnostic run, same 404-on-missing
-        # voice bug hit and fixed once already via the now-removed download-tts-voice.yml).
-        run: |
-          docker exec live-agent-tts-1 uv tool run speaches-cli model download speaches-ai/piper-ru_RU-ruslan-medium
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --force-recreate --remove-orphans
 
       - name: Build and (re)start evaluation-agent's stt-accurate
         run: |

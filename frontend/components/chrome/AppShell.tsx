@@ -37,9 +37,9 @@ import { vacancyContextNav } from "@/lib/nav";
 
 export function BrandMark() {
   return (
-    <div className="brand-mark" aria-label="Napoleon Interview">
-      <strong>NAPOLEON</strong>
-      <span>[INTERVIEW]</span>
+    <div className="brand-mark" aria-label="async INTERVIEWER">
+      <strong>async</strong>
+      <span>[INTERVIEWER]</span>
     </div>
   );
 }

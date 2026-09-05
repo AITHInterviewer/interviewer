@@ -14,31 +14,19 @@ export default function ResumePage() {
     <CandidateGate token={token} current="Интервью" redirectCompleted>
       {(info, accessToken) => {
         const nextHref = resumeHref(accessToken, info);
-        const consented = Boolean(info.consented);
         return (
-          <section className="setup-stage" style={{ width: "100%" }}>
+          <section className="setup-stage">
             <p className="path">Возврат</p>
             <h1>Можно продолжить с того же места</h1>
             <p>
-              {consented
-                ? "Согласие уже есть. Если устройство ещё не проверяли — сначала короткий чеклист. Если уже проверяли — сразу к разговору."
-                : "Сначала нужно согласие на запись, затем можно вернуться к интервью."}
+              {nextHref.endsWith("/live")
+                ? "Согласие и проверка устройств уже пройдены — возвращаемся сразу в разговор."
+                : "Понадобится ещё раз подтвердить согласие на запись и проверить камеру с микрофоном."}
             </p>
             <div className="setup-stage__footer">
               <Button asChild size="large">
-                <Link href={nextHref}>
-                  {consented
-                    ? nextHref.endsWith("/live")
-                      ? "Продолжить интервью"
-                      : "Перейти к проверке"
-                    : "Перейти к согласию"}
-                </Link>
+                <Link href={nextHref}>{nextHref.endsWith("/live") ? "Продолжить интервью" : "Перейти к настройке"}</Link>
               </Button>
-              {consented && nextHref.endsWith("/live") ? (
-                <Button asChild variant="secondary">
-                  <Link href={`/i/${accessToken}/check`}>Сначала проверка</Link>
-                </Button>
-              ) : null}
             </div>
           </section>
         );

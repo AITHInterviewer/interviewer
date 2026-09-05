@@ -56,6 +56,12 @@ function getUserMediaMock() {
   return navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>;
 }
 
+/** Флоу три экрана: согласие → устройства → интервью. */
+async function passConsentScreen() {
+  fireEvent.click(await screen.findByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: /начать/i }));
+}
+
 describe("InterviewPage", () => {
   beforeEach(() => {
     vi.stubGlobal("navigator", {
@@ -76,10 +82,9 @@ describe("InterviewPage", () => {
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
 
-    expect(await screen.findByRole("heading", { name: /перед началом интервью/i })).toBeInTheDocument();
-    expect(screen.getByText(/backend-разработчик/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /вас пригласили на интервью/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/backend-разработчик/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/25–40 минут/)).toBeInTheDocument();
-    // Device-check не должен запрашивать доступ, пока кандидат явно не нажал кнопку разрешения.
     expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
   });
 
@@ -97,6 +102,7 @@ describe("InterviewPage", () => {
 
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
+    await passConsentScreen();
 
     fireEvent.click(await screen.findByRole("button", { name: /разрешить микрофон/i }));
 
@@ -125,6 +131,7 @@ describe("InterviewPage", () => {
 
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
+    await passConsentScreen();
 
     fireEvent.click(await screen.findByRole("button", { name: /разрешить микрофон/i }));
 
@@ -148,6 +155,7 @@ describe("InterviewPage", () => {
 
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
+    await passConsentScreen();
 
     fireEvent.click(await screen.findByRole("button", { name: /разрешить микрофон/i }));
 
@@ -163,7 +171,7 @@ describe("InterviewPage", () => {
     render(ui);
 
     expect(await screen.findByText(/уже пройдено/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /разрешить микрофон/i })).not.toBeInTheDocument();
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
   });
 
   it("shows an invalid-link message for an unknown token", async () => {

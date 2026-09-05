@@ -5,6 +5,7 @@ description = "Live-контур ИИ-интервьюера — реактив�
 requires-python = ">=3.11"
 dependencies = [
     "livekit-agents[openai,silero]~=1.7",
+    "livekit-plugins-fishaudio",
     "claude-agent-sdk",
     "pydantic>=2",
     "python-dotenv",
