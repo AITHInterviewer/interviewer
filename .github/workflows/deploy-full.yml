@@ -113,6 +113,7 @@ jobs:
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret
           LIVEKIT_WS_URL=ws://26.67.31.6:3907
+          PUBLIC_FRONTEND_URL=http://26.67.31.6:3000
           '@
 
       - name: Write frontend/.env
