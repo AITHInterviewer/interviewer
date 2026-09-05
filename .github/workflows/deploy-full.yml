@@ -50,6 +50,17 @@ jobs:
         shell: powershell
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Default clean: true runs `git clean -ffdx` first, which wipes ALL untracked
+          # files - including infra/tls/ (the issued Let's Encrypt cert, never committed,
+          # see acme service in infra/docker-compose.yml). That silently forced a brand new
+          # certificate issuance on every single deploy regardless of acme.sh's own
+          # skip-if-valid logic or the persisted acme-state volume, and is the real reason
+          # we hit Let's Encrypt's 5-certs/168h rate limit (2026-09-05). Every file this
+          # workflow itself needs fresh (backend/.env, frontend/.env, infra/livekit.yaml,
+          # live-agent/.env) is already fully overwritten by its own "Write ..." steps below,
+          # so disabling the clean has no other effect here.
+          clean: false
 
       - name: Reserve livekit UDP port range from Windows dynamic allocation
         # livekit-server binds a FIXED UDP range (50000-50100, see infra/livekit.yaml)
