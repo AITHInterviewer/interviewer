@@ -1,7 +1,9 @@
 name: deploy full stack (self-hosted)
 
-# Расширение deploy-dev.yml: помимо frontend+backend поднимает общую инфру (postgres,
-# redis, minio, livekit-server) и live-agent (+ его self-hosted stt/tts). evaluation-agent
+# Единственный деплой-workflow в репо (deploy-dev.yml/seed-demo-interview.yml убраны —
+# избыточны рядом с этим). Поднимает всё: общую инфру (postgres, redis, minio,
+# livekit-server) + backend/frontend + nginx (единая точка входа, см.
+# infra/nginx/nginx.conf) + live-agent (+ его self-hosted stt/tts). evaluation-agent
 # намеренно НЕ включает сам воркер — worker.py падает на NotImplementedError (см.
 # evaluation-agent/README.md, раздел «Статус»), это ожидаемо, не баг — поднимается только
 # его STT (stt-accurate), самостоятельная часть.
@@ -49,6 +51,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Reserve livekit UDP port range from Windows dynamic allocation
+        # livekit-server binds a FIXED UDP range (50000-50100, see infra/livekit.yaml)
+        # for RTC media. Windows/WSL2 (Docker Desktop's backend) hands out ports from its
+        # own dynamic/ephemeral range for unrelated outbound connections, and that range
+        # can overlap 50000-50100 - livekit-server then fails to bind with "Only one usage
+        # of each socket address...". `netsh ... excludedportrange` reserves the block so
+        # Windows won't hand any of it out to anything else; idempotent (errors harmlessly
+        # if already reserved) and, like the firewall rule below, may need elevation the
+        # runner account doesn't have - warn and continue rather than abort the deploy,
+        # since it's an environment fix, not something this workflow can guarantee.
+        # netsh is a native exe, not a cmdlet - failures (access denied, already
+        # reserved) come back as plain output + a non-zero exit code, not a catchable
+        # PowerShell exception, so check $LASTEXITCODE rather than try/catch here.
+        run: |
+          $output = netsh interface ipv4 add excludedportrange protocol=udp startport=50000 numberofports=101 store=persistent
+          if ($LASTEXITCODE -eq 0) {
+            Write-Output "reserved UDP 50000-50100 for livekit-server"
+          } else {
+            Write-Output "WARNING: could not reserve UDP 50000-50100 (netsh: $output) - livekit-server media may fail to bind; reserve it manually on the runner if so"
+          }
+
       - name: Ensure firewall rules for all service ports
         run: |
           # Ports 3901-3908 are this project's dedicated pool (see root README.md,
@@ -90,6 +113,16 @@ jobs:
               Write-Output "already exists: $name"
             }
           }
+
+      - name: Ensure shared Docker network between this stack and live-agent
+        # ainterviewer-net — общая сеть между двумя отдельными compose-проектами (этот
+        # стек и live-agent/docker-compose.yml), объявлена как external: true в обоих
+        # compose-файлах (сам Compose её не создаёт). Идемпотентно: игнорируем ошибку,
+        # если уже существует с прошлого запуска.
+        run: |
+          docker network create ainterviewer-net
+          $global:LASTEXITCODE = 0
+          Write-Output "ok"
 
       - name: Write backend/.env
         # backend/app/config.py requires all of these (no defaults) — without them
@@ -137,6 +170,26 @@ jobs:
           NEXT_DEV_ALLOWED_ORIGINS=26.67.31.6
           '@
 
+      - name: Write infra/livekit.yaml (with node_ip for this deploy)
+        # rtc.node_ip — какой IP livekit-server объявляет ICE-кандидатам как адрес для
+        # медиа. 26.67.31.6 — адрес этого раннера в Radmin VPN, тот же, через который
+        # реально ходит браузер кандидата. use_external_ip (STUN) сюда не годится — STUN
+        # находит РЕАЛЬНЫЙ публичный IP хоста через интернет-аплинк, а не VPN-адрес, и
+        # это две разные сети (см. infra/livekit.yaml, комментарий в checked-in версии).
+        run: |
+          Set-Content -Path infra/livekit.yaml -Encoding utf8 -Value @'
+          port: 7880
+          rtc:
+            tcp_port: 7881
+            port_range_start: 50000
+            port_range_end: 50100
+            node_ip: 26.67.31.6
+          keys:
+            devkey: secret
+          room:
+            auto_create: true
+          '@
+
       - name: Write live-agent/.env
         run: |
           Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
@@ -152,19 +205,16 @@ jobs:
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
           BACKEND_BASE_URL=http://backend:8000
           LIVE_AGENT_TOKEN=development-live-agent-token
-          LIVEKIT_URL=ws://host.docker.internal:3907
+          LIVEKIT_URL=ws://livekit-server:7880
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret
           '@
 
       - name: Build and (re)start infra + backend + frontend
-        # livekit-server исключён из этого прогона: его фиксированный UDP-диапазон
-        # 50000-50100 конфликтует с портами, которые Windows/WSL2 (Docker Desktop backend)
-        # резервирует динамически — "Only one usage of each socket address..." на одном из
-        # портов диапазона. Известная особенность Docker Desktop на Windows, не ошибка
-        # конфига; чинить отдельно (сузить диапазон и/или снять исключения через
-        # `netsh interface ipv4 show excludedportrange protocol=udp` на самой машине), не
-        # блокируя этим postgres/redis/minio.
+        # livekit-server теперь тоже здесь — см. шаг "Reserve livekit UDP port range"
+        # выше про обход конфликта его фиксированного UDP-диапазона с Windows/Docker
+        # Desktop. livekit-egress по-прежнему не включаю: непроверенный вживую сервис
+        # (см. infra/README.md), не стоит усложнять ради него резолюцию путей.
         # Explicit `down` before `up`, not `up --force-recreate`: force-recreate can start
         # the replacement container before Docker has fully released the old one's port
         # binding, producing "port is already allocated" (observed on minio:9000/tcp) —
@@ -178,7 +228,17 @@ jobs:
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
             up -d --build `
-            postgres redis minio backend frontend nginx
+            postgres redis minio livekit-server backend frontend nginx
+          # livekit-server отдельно, с --force-recreate: он читает infra/livekit.yaml
+          # через bind-mount — Compose не пересоздаёт контейнер только из-за того, что
+          # ИЗМЕНИЛОСЬ СОДЕРЖИМОЕ файла на хосте (сама конфигурация сервиса в compose не
+          # изменилась) — без этого контейнер продолжает работать со старым node_ip до
+          # следующего изменения самого docker-compose.yml. Не форсим остальные сервисы —
+          # незачем гонять их без нужды при каждом деплое.
+          docker compose --project-directory . `
+            -f docker-compose.dev.yml `
+            -f infra/docker-compose.yml `
+            up -d --force-recreate livekit-server
 
       - name: Build and (re)start live-agent (+ its stt/tts)
         run: |
@@ -225,6 +285,29 @@ jobs:
           }
           Write-Output "minio healthy"
 
+      - name: Wait for livekit-server
+        # No real health endpoint contract to rely on here (see infra/README.md - egress
+        # side of this service is untested, and this port isn't exercised by any test in
+        # the repo either) - a TCP connect on the signaling port is the best available
+        # signal. Soft warning, not a hard failure: unlike backend/minio, this service is
+        # known-fragile on this runner (UDP port range, see steps above) and shouldn't
+        # take down an otherwise-successful deploy of everything else.
+        run: |
+          $ok = $false
+          for ($i = 0; $i -lt 24; $i++) {
+            if ((Test-NetConnection -ComputerName localhost -Port 3907 -WarningAction SilentlyContinue).TcpTestSucceeded) {
+              $ok = $true
+              break
+            }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $ok) {
+            Write-Output "WARNING: livekit-server did not come up in time - check logs, see UDP port range steps above"
+            docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server --tail 100
+          } else {
+            Write-Output "livekit-server listening"
+          }
+
       - name: Report container status
         if: always()
         run: |
@@ -247,6 +330,6 @@ jobs:
           Write-Output "tts (live):          http://26.67.31.6:3906"
           Write-Output "minio console:       http://26.67.31.6:3904"
           Write-Output "postgres:            26.67.31.6:3901"
-          Write-Output "NOTE: livekit-server is not running this pass, see build step comment."
+          Write-Output "livekit signaling:   ws://26.67.31.6:3907 (also proxied at /rtc/ via nginx)"
           Write-Output "NOTE: live-agent LLM calls need claude login run once on this machine"
           Write-Output "under the runner service account, not done by this workflow."

@@ -1,6 +1,6 @@
 # Локальный дефолт (одна машина, без внешнего IP/VPN-разводки) — livekit-server и
 # клиент на одном хосте, доп. настройка ICE не нужна. Для деплоя на раннер за Radmin VPN
-# этот файл ПЕРЕЗАПИСЫВАЕТСЯ workflow'ом (см. .github/workflows/seed-demo-interview.yml,
+# этот файл ПЕРЕЗАПИСЫВАЕТСЯ workflow'ом (см. .github/workflows/deploy-full.yml,
 # шаг "Write infra/livekit.yaml") — там добавляется rtc.node_ip с адресом VPN-интерфейса.
 #
 # Почему не use_external_ip: true (STUN-автоопределение) — попробовали и откатили: STUN
