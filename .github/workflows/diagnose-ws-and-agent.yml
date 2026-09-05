@@ -10,7 +10,24 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: trigger one transcription attempt to create the snapshot dir scaffolding
+      - uses: actions/checkout@v4
+
+      - name: build the full whisper-small snapshot dir in the stt container
+        run: |
+          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q stt
+          $modelDir = "/root/.cache/huggingface/hub/models--Systran--faster-whisper-small"
+          $targetDir = "$modelDir/snapshots/536b0662742c02347bc0e980a01041f333bce120"
+          docker exec $containerId mkdir -p $targetDir
+          docker exec $containerId mkdir -p "$modelDir/refs"
+          docker cp live-agent/stt-assets/systran-faster-whisper-small/config.json "${containerId}:${targetDir}/config.json"
+          docker cp live-agent/stt-assets/systran-faster-whisper-small/tokenizer.json "${containerId}:${targetDir}/tokenizer.json"
+          docker cp live-agent/stt-assets/systran-faster-whisper-small/vocabulary.txt "${containerId}:${targetDir}/vocabulary.txt"
+          docker cp live-agent/stt-assets/systran-faster-whisper-small/refs-main "${containerId}:$modelDir/refs/main"
+          docker cp "C:\ai-interviewer-assets\Systranfaster-whisper-small.bin" "${containerId}:${targetDir}/model.bin"
+          docker exec $containerId ls -la $targetDir
+
+      - name: verify with a real transcription call
+        if: always()
         run: |
           Set-Content -Path probe_stt.py -Encoding utf8 -Value @'
           import struct, urllib.request, urllib.error
@@ -40,12 +57,6 @@ jobs:
               print(r.read()[:500])
           except urllib.error.HTTPError as e:
               print("STATUS", e.code)
-              print(e.read().decode("utf-8", "replace")[:500])
+              print(e.read().decode("utf-8", "replace")[:2000])
           '@
           Get-Content probe_stt.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
-
-      - name: list stt hub cache dirs
-        if: always()
-        run: |
-          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q stt
-          docker exec $containerId find /root/.cache/huggingface/hub -maxdepth 3
