@@ -7,7 +7,7 @@ import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/overlay";
+import { Modal, ModalActions } from "@/components/ui/overlay";
 import type { VacancyDetail } from "@/lib/api";
 import {
   archiveManagedVacancy,
@@ -237,11 +237,14 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
 
           <Modal open={archiveOpen} title="Архивировать вакансию?" onClose={() => setArchiveOpen(false)}>
             <p>
-              Вакансия уйдёт из активных. Новых приглашений не будет, уже выданные ссылки перестанут
-              открывать интервью.
+              «{vacancy.title}» уйдёт из активных. Новых приглашений не будет. Уже выданные ссылки мы
+              не отменяем — кандидаты смогут продолжить, если интервью ещё не завершено.
             </p>
             {error ? <p className="form-error">{error}</p> : null}
-            <div className="form-actions">
+            <ModalActions>
+              <Button type="button" variant="secondary" data-modal-initial-focus onClick={() => setArchiveOpen(false)}>
+                Отмена
+              </Button>
               <Button
                 type="button"
                 loading={lifecycleBusy}
@@ -258,10 +261,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
               >
                 Архивировать
               </Button>
-              <Button type="button" variant="secondary" onClick={() => setArchiveOpen(false)}>
-                Отмена
-              </Button>
-            </div>
+            </ModalActions>
           </Modal>
           </>
         ) : null}
