@@ -1,0 +1,21 @@
+name: diagnose tts cuda + redis (self-hosted, temporary)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  logs:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: tts image and recent log
+        continue-on-error: true
+        run: |
+          docker inspect live-agent-tts-1 --format "{{.Config.Image}}"
+          docker logs --tail 40 live-agent-tts-1
+
+      - name: live-agent redis publish check
+        continue-on-error: true
+        run: docker logs --tail 100 live-agent-live-agent-1
