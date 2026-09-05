@@ -103,11 +103,26 @@ def _backfill_recruiter_to_internal_user(bind: sa.engine.Connection) -> None:
 def upgrade() -> None:
     bind = op.get_bind()
 
-    _backfill_recruiter_to_internal_user(bind)
-
     # 1. `vacancy.recruiter_id` FK: recruiter.id → internal_users.id.
+    #
+    # Drop the OLD constraint before backfilling: the backfill's `UPDATE vacancy SET
+    # recruiter_id=<new internal_users id>` is itself an FK-checked write, and while the
+    # old `recruiter_id → recruiter.id` constraint is still in place, that new id (which
+    # by definition isn't a `recruiter.id`) is rejected by ITS OWN OLD CONSTRAINT before
+    # the new one even exists — found via a real ForeignKeyViolationError on the first
+    # backfill attempt (deploy run 33959285286: "Key (recruiter_id)=(...) is not present
+    # in table recruiter"). Order must be: drop old FK -> backfill -> add new FK.
     if bind.dialect.name == "postgresql":
         op.drop_constraint("vacancy_recruiter_id_fkey", "vacancy", type_="foreignkey")
+    else:
+        # SQLite не поддерживает ALTER TABLE ... DROP CONSTRAINT — batch-режим
+        # пересобирает таблицу целиком (см. 20260904_000001 для того же паттерна).
+        with op.batch_alter_table("vacancy") as batch_op:
+            batch_op.drop_constraint("vacancy_recruiter_id_fkey", type_="foreignkey")
+
+    _backfill_recruiter_to_internal_user(bind)
+
+    if bind.dialect.name == "postgresql":
         op.create_foreign_key(
             "vacancy_recruiter_id_fkey",
             "vacancy",
@@ -116,10 +131,7 @@ def upgrade() -> None:
             ["id"],
         )
     else:
-        # SQLite не поддерживает ALTER TABLE ... DROP CONSTRAINT — batch-режим
-        # пересобирает таблицу целиком (см. 20260904_000001 для того же паттерна).
         with op.batch_alter_table("vacancy") as batch_op:
-            batch_op.drop_constraint("vacancy_recruiter_id_fkey", type_="foreignkey")
             batch_op.create_foreign_key(
                 "vacancy_recruiter_id_fkey",
                 "internal_users",
