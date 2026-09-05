@@ -12,39 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Recreate stt with updated env (drop HF_HUB_OFFLINE, add XET disable)
-        run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --force-recreate stt
-
-      - name: Wait a moment for the server to come up
-        run: Start-Sleep -Seconds 5
-
-      - name: List currently loaded/available models
+      - name: Trigger a real transcription to force large-v3 model load
         continue-on-error: true
         run: |
-          try {
-            Invoke-WebRequest -Uri http://localhost:3905/v1/models -UseBasicParsing | Select-Object -ExpandProperty Content
-          } catch {
-            Write-Output "FAILED: $_"
-          }
-
-      - name: Trigger a real transcription to force model load (tiny silent wav)
-        continue-on-error: true
-        run: |
-          $wavBase64 = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA="
-          $bytes = [Convert]::FromBase64String($wavBase64)
-          [IO.File]::WriteAllBytes("silence.wav", $bytes)
-          $form = @{
-            file  = Get-Item "silence.wav"
-            model = "Systran/faster-whisper-large-v3"
-          }
-          try {
-            $response = Invoke-WebRequest -Uri http://localhost:3905/v1/audio/transcriptions -Method Post -Form $form -TimeoutSec 180 -UseBasicParsing
-            Write-Output "HTTP_STATUS:$($response.StatusCode)"
-            Write-Output $response.Content
-          } catch {
-            Write-Output "REQUEST FAILED: $_"
-          }
+          Get-Content live-agent/ensure_stt_model.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 - http://stt:8000 Systran/faster-whisper-large-v3
 
       - name: GPU process check after transcription attempt
         continue-on-error: true
@@ -52,7 +23,7 @@ jobs:
 
       - name: Inspect large-v3 cache dir
         continue-on-error: true
-        run: docker exec live-agent-stt-1 find /root/.cache/huggingface/hub -maxdepth 4 2>&1
+        run: docker exec live-agent-stt-1 find /root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3 -maxdepth 3 2>&1
 
       - name: Full STT logs
         run: docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 300
