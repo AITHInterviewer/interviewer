@@ -52,6 +52,7 @@ describe("DonePage", () => {
     );
     expect(screen.queryByRole("link", { name: /написать рекрутеру/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /к выбору роли/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: /подготовка к интервью/i })).not.toBeInTheDocument();
   });
 
   it("does not show the invitation deadline as a recruiter reply date", async () => {

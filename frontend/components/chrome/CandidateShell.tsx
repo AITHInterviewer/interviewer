@@ -4,13 +4,18 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
 import { BrandMark } from "@/components/chrome/AppShell";
+import { CandidatePrepProgress } from "@/components/chrome/CandidatePrepProgress";
+import type { CandidateStep } from "@/lib/candidate-flow";
 
 export function CandidateShell({
   children,
   vacancyTitle,
+  prepStep,
 }: {
   children: ReactNode;
   vacancyTitle?: string;
+  /** Текущий шаг подготовки. На done/extra/expired/request не передаём. */
+  prepStep?: CandidateStep;
 }) {
   const [offline, setOffline] = useState(false);
 
@@ -39,7 +44,10 @@ export function CandidateShell({
         </div>
       </header>
       <main className="candidate-shell__main">
-        <div className="candidate-shell__body">{children}</div>
+        <div className="candidate-shell__body">
+          {prepStep ? <CandidatePrepProgress current={prepStep} /> : null}
+          {children}
+        </div>
       </main>
     </div>
   );
