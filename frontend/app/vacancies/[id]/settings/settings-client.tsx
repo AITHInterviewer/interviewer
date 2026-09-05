@@ -145,45 +145,8 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
 
         {!vacancyLoading && vacancy ? (
           <>
-          <form className="form-surface" onSubmit={handleSubmit}>
-            <label>
-              Название
-              <input value={title} onChange={(event) => setTitle(event.target.value)} required />
-            </label>
-            <label>
-              Описание
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
-            </label>
-            <label>
-              Грейд
-              <input value={grade} onChange={(event) => setGrade(event.target.value)} required />
-            </label>
-            <label>
-              Обязательные навыки
-              <input
-                value={requiredSkills}
-                onChange={(event) => setRequiredSkills(event.target.value)}
-                placeholder="python, sql"
-              />
-            </label>
-            <label>
-              Желательные навыки
-              <input
-                value={niceToHaveSkills}
-                onChange={(event) => setNiceToHaveSkills(event.target.value)}
-                placeholder="docker, kubernetes"
-              />
-            </label>
-            {error ? <p className="form-error">{error}</p> : null}
-            {status ? <p className="success-message">{status}</p> : null}
-            <div className="form-actions">
-              <button className="button button--primary" type="submit" disabled={submitting}>
-                Сохранить
-              </button>
-            </div>
-          </form>
-
-          <section className="plain-section">
+          <section className="form-panel">
+            <div className="form-surface">
             <h2>Жизненный цикл</h2>
             <p>Сейчас: {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}.</p>
             {vacancy.status === "active" ||
@@ -231,7 +194,46 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
                 Пауза и архив доступны, когда вакансия одобрена, активна или уже на паузе.
               </p>
             )}
+            </div>
           </section>
+
+          <form className="form-panel form-surface" onSubmit={handleSubmit}>
+            <label>
+              Название
+              <input value={title} onChange={(event) => setTitle(event.target.value)} required />
+            </label>
+            <label>
+              Описание
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
+            </label>
+            <label>
+              Грейд
+              <input value={grade} onChange={(event) => setGrade(event.target.value)} required />
+            </label>
+            <label>
+              Обязательные навыки
+              <input
+                value={requiredSkills}
+                onChange={(event) => setRequiredSkills(event.target.value)}
+                placeholder="python, sql"
+              />
+            </label>
+            <label>
+              Желательные навыки
+              <input
+                value={niceToHaveSkills}
+                onChange={(event) => setNiceToHaveSkills(event.target.value)}
+                placeholder="docker, kubernetes"
+              />
+            </label>
+            {error ? <p className="form-error">{error}</p> : null}
+            {status ? <p className="success-message">{status}</p> : null}
+            <div className="form-actions">
+              <button className="button button--primary" type="submit" disabled={submitting}>
+                Сохранить
+              </button>
+            </div>
+          </form>
 
           <Modal open={archiveOpen} title="Архивировать вакансию?" onClose={() => setArchiveOpen(false)}>
             <p>

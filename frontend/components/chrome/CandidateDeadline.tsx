@@ -4,7 +4,7 @@ import { formatDeadlineDate } from "@/lib/candidate-flow";
 export function CandidateDeadline({ deadline }: { deadline?: string | null }) {
   const formatted = formatDeadlineDate(deadline);
   if (formatted) {
-    return <p>Срок: {formatted}.</p>;
+    return <p>Срок: {formatted}</p>;
   }
   return (
     <p>
