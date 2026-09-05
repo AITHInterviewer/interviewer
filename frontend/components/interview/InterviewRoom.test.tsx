@@ -40,7 +40,6 @@ vi.mock("@/lib/livekit-client", () => ({
       connect: vi.fn().mockResolvedValue(undefined),
       disconnect: vi.fn(),
       onAgentPresenceChange: vi.fn().mockReturnValue(() => {}),
-      onLocalSpeakingChange: vi.fn().mockReturnValue(() => {}),
       switchDevice: vi.fn().mockResolvedValue(undefined),
     };
     liveKitInstances.push(instance);
@@ -57,7 +56,7 @@ vi.mock("@/lib/api", () => ({
   }),
 }));
 
-const fakeStream = { getTracks: () => [] } as unknown as MediaStream;
+const fakeStream = { getTracks: () => [], getAudioTracks: () => [] } as unknown as MediaStream;
 
 describe("InterviewRoom", () => {
   beforeEach(() => {

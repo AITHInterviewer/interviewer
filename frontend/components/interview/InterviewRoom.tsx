@@ -31,8 +31,8 @@ export function InterviewRoom({
   const liveKitRef = useRef<LiveKitSession | null>(null);
   const [channelState, setChannelState] = useState<ChannelState>({ status: "connecting" });
   const [agentPresence, setAgentPresence] = useState<AgentPresence>("absent");
-  const [candidateSpeaking, setCandidateSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const candidateSpeaking = useMicSpeaking(stream);
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -47,7 +47,6 @@ export function InterviewRoom({
     const liveKit = new LiveKitSession();
     liveKitRef.current = liveKit;
     let unsubscribePresence: (() => void) | null = null;
-    let unsubscribeSpeaking: (() => void) | null = null;
 
     const unsubscribeChannel = channel.subscribe(setChannelState);
     channel.connect();
@@ -60,7 +59,6 @@ export function InterviewRoom({
       .then(() => {
         if (cancelled) return;
         unsubscribePresence = liveKit.onAgentPresenceChange(setAgentPresence);
-        unsubscribeSpeaking = liveKit.onLocalSpeakingChange(setCandidateSpeaking);
       })
       .catch((cause) => {
         if (!cancelled) setError(cause instanceof Error ? cause.message : "Не удалось подключиться к звонку");
@@ -71,7 +69,6 @@ export function InterviewRoom({
       liveKitRef.current = null;
       unsubscribeChannel();
       unsubscribePresence?.();
-      unsubscribeSpeaking?.();
       channel.close();
       liveKit.disconnect();
     };
@@ -96,11 +93,19 @@ export function InterviewRoom({
 
         <div className="space-y-3">
           <div
-            className={`aspect-video overflow-hidden rounded-xl border bg-muted/30 ${
-              candidateSpeaking ? "border-primary" : ""
+            className={`relative aspect-video overflow-hidden rounded-xl border-4 bg-muted/30 transition-colors duration-150 ${
+              candidateSpeaking ? "border-primary shadow-[0_0_0_4px_hsl(var(--primary)/0.25)]" : "border-transparent"
             }`}
           >
             <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+            <div
+              className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-white transition-opacity ${
+                candidateSpeaking ? "bg-primary opacity-100" : "opacity-0"
+              }`}
+            >
+              <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+              Вы говорите
+            </div>
           </div>
           <div
             className={`flex aspect-video items-center justify-center rounded-xl border text-sm ${
@@ -213,4 +218,53 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
       )}
     </div>
   );
+}
+
+/** Индикация речи кандидата — прямой анализ уровня микрофона через Web Audio
+ * AnalyserNode (тот же приём, что и в DeviceCheck.tsx, там подтверждённо работает),
+ * а не LiveKit `room.activeSpeakers` — тот теоретически тоже должен срабатывать, но
+ * не проверен вживую как надёжный источник для этой цели, а порог/задержка SFU-стороны
+ * не под нашим контролем. Простой RMS по последнему буферу, порог — эмпирический. */
+function useMicSpeaking(stream: MediaStream | null): boolean {
+  const [speaking, setSpeaking] = useState(false);
+
+  useEffect(() => {
+    if (!stream || stream.getAudioTracks().length === 0) {
+      setSpeaking(false);
+      return;
+    }
+    const AudioContextCtor =
+      window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+
+    const audioContext = new AudioContextCtor();
+    const source = audioContext.createMediaStreamSource(stream);
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let rafId: number;
+    const SPEAKING_THRESHOLD = 0.06;
+
+    const tick = () => {
+      analyser.getByteTimeDomainData(data);
+      let sumSquares = 0;
+      for (const sample of data) {
+        const normalized = (sample - 128) / 128;
+        sumSquares += normalized * normalized;
+      }
+      const rms = Math.sqrt(sumSquares / data.length);
+      setSpeaking(rms > SPEAKING_THRESHOLD);
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      audioContext.close().catch(() => {});
+    };
+  }, [stream]);
+
+  return speaking;
 }

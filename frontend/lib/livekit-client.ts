@@ -69,21 +69,6 @@ export class LiveKitSession {
     };
   }
 
-  /** Индикация речи самого кандидата (микрофон уже опубликован) — переиспользует тот же
-   * `activeSpeakers`, что и `onAgentPresenceChange`, вместо отдельного AnalyserNode. */
-  onLocalSpeakingChange(callback: (speaking: boolean) => void): () => void {
-    const emit = () => {
-      callback(this.room.activeSpeakers.some((speaker) => speaker.isLocal));
-    };
-
-    this.room.on(RoomEvent.ActiveSpeakersChanged, emit);
-    emit();
-
-    return () => {
-      this.room.off(RoomEvent.ActiveSpeakersChanged, emit);
-    };
-  }
-
   disconnect(): void {
     this.room.disconnect();
   }
