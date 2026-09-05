@@ -1,4 +1,4 @@
-name: diagnose silent interviewer (self-hosted, temporary)
+name: diagnose tts base url mismatch (self-hosted, temporary)
 
 on:
   workflow_dispatch: {}
@@ -10,10 +10,12 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: live-agent recent log
-        continue-on-error: true
-        run: docker logs --tail 200 live-agent-live-agent-1
+      - name: live-agent container env
+        run: docker exec live-agent-live-agent-1 env | Select-String "TTS|STT"
 
-      - name: tts recent log
+      - name: live-agent .env file on host
+        run: Get-Content live-agent/.env
+
+      - name: check for a baked-in .env inside the image
         continue-on-error: true
-        run: docker logs --tail 100 live-agent-tts-1
+        run: docker exec live-agent-live-agent-1 find / -maxdepth 3 -iname ".env*" 2>$null
