@@ -1,0 +1,35 @@
+name: diagnose stt/tts (self-hosted, temporary)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  logs:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: stt env
+        continue-on-error: true
+        run: docker exec live-agent-stt-1 env | Select-String "HF_|MODEL|WHISPER"
+
+      - name: stt model cache dir
+        continue-on-error: true
+        run: docker exec live-agent-stt-1 sh -c "find /root/.cache/huggingface -maxdepth 6 | head -100"
+
+      - name: stt model.bin size
+        continue-on-error: true
+        run: docker exec live-agent-stt-1 sh -c "ls -la /root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3/snapshots/*/ 2>&1"
+
+      - name: tts env
+        continue-on-error: true
+        run: docker exec live-agent-tts-1 env | Select-String "HF_|MODEL|CUDA|ONNX"
+
+      - name: tts nvidia-smi / gpu check
+        continue-on-error: true
+        run: docker exec live-agent-tts-1 sh -c "python3 -c 'import onnxruntime; print(onnxruntime.get_available_providers())' 2>&1"
+
+      - name: docker-compose config for stt/tts
+        continue-on-error: true
+        run: Get-Content live-agent/docker-compose.yml
