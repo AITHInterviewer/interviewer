@@ -56,6 +56,14 @@ services:
       # medium — компромисс: заметно точнее, инференс на CPU всё ещё в единицы секунд
       # (не измеряли точно медиан для medium — если окажется медленно, откатить на small).
       - WHISPER__MODEL=Systran/faster-whisper-medium
+      # Реальный найденный баг (2026-09-05): даже с моделью, уже скачанной в stt-cache,
+      # huggingface_hub при каждом запросе транскрипции лезет в сеть на тот же
+      # нестабильный CDN-хост HuggingFace (us.aws.cdn.hf.co — та же проблема, что и с
+      # TTS-моделью, см. infra/livekit.yaml/live-agent/ensure_tts_model.py), проверяя
+      # актуальность модели — TimeoutError/ReadTimeout там роняет весь запрос в 500,
+      # хотя сама модель локально есть и транскрипция вообще не нужна была бы по сети.
+      # HF_HUB_OFFLINE=1 — не ходить в сеть, когда модель уже в локальном кэше.
+      - HF_HUB_OFFLINE=1
     volumes:
       - stt-cache:/root/.cache/huggingface
 
