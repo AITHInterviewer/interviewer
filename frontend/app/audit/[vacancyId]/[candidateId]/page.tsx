@@ -81,27 +81,37 @@ export default function AuditCandidatePage() {
         {interview ? (
           <>
             <PageHeader
-              path={`Аудит / ${params.vacancyId}`}
+              path="Аудит эксперта"
               title={interview.candidate_name ?? "Кандидат без имени"}
-              description="Это просмотр для эксперта. Пригласить или передать менеджеру отсюда нельзя."
+              description="Просмотр для эксперта: смотрите ответы и решайте, хватает ли данных. Приглашать и передавать менеджеру отсюда нельзя."
             />
             <section className="plain-section">
-              <h2>Статус аудита</h2>
-              <p>{auditInQueue ? "requested" : "нет в очереди"}</p>
+              <h2>Запрос рекрутера</h2>
+              <p>
+                {auditInQueue
+                  ? "Рекрутер попросил ваш взгляд на этот отчёт."
+                  : "Этот отчёт в вашей очереди не числится: вы открыли его по ссылке."}
+              </p>
             </section>
             <section className="plain-section">
-              <h2>Ответы</h2>
-              <p>Статус отчёта: {interview.report_status ?? "обрабатывается"}.</p>
+              <h2>Ответы кандидата</h2>
               {events?.answers.length ? (
-                <ul>
+                <ul className="stack-list">
                   {events.answers.map((answer) => (
-                    <li key={answer.id}>
-                      {answer.question_text ?? "Вопрос"}: {answer.transcript_text ?? "текста нет"}
+                    <li className="answer-record" key={answer.id}>
+                      <strong>{answer.question_text ?? "Вопрос без текста"}</strong>
+                      {answer.transcript_text ? (
+                        <blockquote>{answer.transcript_text}</blockquote>
+                      ) : (
+                        <p className="muted-copy">Расшифровка этого ответа ещё не готова.</p>
+                      )}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p>Расшифровки в карточке нет. Если события закрыты для роли эксперта, здесь останется этот текст.</p>
+                <p className="muted-copy">
+                  Расшифровок пока нет. Они появятся, когда ответы обработаются.
+                </p>
               )}
             </section>
           </>

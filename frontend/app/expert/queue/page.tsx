@@ -59,7 +59,11 @@ export default function ExpertQueuePage() {
   return (
     <AppShell nav={buildNav(landing)} title="Аудиты">
       <div className="workspace">
-        <PageHeader path="Эксперт / Аудиты" title="Аудиты" />
+        <PageHeader
+          path="Эксперт"
+          title="Аудиты отчётов"
+          description="Отчёты, по которым рекрутер попросил взгляд эксперта."
+        />
         {queueLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем аудиты…" /> : null}
         {error ? <ScreenState kind="error" title="Аудиты недоступны" text={error} /> : null}
         {!queueLoading && !error ? (

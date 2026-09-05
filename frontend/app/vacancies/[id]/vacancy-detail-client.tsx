@@ -70,8 +70,8 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
 
   async function refreshVacancy() {
     try {
-      setVacancyError(null);
       const detail = await loadVacancy(vacancyId);
+      setVacancyError(null);
       setVacancy(detail);
     } catch (caughtError) {
       setVacancyError(normalizeError(caughtError, "Не удалось загрузить вакансию."));
@@ -82,8 +82,8 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
 
   async function refreshInterviews() {
     try {
-      setInterviewsError(null);
       const response = await loadInterviews(vacancyId);
+      setInterviewsError(null);
       setInterviews(response.items);
     } catch (caughtError) {
       setInterviewsError(normalizeError(caughtError, "Не удалось загрузить интервью."));
@@ -96,6 +96,9 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     if (!landing) {
       return;
     }
+    // Первичная загрузка данных экрана: состояние меняется уже после await,
+    // но правило видит вызов из тела эффекта. Каскадных перерисовок здесь нет.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshVacancy();
     if (showAnonymized) {
       loadAnonymizedStats(vacancyId)
@@ -149,7 +152,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   async function handleCreateInterview(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!resumeFile) {
-      setInterviewFormError("Нужен файл резюме.");
+      setInterviewFormError("Приложите резюме: без него эксперт не поймёт контекст ответов.");
       return;
     }
 
@@ -341,7 +344,10 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
 
                 {canManage ? (
                   <form className="form-surface" onSubmit={handleCreateInterview}>
-                    <p className="path">Пригласить кандидата</p>
+                    <h2>Пригласить кандидата</h2>
+                    <p className="muted-copy">
+                      Система готовит ссылку и копирует её в буфер. Письмо кандидату отправляете вы.
+                    </p>
                     <label>
                       Имя кандидата (необязательно)
                       <input
@@ -351,12 +357,15 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                       />
                     </label>
                     <label>
-                      Файл резюме
+                      Резюме кандидата
                       <input
                         type="file"
                         onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
                         disabled={!canInvite}
                       />
+                      <span className="field-hint">
+                        Резюме увидят эксперт и нанимающий менеджер рядом с отчётом.
+                      </span>
                     </label>
                     {interviewFormError ? <p className="form-error">{interviewFormError}</p> : null}
                     <div className="form-actions">

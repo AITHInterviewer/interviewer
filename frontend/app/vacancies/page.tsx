@@ -46,7 +46,6 @@ export default function VacanciesPage() {
     }
 
     let cancelled = false;
-    setVacanciesLoading(true);
 
     loadVacancies()
       .then((response) => {

@@ -49,10 +49,6 @@ export function buildNav(
     nav.push({ href: "/internal/users", label: "Пользователи" });
   }
 
-  if (seenPaths.has("/expert") && !seenPaths.has("/expert/queue")) {
-    nav.push({ href: "/expert/queue", label: "Аудиты" });
-  }
-
   if (options?.includeDemo && !seenPaths.has("/vacancies/demo/board")) {
     nav.push({ href: "/vacancies/demo/board", label: "Демо: отчёт" });
   }

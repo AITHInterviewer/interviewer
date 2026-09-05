@@ -91,7 +91,8 @@ export default function VacancyBriefPage() {
             ) : null}
             {stats ? (
               <p>
-                Приглашено: {stats.invited}. Завершили: {stats.completed}. Ждут решения: {stats.awaiting_decision}.
+                Приглашено {stats.invited}, интервью прошли {stats.completed}, решения ждут{" "}
+                {stats.awaiting_decision}. Имён здесь нет: бриф обезличен.
               </p>
             ) : null}
           </>

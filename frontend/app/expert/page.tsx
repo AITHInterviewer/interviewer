@@ -57,27 +57,31 @@ export default function ExpertHomePage() {
   return (
     <AppShell nav={buildNav(landing)} title="Эксперт">
       <div className="workspace">
-        <PageHeader path="Эксперт" title="Очереди" />
+        <PageHeader
+          title="Что ждёт вас"
+          description="Сверху вакансии, которым нужна рубрика и вопросы. Ниже отчёты, по которым рекрутер попросил ваш взгляд."
+        />
         {queueLoading ? <ScreenState kind="loading" title="Загрузка" text="Собираем очередь…" /> : null}
         {error ? <ScreenState kind="error" title="Очередь недоступна" text={error} /> : null}
         {queue ? (
           <>
             <section className="plain-section">
-              <h2>Калибровка</h2>
+              <h2>Вакансии на калибровке</h2>
               {queue.calibrations.length > 0 ? (
                 <ul className="stack-list">
                   {queue.calibrations.map((vacancy) => (
                     <li key={vacancy.id}>
                       <Link href={`/vacancies/${vacancy.id}/rubric`}>{vacancy.title}</Link>
+                      <span className="muted-copy"> · {vacancy.grade}, требований {vacancy.required_skills.length}</span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p>Вакансий на калибровке нет.</p>
+                <p className="muted-copy">Новых вакансий на калибровку нет.</p>
               )}
             </section>
             <section className="plain-section">
-              <h2>Аудиты</h2>
+              <h2>Отчёты на аудит</h2>
               {queue.audits.length > 0 ? (
                 <ul className="stack-list">
                   {queue.audits.map((item) => (

@@ -77,7 +77,6 @@ export default function VacancyCandidatePage() {
       return;
     }
     let cancelled = false;
-    setPageLoading(true);
 
     async function loadCard() {
       try {

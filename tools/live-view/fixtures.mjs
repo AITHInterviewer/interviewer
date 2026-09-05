@@ -207,7 +207,7 @@ export function respond(pathname) {
       ],
     };
   if (/\/vacancies\/[^/]+\/anonymized-stats$/.test(p))
-    return { invited: 7, completed: 4, report_ready: 3, expired: 0 };
+    return { invited: 7, completed: 4, awaiting_decision: 3 };
   if (/\/vacancies\/[^/]+$/.test(p)) return { ...fixtures.vacancies[0], questions: fixtures.questions };
   if (/\/interviews\/[^/]+\/events$/.test(p))
     return {

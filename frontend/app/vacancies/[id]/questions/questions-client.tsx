@@ -61,8 +61,8 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
 
   async function refreshVacancy() {
     try {
-      setVacancyError(null);
       const detail = await loadVacancy(vacancyId);
+      setVacancyError(null);
       setVacancy(detail);
     } catch (caughtError) {
       setVacancyError(normalizeError(caughtError, "Не удалось открыть вакансию."));
@@ -75,6 +75,9 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
     if (!landing) {
       return;
     }
+    // Первичная загрузка данных экрана: состояние меняется уже после await,
+    // но правило видит вызов из тела эффекта. Каскадных перерисовок здесь нет.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshVacancy();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landing, vacancyId]);
