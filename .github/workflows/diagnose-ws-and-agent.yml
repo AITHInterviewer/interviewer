@@ -12,6 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: livekit-server logs (full, no tail limit)
+      - name: inspect AgentSession.start signature and docstring
         run: |
-          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server
+          Set-Content -Path probe_sig.py -Encoding utf8 -Value @'
+          import inspect
+          from livekit.agents import AgentSession
+          print(inspect.signature(AgentSession.start))
+          print("---docstring---")
+          print(AgentSession.start.__doc__)
+          '@
+          Get-Content probe_sig.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
