@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 
+import { ChevronLeft, ChevronRight, Check, Camera, Mic, Volume2, MoreVertical } from "lucide-react";
+
 import { apiFetch } from "@/lib/api";
 import { ControlChannel, type ChannelState } from "@/lib/control-channel";
 import { LiveKitSession, type AgentPresence } from "@/lib/livekit-client";
@@ -106,6 +108,9 @@ export function InterviewRoom({
               <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
               Вы говорите
             </div>
+            <div className="absolute right-2 top-2">
+              <DeviceSettings liveKitRef={liveKitRef} />
+            </div>
           </div>
           <div
             className={`flex aspect-video items-center justify-center rounded-xl border text-sm ${
@@ -114,7 +119,6 @@ export function InterviewRoom({
           >
             {agentPresence === "speaking" ? "Интервьюер говорит…" : agentPresence === "present" ? "Интервьюер" : "Ожидаем интервьюера…"}
           </div>
-          <DeviceSettings liveKitRef={liveKitRef} />
         </div>
       </div>
     </div>
@@ -139,14 +143,23 @@ function StatusLine({ channelState }: { channelState: ChannelState }) {
 const CAN_SELECT_OUTPUT_DEVICE =
   typeof window !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
 
+type DeviceRow = { kind: MediaDeviceKind; icon: typeof Camera; label: string; devices: MediaDeviceInfo[] };
+type MenuView = "main" | MediaDeviceKind;
+
 /** Переключение камеры/микрофона/динамика прямо во время звонка — как в Zoom/Meet, не
  * только на экране подготовки. Список устройств — тот же `enumerateDevices`, доступ уже
- * выдан (`DeviceCheck`), лейблы у устройств не пустые. */
+ * выдан (`DeviceCheck`), лейблы у устройств не пустые. Меню — в стиле "..." попапа
+ * Google Meet: карточка с рядами иконка+название+шеврон, клик по ряду открывает список
+ * устройств этого вида (radio-стиль с галочкой у текущего), "назад" возвращает в главное
+ * меню. */
 function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSession | null> }) {
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<MenuView>("main");
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([]);
+  const [selected, setSelected] = useState<Partial<Record<MediaDeviceKind, string>>>({});
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -157,62 +170,100 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
     });
   }, [open]);
 
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpen(false);
+        setView("main");
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [open]);
+
   const switchDevice = (kind: MediaDeviceKind, deviceId: string) => {
+    setSelected((current) => ({ ...current, [kind]: deviceId }));
     void liveKitRef.current?.switchDevice(kind, deviceId);
+    setView("main");
   };
 
+  const rows: DeviceRow[] = [
+    { kind: "videoinput", icon: Camera, label: "Камера", devices: cameras },
+    { kind: "audioinput", icon: Mic, label: "Микрофон", devices: microphones },
+    ...(CAN_SELECT_OUTPUT_DEVICE
+      ? [{ kind: "audiooutput" as const, icon: Volume2, label: "Динамики", devices: speakers }]
+      : []),
+  ];
+
   return (
-    <div className="rounded-xl border bg-card p-3 text-sm">
+    <div ref={menuRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-between text-muted-foreground"
+        aria-label="Настройки устройств"
+        className="flex h-9 w-9 items-center justify-center rounded-full border bg-card text-muted-foreground hover:bg-muted"
       >
-        <span>Настройки устройств</span>
-        <span>{open ? "▲" : "▼"}</span>
+        <MoreVertical className="h-4 w-4" />
       </button>
+
       {open && (
-        <div className="mt-3 space-y-2">
-          <label className="block space-y-1">
-            <span className="text-muted-foreground">Камера</span>
-            <select
-              className="w-full rounded-md border bg-background px-2 py-1.5"
-              onChange={(event) => switchDevice("videoinput", event.target.value)}
-            >
-              {cameras.map((camera) => (
-                <option key={camera.deviceId} value={camera.deviceId}>
-                  {camera.label || "Камера"}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block space-y-1">
-            <span className="text-muted-foreground">Микрофон</span>
-            <select
-              className="w-full rounded-md border bg-background px-2 py-1.5"
-              onChange={(event) => switchDevice("audioinput", event.target.value)}
-            >
-              {microphones.map((mic) => (
-                <option key={mic.deviceId} value={mic.deviceId}>
-                  {mic.label || "Микрофон"}
-                </option>
-              ))}
-            </select>
-          </label>
-          {CAN_SELECT_OUTPUT_DEVICE && (
-            <label className="block space-y-1">
-              <span className="text-muted-foreground">Динамики</span>
-              <select
-                className="w-full rounded-md border bg-background px-2 py-1.5"
-                onChange={(event) => switchDevice("audiooutput", event.target.value)}
+        <div className="absolute right-0 top-11 z-10 w-72 overflow-hidden rounded-xl border bg-popover text-sm shadow-lg">
+          {view === "main" ? (
+            <div className="py-1">
+              {rows.map((row, index) => {
+                const Icon = row.icon;
+                const current = row.devices.find((d) => d.deviceId === selected[row.kind]) ?? row.devices[0];
+                return (
+                  <button
+                    key={row.kind}
+                    type="button"
+                    onClick={() => setView(row.kind)}
+                    className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted ${
+                      index > 0 ? "border-t" : ""
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-muted-foreground">{row.label}</span>
+                      <span className="block truncate">{current?.label || "По умолчанию"}</span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="py-1">
+              <button
+                type="button"
+                onClick={() => setView("main")}
+                className="flex w-full items-center gap-3 border-b px-4 py-3 text-left font-medium hover:bg-muted"
               >
-                {speakers.map((speaker) => (
-                  <option key={speaker.deviceId} value={speaker.deviceId}>
-                    {speaker.label || "Динамики"}
-                  </option>
+                <ChevronLeft className="h-4 w-4 shrink-0" />
+                {rows.find((row) => row.kind === view)?.label}
+              </button>
+              {rows
+                .find((row) => row.kind === view)
+                ?.devices.map((device) => (
+                  <button
+                    key={device.deviceId}
+                    type="button"
+                    onClick={() => switchDevice(view as MediaDeviceKind, device.deviceId)}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-muted"
+                  >
+                    <Check
+                      className={`h-4 w-4 shrink-0 ${
+                        (selected[view] ?? rows.find((row) => row.kind === view)?.devices[0]?.deviceId) ===
+                        device.deviceId
+                          ? "opacity-100"
+                          : "opacity-0"
+                      }`}
+                    />
+                    <span className="truncate">{device.label || "Устройство"}</span>
+                  </button>
                 ))}
-              </select>
-            </label>
+            </div>
           )}
         </div>
       )}
@@ -230,7 +281,6 @@ function useMicSpeaking(stream: MediaStream | null): boolean {
 
   useEffect(() => {
     if (!stream || stream.getAudioTracks().length === 0) {
-      setSpeaking(false);
       return;
     }
     const AudioContextCtor =
@@ -263,6 +313,7 @@ function useMicSpeaking(stream: MediaStream | null): boolean {
     return () => {
       cancelAnimationFrame(rafId);
       audioContext.close().catch(() => {});
+      setSpeaking(false);
     };
   }, [stream]);
 
