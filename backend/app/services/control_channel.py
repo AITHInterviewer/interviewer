@@ -47,6 +47,11 @@ class ControlEvent(TypedDict, total=False):
     input_format: str | None
     code_language: str | None
     ts: str
+    # question_index/questions_total — только у type="question" (роадмап прогресса на
+    # фронте, US2). Для checkin/adaptive_question сознательно не заполняются — это НЕ
+    # отдельные шаги роадмапа, а уточнения в рамках текущего оригинального вопроса.
+    question_index: int | None
+    questions_total: int | None
 
 
 def redis_channel_name(interview_id: str) -> str:
@@ -100,7 +105,7 @@ async def to_control_event(session: AsyncSession, raw_event: dict[str, Any]) -> 
 
     input_format, code_language = await _resolve_input_format(session, question_id)
     payload = raw_event.get("payload", {})
-    return ControlEvent(
+    event = ControlEvent(
         type=control_type,
         question_id=question_id,
         text=payload.get("text"),
@@ -108,6 +113,10 @@ async def to_control_event(session: AsyncSession, raw_event: dict[str, Any]) -> 
         code_language=code_language,
         ts=ts,
     )
+    if control_type == "question":
+        event["question_index"] = payload.get("index")
+        event["questions_total"] = payload.get("questions_total")
+    return event
 
 
 async def subscribe_raw_events(redis: Redis, interview_id: str) -> AsyncIterator[dict[str, Any]]:

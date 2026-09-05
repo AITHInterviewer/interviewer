@@ -98,7 +98,7 @@ class LiveContourEngine:
             "candidate_name": self.state.input.candidate.name,
             "questions_total": len(self.state.input.questions),
         })
-        return self._enter_question()
+        return await self._enter_question()
 
     async def on_candidate_final_turn(self, text: str) -> str | None:
         """Кандидат закончил реплику (final STT-транскрипт одного хода).
@@ -154,13 +154,13 @@ class LiveContourEngine:
             return None
 
         if decision.decision == Decision.EXHAUSTIVE:
-            return self._advance_to_next_question(reason="exhaustive")
+            return await self._advance_to_next_question(reason="exhaustive")
 
         if decision.decision == Decision.AMBIGUOUS:
             if cur.checkin_used:
                 # раздел 2.3.1: не более одного чек-ина подряд — второй раз не спрашиваем,
                 # просто считаем ответ завершённым, чтобы не зациклиться.
-                return self._advance_to_next_question(reason="checkin_exhausted")
+                return await self._advance_to_next_question(reason="checkin_exhausted")
             cur.checkin_used = True
             self.events.emit(EventType.CHECKIN_USED, question_id=cur.question.id)
             import random
@@ -170,23 +170,23 @@ class LiveContourEngine:
             return phrase
 
         if decision.decision == Decision.GAP:
-            return self._handle_gap(decision)
+            return await self._handle_gap(decision)
 
         raise AssertionError(f"неизвестное решение: {decision.decision}")
 
-    def _handle_gap(self, decision) -> str:
+    async def _handle_gap(self, decision) -> str:
         cur = self.state.current
         assert cur is not None and decision.gap_type is not None
 
         if decision.gap_type == GapType.LEADING_HINT and cur.hint_used:
             # раздел 2.3.1: не более одной подсказки на вопрос — вторая попытка не даётся,
             # считаем ответ данным (со слабым сигналом, это увидит batch-контур по логу).
-            return self._advance_to_next_question(reason="hint_budget_exhausted")
+            return await self._advance_to_next_question(reason="hint_budget_exhausted")
 
         if self.state.adaptive_budget_remaining <= 0:
             # общий бюджет интервью исчерпан (раздел 2.3.1: 3-4 суммарно) — переходим дальше,
             # даже если формально есть ещё пробел; это компромисс длительности, не идёт молча.
-            return self._advance_to_next_question(reason="adaptive_budget_exhausted")
+            return await self._advance_to_next_question(reason="adaptive_budget_exhausted")
 
         if decision.gap_type == GapType.LEADING_HINT:
             cur.hint_used = True
@@ -205,7 +205,7 @@ class LiveContourEngine:
         self._say(cur.question.id, GAP_TYPE_LABELS[decision.gap_type], utterance)
         return utterance
 
-    def _advance_to_next_question(self, reason: str) -> str:
+    async def _advance_to_next_question(self, reason: str) -> str:
         cur = self.state.current
         assert cur is not None
         self.events.emit(EventType.QUESTION_COMPLETED, question_id=cur.question.id, payload={"reason": reason})
@@ -225,12 +225,15 @@ class LiveContourEngine:
 
         transition = random.choice(EXHAUSTIVE_TRANSITION_PHRASES)
         self.state.question_index += 1
-        next_question_intro = self._enter_question()
+        next_question_intro = await self._enter_question()
         return f"{transition} {next_question_intro}"
 
-    def _enter_question(self) -> str:
+    async def _enter_question(self) -> str:
         """Загружает СЛЕДУЮЩИЙ вопрос как единственный контекст (предыдущий отбрасывается —
-        буквальная реализация требования "контекст только текущий вопрос")."""
+        буквальная реализация требования "контекст только текущий вопрос") — включая LLM-
+        сессию: `llm.reset()` пересоздаёт `ClaudeSDKClient` (см. llm_client.py), чтобы
+        разговор с моделью не тянулся из прошлого вопроса."""
+        await self.llm.reset()
         question = self.state.current_question
         self.state.current = QuestionRunState(question=question)
         self.state.phase = Phase.ASKING
@@ -239,6 +242,7 @@ class LiveContourEngine:
             question_id=question.id,
             payload={
                 "index": self.state.question_index,
+                "questions_total": len(self.state.input.questions),
                 "text": question.text,
                 "skill_tag": question.skill_tag,
                 "difficulty": question.difficulty.value,

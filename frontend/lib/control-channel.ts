@@ -21,6 +21,10 @@ export type ControlEvent = {
   input_format: InputFormat;
   code_language?: string | null;
   ts: string;
+  // Только у type="question" (роадмап прогресса, US2) — checkin/adaptive_question их не
+  // несут, это уточнения в рамках текущего вопроса, не отдельный шаг роадмапа.
+  question_index?: number | null;
+  questions_total?: number | null;
 };
 
 export type CandidateInput = {

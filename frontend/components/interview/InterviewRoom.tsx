@@ -35,6 +35,26 @@ export function InterviewRoom({
   const [agentPresence, setAgentPresence] = useState<AgentPresence>("absent");
   const [error, setError] = useState<string | null>(null);
   const candidateSpeaking = useMicSpeaking(stream);
+  // Роадмап считает только "оригинальные" вопросы (ControlEvent.type === "question") —
+  // checkin/adaptive_question не несут question_index/questions_total (см.
+  // control-channel.ts) и намеренно не двигают роадмап: это уточнения в рамках текущего
+  // вопроса, не отдельный шаг. Держим последний известный index/total отдельно от
+  // channelState, потому что тот может в любой момент стать checkin-событием.
+  const [roadmap, setRoadmap] = useState<{ index: number; total: number } | null>(null);
+  // Не useEffect, а "adjusting state during render" (react.dev/learn/you-might-not-need-an-effect,
+  // «Storing information from previous renders») — refs недоступны во время рендера
+  // (react-hooks/refs), поэтому "предыдущее" значение хранится тоже в state.
+  const [lastRoadmapEvent, setLastRoadmapEvent] = useState<unknown>(null);
+  if (
+    (channelState.status === "question_active" || channelState.status === "completed") &&
+    channelState.event !== lastRoadmapEvent
+  ) {
+    setLastRoadmapEvent(channelState.event);
+    const { event } = channelState;
+    if (event.type === "question" && event.question_index != null && event.questions_total != null) {
+      setRoadmap({ index: event.question_index, total: event.questions_total });
+    }
+  }
 
   useEffect(() => {
     if (videoRef.current && stream) {
@@ -86,8 +106,15 @@ export function InterviewRoom({
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-[1fr_260px]">
-        <div className="flex min-h-[220px] flex-col justify-center gap-4 rounded-xl border bg-card p-6">
+      {roadmap && <Roadmap index={roadmap.index} total={roadmap.total} />}
+
+      {/* 260px справа — камера кандидата + плашка интервьюера, симметричный пустой
+          спейсер слева той же ширины, чтобы центральная колонка с вопросом была
+          визуально центрирована в viewport, а не просто занимала оставшийся `1fr`. */}
+      <div className="grid gap-4 sm:grid-cols-[260px_1fr_260px]">
+        <div className="hidden sm:block" aria-hidden="true" />
+
+        <div className="flex min-h-[220px] flex-col items-center justify-center gap-4 rounded-xl border bg-card p-6 text-center">
           <p className="text-xl font-medium leading-snug">{questionText ?? "Подключаемся к интервью…"}</p>
           <StatusLine channelState={channelState} />
           {error && <p className="text-sm text-destructive">{error}</p>}
@@ -126,6 +153,38 @@ export function InterviewRoom({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** US2 — прогресс по ОРИГИНАЛЬНЫМ вопросам, роадмапом сверху. Адаптивные/чек-ин вопросы
+ * сюда намеренно не попадают (см. control-channel.ts) — только `total` кружков-шагов на
+ * оригинальные вопросы вакансии, текущий выделен, пройденные помечены галочкой. */
+function Roadmap({ index, total }: { index: number; total: number }) {
+  return (
+    <div className="flex items-center justify-center gap-2">
+      {Array.from({ length: total }, (_, i) => {
+        const isDone = i < index;
+        const isCurrent = i === index;
+        return (
+          <div key={i} className="flex items-center gap-2">
+            <div
+              className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs font-medium transition-colors ${
+                isCurrent
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : isDone
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-muted-foreground/30 text-muted-foreground"
+              }`}
+            >
+              {isDone ? <Check className="h-3.5 w-3.5" /> : i + 1}
+            </div>
+            {i < total - 1 && (
+              <div className={`h-0.5 w-6 rounded-full sm:w-10 ${isDone ? "bg-primary/40" : "bg-muted-foreground/20"}`} />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

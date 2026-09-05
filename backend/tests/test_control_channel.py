@@ -29,8 +29,31 @@ async def test_question_started_maps_to_question_with_input_format_none(db_sessi
         "input_format": "none",
         "code_language": None,
         "ts": "2026-09-04T10:00:00Z",
+        "question_index": None,
+        "questions_total": None,
     }
     assert interview.status == "created"  # интервью не тронуто — control_channel не решает
+
+
+@pytest.mark.anyio
+async def test_question_started_carries_index_and_total_for_roadmap(db_session: AsyncSession) -> None:
+    """US2 — роадмап прогресса на фронте: question_index/questions_total из payload
+    live-agent прокидываются в ControlEvent как есть."""
+    interview = await seed_demo_interview(db_session, question_count=1)
+    question = (await db_session.execute(select(Question))).scalar_one()
+
+    event = await to_control_event(
+        db_session,
+        {
+            "type": "question_started",
+            "question_id": str(question.id),
+            "payload": {"text": "...", "index": 2, "questions_total": 5},
+        },
+    )
+
+    assert event is not None
+    assert event["question_index"] == 2
+    assert event["questions_total"] == 5
 
 
 @pytest.mark.anyio
