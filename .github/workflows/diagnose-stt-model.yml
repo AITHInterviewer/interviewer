@@ -1,0 +1,31 @@
+name: diagnose STT model load (self-hosted)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: List currently loaded/available models
+        run: |
+          docker exec live-agent-stt-1 curl -s http://localhost:8000/v1/models
+
+      - name: Trigger a real transcription to force model load (tiny silent wav)
+        run: |
+          # 1-second silence, 16kHz mono WAV, base64-embedded so no external file needed.
+          $wavBase64 = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA="
+          $bytes = [Convert]::FromBase64String($wavBase64)
+          [IO.File]::WriteAllBytes("silence.wav", $bytes)
+          docker cp silence.wav live-agent-stt-1:/tmp/silence.wav
+          Write-Output "--- transcription attempt (this triggers the large-v3 GPU model load if not already loaded) ---"
+          docker exec live-agent-stt-1 curl -s -w "`nHTTP_STATUS:%{http_code}`n" -X POST http://localhost:8000/v1/audio/transcriptions -F "file=@/tmp/silence.wav" -F "model=Systran/faster-whisper-large-v3"
+
+      - name: GPU process check after transcription attempt
+        run: docker exec live-agent-stt-1 nvidia-smi
+
+      - name: Recent STT logs
+        run: docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 100
