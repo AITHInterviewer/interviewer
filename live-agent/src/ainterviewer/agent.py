@@ -65,7 +65,24 @@ class InterviewerAgent(Agent):
     def __init__(self, engine: LiveContourEngine):
         # instructions не используется: llm_node переопределён целиком и не обращается
         # к self.llm/instructions — управление полностью у LiveContourEngine.
-        super().__init__(instructions="см. LiveContourEngine — весь промпт строится там")
+        #
+        # llm= — реальный найденный баг (2026-09-05): без него self.llm остаётся None, и
+        # фреймворк (agent_activity.py, _AgentActivity.on_end_of_turn) молча пропускает
+        # ВСЮ генерацию ответа целиком строкой "elif self.llm is None: return  # skip
+        # response if no llm is set" — ДО того, как вообще успевает дойти до вызова
+        # llm_node. Наш llm_node полностью переопределён и не обращается к self.llm вообще
+        # (см. ниже), так что сюда достаточно любого нефиктивного объекта — реального
+        # HTTP-запроса к нему никогда не будет. STT_BASE_URL — просто уже гарантированно
+        # резолвящийся внутри сети хост, эндпоинт /chat/completions там не нужен и не
+        # вызывается.
+        super().__init__(
+            instructions="см. LiveContourEngine — весь промпт строится там",
+            llm=lk_openai.LLM(
+                base_url=os.environ["STT_BASE_URL"],
+                api_key="not-needed",
+                model="unused-llm-node-is-fully-overridden",
+            ),
+        )
         self.engine = engine
 
     async def llm_node(self, chat_ctx: ChatContext, tools: list, model_settings: ModelSettings):  # noqa: ARG002
