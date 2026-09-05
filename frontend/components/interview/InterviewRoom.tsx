@@ -37,7 +37,10 @@ export function InterviewRoom({
   const liveKitRef = useRef<LiveKitSession | null>(null);
   const [channelState, setChannelState] = useState<ChannelState>({ status: "connecting" });
   const [agentPresence, setAgentPresence] = useState<AgentPresence>("absent");
-  const [error, setError] = useState<string | null>(null);
+  // Неустранимая ошибка звонка (например, LiveKit не смог установить signal-соединение
+  // за отведённое время) — дальше ждать нечего, показываем экран выхода вместо того,
+  // чтобы кандидат смотрел на мёртвую комнату с текстом ошибки под вопросом.
+  const [fatalError, setFatalError] = useState<string | null>(null);
   const candidateSpeaking = useMicSpeaking(stream);
   // Роадмап считает только "оригинальные" вопросы (ControlEvent.type === "question") —
   // checkin/adaptive_question не несут question_index/questions_total (см.
@@ -91,7 +94,11 @@ export function InterviewRoom({
         unsubscribePresence = liveKit.onAgentPresenceChange(setAgentPresence);
       })
       .catch((cause) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : "Не удалось подключиться к звонку");
+        if (cancelled) return;
+        setFatalError(cause instanceof Error ? cause.message : "Не удалось подключиться к звонку");
+        // Дальше ждать нечего — останавливаем оба канала, не дожидаясь размонтирования.
+        channel.close();
+        liveKit.disconnect();
       });
 
     return () => {
@@ -114,63 +121,93 @@ export function InterviewRoom({
 
   if (channelState.status === "completed") {
     return (
-      <div className="completion-stage">
-        <Check size={40} />
+      <section className="setup-stage">
+        <Check size={32} className="text-[var(--positive)]" />
         <h1>Интервью завершено</h1>
-        <p>Спасибо, ответы отправлены на обработку.</p>
-      </div>
+        <p>
+          Спасибо, ваши ответы записаны и сейчас обрабатываются. Итоги и обратную связь по
+          результатам передаст рекрутёр вакансии — свяжитесь с ним позже.
+        </p>
+      </section>
+    );
+  }
+
+  if (fatalError) {
+    return (
+      <section className="setup-stage">
+        <h1>Интервью прервано</h1>
+        <p>Причина: {fatalError}</p>
+        <p>
+          Попробуйте открыть эту же ссылку ещё раз. Если не получится — часть ответов уже записана,
+          рекрутёр вакансии свяжется с вами по итогам.
+        </p>
+      </section>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* 260px справа — камера кандидата + плашка интервьюера, симметричный пустой
-          спейсер слева той же ширины, чтобы центральная колонка с вопросом была
-          визуально центрирована в viewport, а не просто занимала оставшийся `1fr`. */}
-      <div className="grid gap-4 sm:grid-cols-[260px_1fr_260px]">
-        <div className="hidden sm:block" aria-hidden="true" />
+    <div className="relative">
+      {/* Ячейка вопроса — тот же .setup-stage, что и на экране "Устройства" (тот же размер
+          и вид карточки). Камера кандидата и плашка интервьюера здесь не участвуют в этой
+          ширине вовсе — на десктопе они прижаты прямо к правому краю страницы. */}
+      <section className="setup-stage flex flex-col items-center justify-center gap-4 text-center">
+        <p className="text-2xl font-medium leading-snug">{questionText ?? "Подключаемся к интервью…"}</p>
+        <StatusLine channelState={channelState} />
+      </section>
 
-        <div className="flex min-h-[220px] flex-col items-center justify-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] p-6 text-center">
-          <p className="text-xl font-medium leading-snug">{questionText ?? "Подключаемся к интервью…"}</p>
-          <StatusLine channelState={channelState} />
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-        </div>
-
-        <div className="space-y-3">
-          {/* relative-обёртка снаружи overflow-hidden-плитки видео — иначе всплывающее
-              меню DeviceSettings обрезается границами плитки (overflow-hidden), даже
-              будучи абсолютно спозиционированным поверх неё. */}
-          <div className="relative">
-            <div
-              className={`aspect-video overflow-hidden rounded-xl border-4 bg-[var(--surface-muted)] transition-colors duration-150 ${
-                candidateSpeaking
-                  ? "border-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_25%,transparent)]"
-                  : "border-transparent"
-              }`}
+      {roadmap && (
+        <ol className="hidden sm:fixed sm:left-6 sm:top-1/2 sm:block sm:w-[160px] sm:-translate-y-1/2 sm:space-y-2 sm:text-sm">
+          {Array.from({ length: roadmap.total }, (_, i) => (
+            <li
+              key={i}
+              className={
+                i === roadmap.index
+                  ? "font-medium text-[var(--ink)]"
+                  : i < roadmap.index
+                    ? "text-[var(--positive)]"
+                    : "text-[var(--ink-tertiary)]"
+              }
             >
-              <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
-              <div
-                className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-medium text-[var(--accent-ink)] transition-opacity ${
-                  candidateSpeaking ? "opacity-100" : "opacity-0"
-                }`}
-              >
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--accent-ink)]" />
-                Вы говорите
-              </div>
-            </div>
-            <div className="absolute right-2 top-2">
-              <DeviceSettings liveKitRef={liveKitRef} />
-            </div>
-          </div>
+              Вопрос {i + 1}
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <div className="mt-6 space-y-3 sm:fixed sm:right-6 sm:top-1/2 sm:mt-0 sm:w-[220px] sm:-translate-y-1/2">
+        {/* relative-обёртка снаружи overflow-hidden-плитки видео — иначе всплывающее
+            меню DeviceSettings обрезается границами плитки (overflow-hidden), даже
+            будучи абсолютно спозиционированным поверх неё. */}
+        <div className="relative">
           <div
-            className={`flex aspect-video items-center justify-center rounded-xl border text-sm ${
-              agentPresence === "speaking"
-                ? "border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] text-[var(--accent)]"
-                : "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--ink-secondary)]"
+            className={`aspect-video overflow-hidden rounded-xl border-4 bg-[var(--surface-muted)] transition-colors duration-150 ${
+              candidateSpeaking
+                ? "border-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_25%,transparent)]"
+                : "border-transparent"
             }`}
           >
-            {agentPresence === "speaking" ? "Интервьюер говорит…" : agentPresence === "present" ? "Интервьюер" : "Ожидаем интервьюера…"}
+            <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+            <div
+              className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-medium text-[var(--accent-ink)] transition-opacity ${
+                candidateSpeaking ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--accent-ink)]" />
+              Вы говорите
+            </div>
           </div>
+          <div className="absolute right-2 top-2">
+            <DeviceSettings liveKitRef={liveKitRef} />
+          </div>
+        </div>
+        <div
+          className={`flex aspect-video items-center justify-center rounded-xl border text-sm ${
+            agentPresence === "speaking"
+              ? "border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] text-[var(--accent)]"
+              : "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--ink-secondary)]"
+          }`}
+        >
+          {agentPresence === "speaking" ? "Интервьюер говорит…" : agentPresence === "present" ? "Интервьюер" : "Ожидаем интервьюера…"}
         </div>
       </div>
     </div>
@@ -184,7 +221,7 @@ function StatusLine({ channelState }: { channelState: ChannelState }) {
     case "reconnecting":
       return <p className="text-sm text-[var(--danger)]">Потеряна связь — переподключаемся…</p>;
     case "completed":
-      // Недостижимо: InterviewRoom рендерит .completion-stage раньше StatusLine (см. выше).
+      // Недостижимо: InterviewRoom рендерит экран завершения раньше StatusLine (см. выше).
       return null;
     case "closed":
       return <p className="text-sm text-[var(--ink-secondary)]">Соединение закрыто.</p>;

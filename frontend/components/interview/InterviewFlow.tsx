@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 
-import { Check } from "@phosphor-icons/react";
+import { Check, Clock } from "@phosphor-icons/react";
 
 import { CandidateShell } from "@/components/chrome/CandidateShell";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { DeviceCheck } from "@/components/interview/DeviceCheck";
 import { InterviewRoom } from "@/components/interview/InterviewRoom";
-import { apiFetch } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { apiFetch, postCandidateConsent } from "@/lib/api";
+import { markForwardProgress } from "@/lib/candidate-flow";
 
 type ConsentInfo = {
   interview_id: string;
@@ -16,16 +18,16 @@ type ConsentInfo = {
   vacancy_title: string;
   questions_total: number;
   estimated_duration_min: { min: number; max: number };
+  consented?: boolean;
 };
 
-type FlowStep = "loading" | "not_found" | "already_completed" | "setup" | "ready";
+type FlowStep = "loading" | "not_found" | "already_completed" | "consent" | "setup" | "ready";
 
 /**
- * Оркестрирует US1 (specs/004-candidate-interview-flow/spec.md): согласие и проверка
- * устройств — один экран (`setup`), не два последовательных шага — камера/микрофон
- * запрашиваются только по явному клику внутри `DeviceCheck` (FR-001: до подтверждения
- * согласия — доступ не запрашивается), но кандидату не нужно отдельно "переходить"
- * между согласием и проверкой устройств. Дальше — сам interview-room ("ready").
+ * Оркестрирует US1 (specs/004-candidate-interview-flow/spec.md) в три экрана: явное
+ * согласие на запись/обработку персональных данных ("consent"), проверка камеры и
+ * микрофона ("setup"), сам interview-room ("ready"). Если согласие уже отмечено раньше
+ * (кандидат вернулся по той же ссылке) — первый экран пропускается.
  */
 export function InterviewFlow({ token }: { token: string }) {
   const [step, setStep] = useState<FlowStep>("loading");
@@ -43,11 +45,14 @@ export function InterviewFlow({ token }: { token: string }) {
       .then((data) => {
         if (cancelled) return;
         setInfo(data);
-        setStep(data.status === "completed" ? "already_completed" : "setup");
+        setStep(data.status === "completed" ? "already_completed" : data.consented ? "setup" : "consent");
       })
       .catch(() => {
         if (!cancelled) setStep("not_found");
       });
+    // Лучшее усилие: страница открыта — отмечаем это для рекрутёрского дашборда,
+    // но не блокируем кандидата, если запрос не прошёл (см. markForwardProgress).
+    void markForwardProgress(token, "opened").catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -55,7 +60,7 @@ export function InterviewFlow({ token }: { token: string }) {
 
   if (step === "loading") {
     return (
-      <main className="workspace">
+      <main className="workspace workspace--center">
         <ScreenState kind="loading" title="Загружаем интервью…" text="Это займёт пару секунд." />
       </main>
     );
@@ -63,7 +68,7 @@ export function InterviewFlow({ token }: { token: string }) {
 
   if (step === "not_found") {
     return (
-      <main className="workspace">
+      <main className="workspace workspace--center">
         <ScreenState
           kind="error"
           title="Ссылка недействительна"
@@ -75,7 +80,7 @@ export function InterviewFlow({ token }: { token: string }) {
 
   if (step === "already_completed") {
     return (
-      <main className="workspace">
+      <main className="workspace workspace--center">
         <ScreenState
           kind="empty"
           title="Это интервью уже пройдено"
@@ -87,54 +92,43 @@ export function InterviewFlow({ token }: { token: string }) {
 
   if (!info) return null;
 
-  // Пока роадмап ещё не известен (сетап или начало комнаты до первого вопроса) — простой
-  // двухшаговый индикатор вместо статического списка шагов фиксированного сценария:
-  // реальный флоу кандидата не фрагментирован на отдельные роуты (см. call-out 1 плана).
-  const steps = roadmap
-    ? Array.from({ length: roadmap.total }, (_, i) => `Вопрос ${i + 1}`)
-    : ["Настройка", "Интервью"];
-  const current = roadmap ? `Вопрос ${roadmap.index + 1}` : step === "setup" ? "Настройка" : "Интервью";
+  // Степпер — только роадмап реальных вопросов, которым управляет агент (см.
+  // InterviewRoom.tsx). Согласие и проверка устройств — не шаги интервью, поэтому до
+  // появления роадмапа `steps`/`current` не передаются вовсе, и CandidateShell рендерит
+  // хедер без степпера.
+  const steps = roadmap ? Array.from({ length: roadmap.total }, (_, i) => `Вопрос ${i + 1}`) : undefined;
+  const current = roadmap ? `Вопрос ${roadmap.index + 1}` : undefined;
 
-  if (step === "setup") {
+  if (step === "consent") {
     const { min, max } = info.estimated_duration_min;
     return (
       <CandidateShell vacancyTitle={info.vacancy_title} steps={steps} current={current}>
-        <section className="setup-stage" style={{ width: "100%" }}>
-          <h1>Перед началом интервью</h1>
-          <ul className="check-list" style={{ marginTop: 0 }}>
-            <li>
-              <Check size={17} />
-              <span>
-                <strong>Запись.</strong> Видео и аудио звонка, а также текстовый ответ (если формат
-                вопроса требует ввода), записываются целиком.
-              </span>
-            </li>
-            <li>
-              <Check size={17} />
-              <span>
-                <strong>Автоматизированная обработка.</strong> Ответы транскрибируются и оцениваются
-                алгоритмически — без анализа лица, эмоций или голосовых характеристик.
-              </span>
-            </li>
-            <li>
-              <Check size={17} />
-              <span>
-                <strong>Кто увидит результат.</strong> Рекрутёр, разместивший вакансию.
-              </span>
-            </li>
-            <li>
-              <Check size={17} />
-              <span>
-                <strong>Вопросов:</strong> {info.questions_total}, ожидаемая длительность — {min}–{max}{" "}
-                минут.
-              </span>
-            </li>
-          </ul>
+        <ConsentStage
+          vacancyTitle={info.vacancy_title}
+          questionsTotal={info.questions_total}
+          durationMin={min}
+          durationMax={max}
+          onAgree={() => {
+            setStep("setup");
+            void postCandidateConsent(token).catch(() => {});
+          }}
+        />
+      </CandidateShell>
+    );
+  }
+
+  if (step === "setup") {
+    return (
+      <CandidateShell vacancyTitle={info.vacancy_title} steps={steps} current={current}>
+        <section className="setup-stage">
+          <h1>Проверьте камеру и микрофон</h1>
+          <p>Без доступа к ним интервью не начнётся.</p>
           <DeviceCheck
             onGranted={(granted, speaker) => {
               setStream(granted);
               setSpeakerId(speaker);
               setStep("ready");
+              void markForwardProgress(token, "ready").catch(() => {});
             }}
           />
         </section>
@@ -146,5 +140,58 @@ export function InterviewFlow({ token }: { token: string }) {
     <CandidateShell vacancyTitle={info.vacancy_title} steps={steps} current={current}>
       <InterviewRoom sessionId={token} stream={stream} initialSpeakerId={speakerId} onRoadmapChange={setRoadmap} />
     </CandidateShell>
+  );
+}
+
+function ConsentStage({
+  vacancyTitle,
+  questionsTotal,
+  durationMin,
+  durationMax,
+  onAgree,
+}: {
+  vacancyTitle: string;
+  questionsTotal: number;
+  durationMin: number;
+  durationMax: number;
+  onAgree: () => void;
+}) {
+  const [agreed, setAgreed] = useState(false);
+
+  return (
+    <section className="setup-stage">
+      <h1>Вас пригласили на интервью</h1>
+      <p>Вакансия: {vacancyTitle}.</p>
+      <div className="interview-facts">
+        <span>{questionsTotal} основных вопросов</span>
+        <span>
+          <Clock size={18} />
+          примерно {durationMin}–{durationMax} минут
+        </span>
+      </div>
+      <ul className="check-list">
+        <li>
+          <Check size={17} />
+          <span>Видео, аудио и текстовые ответы записываются целиком.</span>
+        </li>
+        <li>
+          <Check size={17} />
+          <span>Ответы оцениваются алгоритмически — без анализа лица, эмоций или голоса.</span>
+        </li>
+        <li>
+          <Check size={17} />
+          <span>Результат увидит только рекрутёр, разместивший вакансию.</span>
+        </li>
+      </ul>
+      <div className="setup-stage__footer">
+        <label className="consent-row" style={{ padding: 0 }}>
+          <input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
+          <span>Соглашаюсь на обработку персональных данных и на видео- и аудиозапись интервью</span>
+        </label>
+        <Button type="button" size="large" disabled={!agreed} onClick={onAgree}>
+          Начать
+        </Button>
+      </div>
+    </section>
   );
 }

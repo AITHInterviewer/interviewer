@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 
 export default function ExpiredPage() {
   return (
-    <CandidateFrame current="Приглашение">
-      <section className="setup-stage" style={{ width: "100%" }}>
+    <CandidateFrame current="Согласие">
+      <section className="setup-stage">
         <p className="path">Ссылка</p>
         <h1>Эта ссылка больше не работает</h1>
         <p>

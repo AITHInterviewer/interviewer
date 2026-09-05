@@ -14,7 +14,7 @@ export default function DonePage() {
   return (
     <CandidateGate token={token} current="Интервью">
       {(info, accessToken) => (
-        <section className="setup-stage" style={{ width: "100%" }}>
+        <section className="setup-stage">
           <p className="path">Готово</p>
           <h1>Ответы приняты</h1>
           <p>
