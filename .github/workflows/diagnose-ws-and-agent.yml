@@ -10,6 +10,21 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: live-agent logs (full)
+      - name: inspect Agent.__init__ and llm_node dispatch conditions
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
+          Set-Content -Path probe_agent.py -Encoding utf8 -Value @'
+          import inspect
+          from livekit.agents import Agent
+
+          print("--- Agent.__init__ ---")
+          print(inspect.signature(Agent.__init__))
+          print("--- Agent.llm_node (base impl) ---")
+          print(inspect.getsource(Agent.llm_node))
+          '@
+          Get-Content probe_agent.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
+
+      - name: search for where llm_node gets called / skipped
+        if: always()
+        run: |
+          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q live-agent
+          docker exec $containerId sh -c "grep -rn 'def llm_node\|\.llm_node(\|llm is None\|self\.llm ' /usr/local/lib/python3.11/site-packages/livekit/agents/voice/ 2>/dev/null | head -40"
