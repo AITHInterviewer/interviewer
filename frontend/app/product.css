@@ -503,3 +503,5 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .app-topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 0 20px; border-bottom: 1px solid var(--border); background: var(--surface-raised); }
 .app-topbar .app-shell__title { font-size: var(--text-body); }
 .app-topbar .app-shell__top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.answer-record { display: flex; flex-direction: column; gap: 8px; padding: 14px 0; border-top: 1px solid var(--surface-muted); }
+.answer-record blockquote { margin: 0; padding-left: 12px; border-left: 2px solid var(--border); color: var(--ink-secondary); }

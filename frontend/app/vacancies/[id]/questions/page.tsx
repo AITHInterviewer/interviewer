@@ -11,7 +11,7 @@ type VacancyQuestionsPageProps = {
 export default async function VacancyQuestionsPage({ params }: VacancyQuestionsPageProps) {
   const { id } = await params;
   return (
-    <Suspense fallback={<ScreenState kind="loading" title="Loading" text="Loading questions..." />}>
+    <Suspense fallback={<ScreenState kind="loading" title="Загружаю" text="Открываю комплект вопросов." />}>
       <VacancyQuestionsClient vacancyId={id} />
     </Suspense>
   );

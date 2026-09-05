@@ -58,7 +58,7 @@ export function toQuestionInput(form: QuestionFormState, order: number): Questio
 export function questionToForm(question: Question): QuestionFormState {
   return {
     text: question.text,
-    skillTag: question.skill_tag.join(", "),
+    skillTag: question.skill_tag?.join(", ") ?? "",
     intent: question.intent,
     referenceAnswer: question.reference_answer,
     format: question.format,
@@ -152,7 +152,7 @@ export function QuestionEditForm({
       </label>
       <div className="form-actions">
         <button className="button button--primary" type="submit" disabled={submitting}>
-          {submitting ? "Saving..." : submitLabel}
+          {submitting ? "Сохраняю…" : submitLabel}
         </button>
       </div>
     </form>

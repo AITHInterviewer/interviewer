@@ -90,7 +90,7 @@ export default function ManagerCandidatePage() {
         <div className="workspace">
           <ScreenState
             kind="error"
-            title="Access denied"
+            title="Доступа к карточке нет"
             text="Этот кандидат вам ещё не передан. Дождитесь передачи или запроса мнения."
             action={
               <Button asChild variant="secondary">
@@ -149,8 +149,8 @@ export default function ManagerCandidatePage() {
           <p>{candidate.vacancy_title}</p>
         </section>
         <section className="plain-section">
-          <h2>Саммари рекрутера</h2>
-          <p>{candidate.summary || "Саммари не приложили."}</p>
+          <h2>Что передал рекрутер</h2>
+          <p>{candidate.summary || "Рекрутер не оставил комментарий: смотрите отчёт."}</p>
         </section>
         {candidate.interview.rubric_version_id ? (
           <section className="plain-section">
@@ -158,7 +158,7 @@ export default function ManagerCandidatePage() {
             {rubric ? (
               <p>
                 Версия {rubric.version_number}
-                {rubric.approved_at ? `, ${new Date(rubric.approved_at).toLocaleString("ru-RU")}` : ""}
+                {rubric.approved_at ? `, ${new Date(rubric.approved_at).toLocaleString("ru-RU", { day: "numeric", month: "long" })}` : ""}
               </p>
             ) : (
               <p>Версия {candidate.interview.rubric_version_id}</p>

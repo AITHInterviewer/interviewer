@@ -6,7 +6,6 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import { VacancyContextNav } from "@/components/chrome/VacancyContextNav";
 import { Button } from "@/components/ui/button";
 import type { VacancyDetail } from "@/lib/api";
 import {
@@ -66,7 +65,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
       })
       .catch((caughtError: unknown) => {
         if (!cancelled) {
-          setVacancyError(normalizeError(caughtError, "Could not load the vacancy."));
+          setVacancyError(normalizeError(caughtError, "Не удалось открыть вакансию."));
         }
       })
       .finally(() => {
@@ -83,7 +82,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   if (loading || !landing) {
     return (
       <main className="workspace">
-        <ScreenState kind="loading" title="Loading" text="Checking your session..." />
+        <ScreenState kind="loading" title="Проверяю доступ" text="Секунду, читаю вашу сессию." />
       </main>
     );
   }
@@ -122,9 +121,9 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
         niceToHaveSkills: splitSkills(niceToHaveSkills),
       });
       setVacancy((current) => (current ? { ...current, ...updated } : current));
-      setStatus("Vacancy updated.");
+      setStatus("Изменения сохранены.");
     } catch (caughtError) {
-      setError(normalizeError(caughtError, "Could not update the vacancy."));
+      setError(normalizeError(caughtError, "Не удалось сохранить изменения."));
     } finally {
       setSubmitting(false);
     }
@@ -133,13 +132,12 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   const nav = buildNav(landing);
 
   return (
-    <AppShell nav={nav} title="Vacancy settings">
+    <AppShell nav={nav} title="Настройки вакансии">
       <div className="workspace workspace--form">
         <PageHeader path={`Вакансии / ${vacancy?.title ?? vacancyId}`} title="Настройки" />
-        <VacancyContextNav vacancyId={vacancyId} />
 
-        {vacancyLoading ? <ScreenState kind="loading" title="Loading" text="Loading vacancy..." /> : null}
-        {vacancyError ? <ScreenState kind="error" title="Could not load vacancy" text={vacancyError} /> : null}
+        {vacancyLoading ? <ScreenState kind="loading" title="Загружаю" text="Открываю вакансию." /> : null}
+        {vacancyError ? <ScreenState kind="error" title="Вакансия не открылась" text={vacancyError} /> : null}
 
         {!vacancyLoading && vacancy ? (
           <form className="form-surface" onSubmit={handleSubmit}>
@@ -199,19 +197,19 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
               </div>
             ) : null}
             <label>
-              Title
+              Название
               <input value={title} onChange={(event) => setTitle(event.target.value)} required />
             </label>
             <label>
-              Description
+              Описание
               <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
             </label>
             <label>
-              Grade
+              Грейд
               <input value={grade} onChange={(event) => setGrade(event.target.value)} required />
             </label>
             <label>
-              Required skills
+              Обязательные навыки
               <input
                 value={requiredSkills}
                 onChange={(event) => setRequiredSkills(event.target.value)}
@@ -219,7 +217,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
               />
             </label>
             <label>
-              Nice-to-have skills
+              Желательные навыки
               <input
                 value={niceToHaveSkills}
                 onChange={(event) => setNiceToHaveSkills(event.target.value)}
@@ -230,7 +228,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
             {status ? <p className="success-message">{status}</p> : null}
             <div className="form-actions">
               <button className="button button--primary" type="submit" disabled={submitting}>
-                {submitting ? "Saving..." : "Save changes"}
+                {submitting ? "Сохраняю…" : "Сохранить"}
               </button>
             </div>
           </form>

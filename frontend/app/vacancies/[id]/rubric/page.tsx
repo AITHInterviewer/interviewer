@@ -8,22 +8,18 @@ import { AppShell } from "@/components/chrome/AppShell";
 import { CalibrationSubnav } from "@/components/chrome/CalibrationSubnav";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import { VacancyContextNav } from "@/components/chrome/VacancyContextNav";
 import type { RubricVersion, VacancyDetail } from "@/lib/api";
 import { loadRubricVersions, loadVacancy } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
 
-function snapshotText(snapshot: Record<string, unknown>): string {
-  const skills = snapshot.required_skills;
+/** Что зафиксировано в версии рубрики. Сырой JSON пользователю не показываем. */
+function snapshotText(snapshot?: Record<string, unknown>): string {
+  const skills = snapshot?.required_skills;
   if (Array.isArray(skills) && skills.every((item) => typeof item === "string")) {
-    return skills.join(", ") || "Навыки не указаны.";
+    return skills.join(", ") || "Навыки в этой версии не перечислены.";
   }
-  try {
-    return JSON.stringify(snapshot);
-  } catch {
-    return "Снимок версии недоступен.";
-  }
+  return "В этой версии список навыков не сохранился.";
 }
 
 function RubricInner() {
@@ -76,7 +72,7 @@ function RubricInner() {
   return (
     <AppShell nav={buildNav(landing)} title="Рубрика">
       <div className="workspace">
-        {fromRecruiter ? <VacancyContextNav vacancyId={vacancyId} /> : <CalibrationSubnav vacancyId={vacancyId} />}
+        {fromRecruiter ? null : <CalibrationSubnav vacancyId={vacancyId} />}
         {vacancyLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем требования…" /> : null}
         {error ? <ScreenState kind="error" title="Нет рубрики" text={error} /> : null}
         {vacancy ? (

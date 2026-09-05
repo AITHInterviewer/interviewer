@@ -6,7 +6,6 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import { VacancyContextNav } from "@/components/chrome/VacancyContextNav";
 import { Button } from "@/components/ui/button";
 import { CandidateCard } from "@/components/ui/candidate-card";
 import { ToastStack, type ToastItem } from "@/components/ui/toast";
@@ -24,7 +23,7 @@ import {
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, VACANCY_STATUS_LABEL } from "@/lib/nav";
-import { groupInterviews, KANBAN_COLUMNS } from "@/lib/pipeline";
+import { groupInterviews, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const HIRING_MANAGER_AREA = "area.hiring_manager_review";
@@ -227,7 +226,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                       disabled={actionBusy}
                       onClick={() => void handleGenerateQuestions()}
                     >
-                      {actionBusy ? "Generating..." : "Generate questions"}
+                      {actionBusy ? "Собираю вопросы…" : "Собрать вопросы"}
                     </Button>
                   ) : null}
                   {showSend ? (
@@ -281,7 +280,6 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                 </>
               }
             />
-            <VacancyContextNav vacancyId={vacancy.id} includeSettings={canManage} />
             {actionError ? <p className="form-error">{actionError}</p> : null}
 
             {showAnonymized ? (
@@ -310,7 +308,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                     {interviews.length === 0 ? (
                       <ScreenState
                         kind="empty"
-                        title="No interviews yet"
+                        title="Кандидатов пока нет"
                         text="После активации вакансии здесь появится доска кандидатов."
                       />
                     ) : null}
@@ -328,7 +326,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                                 <CandidateCard
                                   key={interview.id}
                                   name={interview.candidate_name ?? "Без имени"}
-                                  stage={interview.product_state ?? interview.status}
+                                  stage={interviewStageLabel(interview)}
                                   href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
                                   action="Открыть"
                                 />

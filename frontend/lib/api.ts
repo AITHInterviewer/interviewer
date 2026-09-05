@@ -126,7 +126,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
-    throw new ApiError(payload?.detail ?? "Request failed.", response.status);
+    throw new ApiError(payload?.detail ?? "Сервер не ответил. Повторите попытку.", response.status);
   }
 
   return (await response.json()) as T;
@@ -353,7 +353,7 @@ async function requestMultipart<T>(
 
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
-    throw new ApiError(payload?.detail ?? "Request failed.", response.status);
+    throw new ApiError(payload?.detail ?? "Сервер не ответил. Повторите попытку.", response.status);
   }
 
   return (await response.json()) as T;

@@ -22,7 +22,7 @@ export default function RubricPage() {
   if (loading || !landing) {
     return (
       <main className="workspace">
-        <ScreenState kind="loading" title="Loading" text="Checking your session..." />
+        <ScreenState kind="loading" title="Проверяю доступ" text="Секунду, читаю вашу сессию." />
       </main>
     );
   }

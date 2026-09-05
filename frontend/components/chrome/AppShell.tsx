@@ -19,7 +19,6 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -119,11 +118,6 @@ export function AppShell({
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
-          {showVacancyGroup && openVacancyId ? (
-            <SidebarGroup>
-              <SidebarGroupLabel>Открытая вакансия</SidebarGroupLabel>
-            </SidebarGroup>
-          ) : null}
         </SidebarContent>
         <SidebarFooter>
           <SidebarMenu>

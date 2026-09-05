@@ -86,8 +86,8 @@ export default function VacanciesPage() {
         <div className="workspace">
           <ScreenState
             kind="error"
-            title="Access denied"
-            text="Ваши роли не дают доступ к вакансиям или их калибровке."
+            title="Доступа к вакансиям нет"
+            text="Ваша роль не открывает вакансии. Если это ошибка, попросите администратора выдать доступ."
           />
         </div>
       </AppShell>
@@ -98,12 +98,12 @@ export default function VacanciesPage() {
     <AppShell nav={nav} title="Вакансии">
       <div className="workspace">
         <PageHeader
-          path="Вакансии"
+          path="Рекрутер"
           title="Вакансии"
           actions={
             canManage ? (
               <Button asChild>
-                <Link href="/vacancies/new">Create vacancy</Link>
+                <Link href="/vacancies/new">Новая вакансия</Link>
               </Button>
             ) : null
           }
@@ -143,8 +143,8 @@ export default function VacanciesPage() {
           ) : (
             <ScreenState
               kind="empty"
-              title="No vacancies yet"
-              text="Создайте вакансию, чтобы начать калибровку и интервью."
+              title="Вакансий пока нет"
+              text="Заведите вакансию: эксперт соберёт рубрику, после этого можно приглашать кандидатов."
             />
           )
         ) : null}

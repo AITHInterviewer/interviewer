@@ -7,7 +7,6 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import { VacancyContextNav } from "@/components/chrome/VacancyContextNav";
 import { Button } from "@/components/ui/button";
 import type { ClarificationRequest, Interview, InterviewEventsResponse, StaffManager } from "@/lib/api";
 import { ApiError } from "@/lib/api";
@@ -23,6 +22,7 @@ import {
   requestManagedExtra,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
+import { interviewStageLabel } from "@/lib/pipeline";
 import { buildNav } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
@@ -36,10 +36,18 @@ function extraLink(accessToken: string, clarificationId: string): string {
 }
 
 function reportLabel(interview: Interview): string {
-  if (interview.report_status === "ready") return "Отчёт готов";
-  if (interview.report_status === "updated_extra") return "Отчёт обновлён после доп. ответа";
-  if (interview.report_status === "expert_reviewed") return "Эксперт посмотрел отчёт";
-  return "Обрабатывается";
+  if (interview.report_status === "ready") return "Отчёт готов: решение за вами.";
+  if (interview.report_status === "updated_extra") return "Отчёт обновлён после доп. ответа кандидата.";
+  if (interview.report_status === "expert_reviewed") return "Эксперт разобрал отчёт и оставил отметку.";
+  return "Отчёт готовится. Обычно это занимает около часа после сдачи.";
+}
+
+/** Статус уточнения словами: коды open/closed в интерфейс не выносим. */
+function clarificationStatusLabel(status: string): string {
+  if (status === "open") return "ждёт ответа";
+  if (status === "closed") return "закрыт";
+  if (status === "answered") return "кандидат ответил";
+  return status;
 }
 
 export default function VacancyCandidatePage() {
@@ -212,35 +220,39 @@ export default function VacancyCandidatePage() {
   return (
     <AppShell nav={buildNav(landing)} title="Кандидат">
       <div className="workspace">
-        <VacancyContextNav vacancyId={params.id} includeSettings={canManage} />
         {pageLoading ? <ScreenState kind="loading" title="Загрузка" text="Открываем карточку…" /> : null}
         {error && !interview ? <ScreenState kind="error" title="Нет карточки" text={error} /> : null}
         {interview ? (
           <>
             <PageHeader
-              path="Вакансии / Кандидат"
+              path="Вакансии"
               title={interview.candidate_name ?? "Кандидат без имени"}
-              description={`Состояние: ${interview.product_state ?? interview.status}`}
+              description={interviewStageLabel(interview)}
             />
             {error ? <p className="form-error">{error}</p> : null}
             {status ? <p className="success-message">{status}</p> : null}
 
             <section className="plain-section">
               <h2>Технический отчёт</h2>
-              <p>
-                {reportLabel(interview)}. Статус отчёта: {interview.report_status ?? "нет"}. Состояние:{" "}
-                {interview.product_state ?? interview.status}.
-              </p>
+              <p>{reportLabel(interview)}</p>
               {events?.answers.length ? (
-                <ul>
+                <ul className="stack-list">
                   {events.answers.map((answer) => (
-                    <li key={answer.id}>
-                      {answer.question_text ?? "Вопрос"}: {answer.transcript_text ?? "текста нет"}
+                    <li className="answer-record" key={answer.id}>
+                      <strong>{answer.question_text ?? "Вопрос без текста"}</strong>
+                      {answer.transcript_text ? (
+                        <blockquote>{answer.transcript_text}</blockquote>
+                      ) : (
+                        <p className="muted-copy">Расшифровка этого ответа ещё не готова.</p>
+                      )}
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p>Готового отчёта оценки нет — проценты мы не показываем. Каркас из ответов появится здесь, когда будут расшифровки.</p>
+                <p>
+                  Расшифровок ещё нет. Когда ответы обработаются, здесь появятся цитаты с
+                  таймкодами по каждому требованию.
+                </p>
               )}
             </section>
 
@@ -259,7 +271,8 @@ export default function VacancyCandidatePage() {
                   <ul className="stack-list">
                     {extras.map((item) => (
                       <li key={item.id}>
-                        Доп. ответ ({item.status}): {extraLink(interview.access_token, item.id)}
+                        Доп. вопрос: {clarificationStatusLabel(item.status)} ·{" "}
+                        {extraLink(interview.access_token, item.id)}
                       </li>
                     ))}
                   </ul>
@@ -268,7 +281,7 @@ export default function VacancyCandidatePage() {
                   <ul className="stack-list">
                     {audits.map((item) => (
                       <li key={item.id}>
-                        Аудит: {item.status}
+                        Аудит эксперта: {clarificationStatusLabel(item.status)}
                       </li>
                     ))}
                   </ul>
@@ -277,7 +290,7 @@ export default function VacancyCandidatePage() {
                   <div>
                     {openClarifications.map((item) => (
                       <p key={item.id}>
-                        Открыто: {item.type} ({item.status})
+                        {item.type === "extra" ? "Доп. вопрос" : "Аудит эксперта"} ждёт ответа
                         <button className="text-button" type="button" onClick={() => void handleClose(item.id)}>
                           Закрыть с причиной
                         </button>
@@ -297,6 +310,11 @@ export default function VacancyCandidatePage() {
             {canManage ? (
               <section className="plain-section">
                 <h2>Решение</h2>
+                <p className="muted-copy">
+                  Система собирает наблюдения, решение принимает человек. Передача менеджеру
+                  открывает ему карточку и ваш комментарий.
+                </p>
+                <div className="form-surface">
                 <label>
                   Менеджер
                   <select value={managerId} onChange={(event) => setManagerId(event.target.value)}>
@@ -309,15 +327,16 @@ export default function VacancyCandidatePage() {
                   </select>
                 </label>
                 <label>
-                  Саммари для встречи
+                  Что рассказать менеджеру
                   <textarea value={summary} onChange={(event) => setSummary(event.target.value)} />
                 </label>
+                </div>
                 <div className="form-actions">
                   <Button type="button" disabled={busy || handoffBlocked} onClick={() => void handleHandoff()}>
                     Передать менеджеру
                   </Button>
                   <Button type="button" variant="secondary" disabled={busy} onClick={() => void handleOpinion()}>
-                    Открыть мнение
+                    Спросить мнение менеджера
                   </Button>
                   <Button type="button" variant="secondary" disabled>
                     Не продолжаем
@@ -327,7 +346,7 @@ export default function VacancyCandidatePage() {
                   <p className="disabled-hint">Сначала закройте открытые уточнения.</p>
                 ) : null}
                 <p className="disabled-hint">
-                  Отдельного метода «не продолжаем» в API нет — кнопка не запишет отказ на сервер.
+                  «Не продолжаем» появится после пилота: пока решение об отказе фиксируется вне системы.
                 </p>
               </section>
             ) : null}

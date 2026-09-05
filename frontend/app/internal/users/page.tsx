@@ -29,7 +29,7 @@ export default function InternalUsersPage() {
       const response = await loadInternalUsers();
       setUsers(response.items);
     } catch (caughtError) {
-      setUsersError(normalizeError(caughtError, "Could not load internal users."));
+      setUsersError(normalizeError(caughtError, "Не удалось загрузить сотрудников."));
     } finally {
       setUsersLoading(false);
     }
@@ -52,7 +52,7 @@ export default function InternalUsersPage() {
       })
       .catch((caughtError: unknown) => {
         if (!cancelled) {
-          setUsersError(normalizeError(caughtError, "Could not load internal users."));
+          setUsersError(normalizeError(caughtError, "Не удалось загрузить сотрудников."));
         }
       })
       .finally(() => {
@@ -69,7 +69,7 @@ export default function InternalUsersPage() {
   if (loading || !landing) {
     return (
       <main className="workspace">
-        <ScreenState kind="loading" title="Loading" text="Checking your session..." />
+        <ScreenState kind="loading" title="Проверяю доступ" text="Секунду, читаю вашу сессию." />
       </main>
     );
   }
@@ -77,11 +77,11 @@ export default function InternalUsersPage() {
   const nav = buildNav(landing);
 
   return (
-    <AppShell nav={nav} title="Users">
+    <AppShell nav={nav} title="Пользователи">
       <div className="workspace">
         <PageHeader
-          path="Users"
-          title="Internal users"
+          path="Администратор"
+          title="Сотрудники"
           actions={
             <>
               <button
@@ -89,17 +89,17 @@ export default function InternalUsersPage() {
                 type="button"
                 onClick={() => setIsComposerOpen((value) => !value)}
               >
-                {isComposerOpen ? "Hide form" : "Add new user"}
+                {isComposerOpen ? "Свернуть форму" : "Завести сотрудника"}
               </button>
               <button className="button button--secondary" type="button" onClick={() => void refreshUsers()}>
-                Refresh list
+                Обновить список
               </button>
             </>
           }
         />
 
-        {usersError ? <ScreenState kind="error" title="Could not load users" text={usersError} /> : null}
-        {usersLoading ? <ScreenState kind="loading" title="Loading" text="Loading internal users..." /> : null}
+        {usersError ? <ScreenState kind="error" title="Не удалось загрузить сотрудников" text={usersError} /> : null}
+        {usersLoading ? <ScreenState kind="loading" title="Загружаю" text="Собираю список сотрудников." /> : null}
 
         {!usersLoading && !usersError ? (
           users.length > 0 ? (
@@ -112,7 +112,7 @@ export default function InternalUsersPage() {
                   </div>
                   <div className="candidate-card__meta">
                     <span>{user.email}</span>
-                    <span>{user.created_by_user_id ? "Managed account" : "Unlinked account"}</span>
+                    <span>{user.created_by_user_id ? "Аккаунт завёл администратор" : "Аккаунт создан при регистрации"}</span>
                   </div>
                 </article>
               ))}
@@ -120,8 +120,8 @@ export default function InternalUsersPage() {
           ) : (
             <ScreenState
               kind="empty"
-              title="No managed users yet"
-              text="Create a hiring manager or expert account to populate this list."
+              title="Сотрудников пока нет"
+              text="Заведите эксперта или нанимающего менеджера, чтобы они могли работать в кабинете."
             />
           )
         ) : null}
@@ -129,7 +129,7 @@ export default function InternalUsersPage() {
         <section className="plain-section">
           <div className="section-heading">
             <div>
-              <h2>User creation</h2>
+              <h2>Новый сотрудник</h2>
             </div>
           </div>
           <InternalUserForm
