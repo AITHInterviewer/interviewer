@@ -12,7 +12,7 @@ from app.db import get_db
 from app.services.interview_repository import build_consent_info, get_interview_by_access_token
 from app.services.livekit_tokens import LiveKitTokenResponse, issue_candidate_token
 
-router = APIRouter(tags=["candidate-interview"])
+router = APIRouter(prefix="/api", tags=["candidate-interview"])
 
 
 @router.get("/interview/{access_token}")

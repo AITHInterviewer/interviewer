@@ -12,7 +12,6 @@ from app.routers import (
     health,
     interview_ws,
     interviews_admin,
-    mock_interview,
     roles,
     vacancies,
 )
@@ -43,7 +42,6 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(candidate_interview.router)
 app.include_router(interview_ws.router)
-app.include_router(mock_interview.router)
 app.include_router(auth.router)
 app.include_router(roles.router)
 app.include_router(vacancies.router)

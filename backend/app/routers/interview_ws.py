@@ -28,7 +28,7 @@ _CLOSE_INVALID_TOKEN = 4401
 _CLOSE_ALREADY_COMPLETED = 4409
 
 
-@router.websocket("/ws/interview/{access_token}")
+@router.websocket("/api/ws/interview/{access_token}")
 async def interview_control_channel(websocket: WebSocket, access_token: str) -> None:
     async with SessionLocal() as session:
         interview = await get_interview_by_access_token(session, access_token)

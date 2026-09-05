@@ -58,6 +58,9 @@ jobs:
           $rules = @{
             "ainterviewer-3000" = @{ Port = 3000; Proto = "TCP" }
             "ainterviewer-8000" = @{ Port = 8000; Proto = "TCP" }
+            # 12345, not the 39xx pool: matches the port already forwarded externally
+            # (see infra/docker-compose.yml, nginx service) - keep in sync if that changes.
+            "ainterviewer-nginx" = @{ Port = 12345; Proto = "TCP" }
             "ainterviewer-3901" = @{ Port = 3901; Proto = "TCP" } # postgres
             "ainterviewer-3902" = @{ Port = 3902; Proto = "TCP" } # redis
             "ainterviewer-3903" = @{ Port = 3903; Proto = "TCP" } # minio API
@@ -85,7 +88,7 @@ jobs:
         # resolve by these exact service names.
         run: |
           Set-Content -Path backend/.env -Encoding utf8 -Value @'
-          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
+          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000","http://26.67.31.6:12345"]
           APP_ENV=development
           APP_DEBUG=true
           APP_HOST=0.0.0.0
@@ -112,14 +115,14 @@ jobs:
           S3_REGION=us-east-1
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret
-          LIVEKIT_WS_URL=ws://26.67.31.6:3907
-          PUBLIC_FRONTEND_URL=http://26.67.31.6:3000
+          LIVEKIT_WS_URL=ws://26.67.31.6:12345
+          PUBLIC_FRONTEND_URL=http://26.67.31.6:12345
           '@
 
       - name: Write frontend/.env
         run: |
           Set-Content -Path frontend/.env -Encoding utf8 -Value @'
-          NEXT_PUBLIC_BACKEND_URL=http://26.67.31.6:8000
+          NEXT_PUBLIC_BACKEND_URL=http://26.67.31.6:12345
           BACKEND_INTERNAL_URL=http://backend:8000
           NEXT_DEV_ALLOWED_ORIGINS=26.67.31.6
           '@
@@ -163,7 +166,7 @@ jobs:
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
             up -d --build `
-            postgres redis minio backend frontend
+            postgres redis minio backend frontend nginx
 
       - name: Build and (re)start live-agent (+ its stt/tts)
         run: |
@@ -178,7 +181,7 @@ jobs:
           $ok = $false
           for ($i = 0; $i -lt 24; $i++) {
             try {
-              Invoke-WebRequest -Uri http://localhost:8000/health -UseBasicParsing -TimeoutSec 3 | Out-Null
+              Invoke-WebRequest -Uri http://localhost:8000/api/health -UseBasicParsing -TimeoutSec 3 | Out-Null
               $ok = $true
               break
             } catch { Start-Sleep -Seconds 5 }
@@ -225,12 +228,13 @@ jobs:
         # PowerShell choked on a curly-quote-adjacent apostrophe inside a double-quoted
         # string here before (TerminatorExpectedAtEndOfString), likely an encoding quirk.
         run: |
-          Write-Output "frontend:        http://26.67.31.6:3000"
-          Write-Output "backend health:  http://26.67.31.6:8000/health"
-          Write-Output "stt (live):      http://26.67.31.6:3905/v1/models"
-          Write-Output "tts (live):      http://26.67.31.6:3906"
-          Write-Output "minio console:   http://26.67.31.6:3904"
-          Write-Output "postgres:        26.67.31.6:3901"
+          Write-Output "entry point (nginx): http://26.67.31.6:12345"
+          Write-Output "frontend (direct):   http://26.67.31.6:3000"
+          Write-Output "backend health:      http://26.67.31.6:12345/api/health"
+          Write-Output "stt (live):          http://26.67.31.6:3905/v1/models"
+          Write-Output "tts (live):          http://26.67.31.6:3906"
+          Write-Output "minio console:       http://26.67.31.6:3904"
+          Write-Output "postgres:            26.67.31.6:3901"
           Write-Output "NOTE: livekit-server is not running this pass, see build step comment."
           Write-Output "NOTE: live-agent LLM calls need claude login run once on this machine"
           Write-Output "under the runner service account, not done by this workflow."

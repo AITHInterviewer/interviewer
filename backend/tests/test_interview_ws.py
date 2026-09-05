@@ -64,7 +64,7 @@ def ws_client(monkeypatch: pytest.MonkeyPatch):
 
 def test_invalid_token_closes_with_4401(ws_client: TestClient) -> None:
     with pytest.raises(Exception) as exc_info:  # noqa: PT011 — код закрытия проверяем ниже
-        with ws_client.websocket_connect("/ws/interview/does-not-exist"):
+        with ws_client.websocket_connect("/api/ws/interview/does-not-exist"):
             pass
     assert getattr(exc_info.value, "code", None) == 4401
 
@@ -79,7 +79,7 @@ def test_completed_interview_closes_with_4409(ws_client: TestClient) -> None:
     ws_client.portal.call(seed)
 
     with pytest.raises(Exception) as exc_info:  # noqa: PT011
-        with ws_client.websocket_connect("/ws/interview/ws-completed"):
+        with ws_client.websocket_connect("/api/ws/interview/ws-completed"):
             pass
     assert getattr(exc_info.value, "code", None) == 4409
 
@@ -96,7 +96,7 @@ def test_relays_redis_event_as_control_event_and_closes_on_completed(ws_client: 
     interview_id = ws_client.portal.call(seed)
     channel = redis_channel_name(interview_id)
 
-    with ws_client.websocket_connect("/ws/interview/ws-active") as websocket:
+    with ws_client.websocket_connect("/api/ws/interview/ws-active") as websocket:
         ws_client.portal.call(
             fake_redis.publish,
             channel,

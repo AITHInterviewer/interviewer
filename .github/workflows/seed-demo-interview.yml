@@ -167,7 +167,7 @@ jobs:
           $ok = $false
           for ($i = 0; $i -lt 24; $i++) {
             try {
-              Invoke-WebRequest -Uri http://localhost:8000/health -UseBasicParsing -TimeoutSec 3 | Out-Null
+              Invoke-WebRequest -Uri http://localhost:8000/api/health -UseBasicParsing -TimeoutSec 3 | Out-Null
               $ok = $true
               break
             } catch { Start-Sleep -Seconds 5 }

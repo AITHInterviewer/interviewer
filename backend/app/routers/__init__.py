@@ -3,7 +3,6 @@ from . import (
     candidate_interview,
     health,
     interviews_admin,
-    mock_interview,
     roles,
     vacancies,
 )
@@ -13,7 +12,6 @@ __all__ = [
     "candidate_interview",
     "health",
     "interviews_admin",
-    "mock_interview",
     "roles",
     "vacancies",
 ]

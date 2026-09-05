@@ -57,7 +57,7 @@ export class ControlChannel {
 
   connect(): void {
     this.closedByCaller = false;
-    this.socket = new WebSocket(backendWsUrl(`/ws/interview/${this.accessToken}`));
+    this.socket = new WebSocket(backendWsUrl(`/api/ws/interview/${this.accessToken}`));
 
     this.socket.onmessage = (message) => {
       const event = JSON.parse(message.data as string) as ControlEvent;

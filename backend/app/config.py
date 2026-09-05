@@ -64,21 +64,6 @@ class Settings(BaseSettings):
     livekit_api_secret: str = "secret"
     livekit_ws_url: str = "ws://localhost:3907"
 
-    # STT/TTS — те же self-hosted сервисы, что у live-контура
-    # (live-agent/docker-compose.yml). Используются только mock-контуром
-    # (app/routers/mock_interview.py) для ручной проверки голосового цикла; боевой путь
-    # ходит в них из live-agent напрямую, не через backend.
-    stt_base_url: str = "http://localhost:3905/v1"
-    stt_model: str = "Systran/faster-whisper-medium"
-    stt_language: str = "ru"
-    tts_base_url: str = "http://localhost:3906/v1"
-    tts_model: str = "speaches-ai/piper-ru_RU-irina-medium"
-    tts_voice: str = "irina"
-
-    # HTTP-драйвер графа live-контура (live-agent/src/ainterviewer/mock_driver.py) —
-    # источник решений о переходах для mock-флоу. Backend только проксирует к нему.
-    live_agent_driver_url: str = "http://localhost:3909"
-
     # Публичный URL фронтенда — используется для сборки кандидатской ссылки
     # (`{public_frontend_url}/interview/{access_token}`, см. `interview_admin_service.py`),
     # тот же env-переменной уже читает `scripts/seed_demo_interview.py` через os.environ.

@@ -11,7 +11,7 @@ async def test_get_interview_consent_info_returns_seeded_entry(db_session: Async
     await seed_demo_interview(db_session, access_token="demo-token", question_count=6)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/interview/demo-token")
+        response = await client.get("/api/interview/demo-token")
 
     assert response.status_code == 200
     body = response.json()
@@ -27,7 +27,7 @@ async def test_get_interview_consent_info_completed_status(db_session: AsyncSess
     await seed_demo_interview(db_session, access_token="demo-token-completed", status="completed")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/interview/demo-token-completed")
+        response = await client.get("/api/interview/demo-token-completed")
 
     assert response.status_code == 200
     assert response.json()["status"] == "completed"
@@ -36,7 +36,7 @@ async def test_get_interview_consent_info_completed_status(db_session: AsyncSess
 @pytest.mark.anyio
 async def test_get_interview_consent_info_unknown_token_is_404(db_session: AsyncSession) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.get("/interview/does-not-exist")
+        response = await client.get("/api/interview/does-not-exist")
 
     assert response.status_code == 404
 
@@ -46,7 +46,7 @@ async def test_livekit_token_issued_for_active_interview(db_session: AsyncSessio
     interview = await seed_demo_interview(db_session, access_token="demo-token-livekit")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.post("/interview/demo-token-livekit/livekit-token")
+        response = await client.post("/api/interview/demo-token-livekit/livekit-token")
 
     assert response.status_code == 200
     body = response.json()
@@ -59,6 +59,6 @@ async def test_livekit_token_rejects_completed_interview(db_session: AsyncSessio
     await seed_demo_interview(db_session, access_token="demo-token-completed-2", status="completed")
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver") as client:
-        response = await client.post("/interview/demo-token-completed-2/livekit-token")
+        response = await client.post("/api/interview/demo-token-completed-2/livekit-token")
 
     assert response.status_code == 409

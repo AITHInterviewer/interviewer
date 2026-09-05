@@ -84,6 +84,18 @@ services:
       default:
       ainterviewer-shared:
 
+  # Единая точка входа наружу (frontend/backend/livekit-сигналинг за одним портом) —
+  # см. infra/nginx/nginx.conf, там же — почему postgres/minio сюда не заведены и почему
+  # апстримы резолвятся в рантайме, а не через depends_on: frontend/backend определены в
+  # docker-compose.dev.yml (не в этом файле) — по имени резолвятся, только когда оба
+  # compose-файла подняты вместе одним проектом (см. .github/workflows/deploy-full.yml).
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${PUBLIC_HTTP_PORT:-12345}:80"
+
   livekit-egress:
     image: livekit/egress:latest
     environment:

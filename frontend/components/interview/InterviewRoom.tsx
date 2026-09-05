@@ -81,7 +81,7 @@ export function InterviewRoom({
     const unsubscribeChannel = channel.subscribe(setChannelState);
     channel.connect();
 
-    apiFetch<LiveKitTokenResponse>(`/interview/${sessionId}/livekit-token`, { method: "POST" })
+    apiFetch<LiveKitTokenResponse>(`/api/interview/${sessionId}/livekit-token`, { method: "POST" })
       .then((tokenResponse) => {
         if (cancelled) return undefined;
         return liveKit.connect(tokenResponse.ws_url, tokenResponse.token, stream, initialSpeakerId);
