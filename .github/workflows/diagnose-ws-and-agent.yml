@@ -10,9 +10,6 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: show context around the self.llm is None checks
+      - name: live-agent logs (full)
         run: |
-          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q live-agent
-          docker exec $containerId sh -c "sed -n '1600,1650p' /usr/local/lib/python3.11/site-packages/livekit/agents/voice/agent_activity.py"
-          Write-Output "--- second location ---"
-          docker exec $containerId sh -c "sed -n '2600,2650p' /usr/local/lib/python3.11/site-packages/livekit/agents/voice/agent_activity.py"
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
