@@ -16,10 +16,11 @@ vi.mock("@/lib/auth", async () => {
     loadInternalUsers: vi.fn(),
     loadRoleRegistry: vi.fn(),
     loadLanding: vi.fn(),
+    updateManagedUserRoles: vi.fn(),
   };
 });
 
-import { createManagedInternalUser, loadInternalUsers, loadLanding, loadRoleRegistry } from "@/lib/auth";
+import { createManagedInternalUser, loadInternalUsers, loadLanding, loadRoleRegistry, updateManagedUserRoles } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import InternalUsersPage from "./page";
 
@@ -104,5 +105,46 @@ describe("InternalUsersPage", () => {
       }),
     );
     await waitFor(() => expect(screen.getByText(/manager one \(hiring_manager\) created/i)).toBeInTheDocument());
+  });
+
+  it("filters employees and removes a role", async () => {
+    vi.mocked(loadInternalUsers).mockResolvedValue({
+      items: [
+        {
+          id: "1",
+          name: "Anna Recruiter",
+          email: "anna@example.com",
+          roles: ["recruiter", "expert"],
+        },
+        {
+          id: "2",
+          name: "Igor Manager",
+          email: "igor@example.com",
+          roles: ["hiring_manager"],
+        },
+      ],
+    });
+    vi.mocked(updateManagedUserRoles).mockResolvedValue({
+      id: "1",
+      name: "Anna Recruiter",
+      email: "anna@example.com",
+      roles: ["recruiter"],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("Anna Recruiter")).toBeInTheDocument();
+    expect(screen.getByText("Igor Manager")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/поиск по имени или почте/i), { target: { value: "igor" } });
+    expect(screen.queryByText("Anna Recruiter")).not.toBeInTheDocument();
+    expect(screen.getByText("Igor Manager")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/поиск по имени или почте/i), { target: { value: "" } });
+    fireEvent.click(await screen.findByRole("button", { name: /снять роль «expert»/i }));
+
+    await waitFor(() =>
+      expect(updateManagedUserRoles).toHaveBeenCalledWith("1", { removeRoles: ["expert"] }),
+    );
   });
 });

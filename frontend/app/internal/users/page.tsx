@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { InternalUserForm } from "@/components/auth/internal-user-form";
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SearchField, Toolbar } from "@/components/chrome/Toolbar";
+import { Button } from "@/components/ui/button";
 import { SkeletonList } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import type { InternalUser } from "@/lib/api";
-import { loadInternalUsers, loadRoleRegistry } from "@/lib/auth";
+import { loadInternalUsers, loadRoleRegistry, updateManagedUserRoles } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, USERS_MANAGE_ACTION } from "@/lib/nav";
-import { formatRoleList, type RoleRegistryEntry } from "@/lib/roles";
+import { formatRoleList, roleTitle, type RoleRegistryEntry } from "@/lib/roles";
 
 export default function InternalUsersPage() {
   const { landing, loading } = useProtectedLanding({ requiredAction: USERS_MANAGE_ACTION });
@@ -23,6 +25,9 @@ export default function InternalUsersPage() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [busyRole, setBusyRole] = useState<{ userId: string; role: string } | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
 
   async function refreshUsers() {
     try {
@@ -68,6 +73,33 @@ export default function InternalUsersPage() {
     };
   }, [landing]);
 
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) {
+      return users;
+    }
+    return users.filter(
+      (user) =>
+        user.name.toLowerCase().includes(needle) || user.email.toLowerCase().includes(needle),
+    );
+  }, [users, query]);
+
+  async function removeRole(user: InternalUser, roleCode: string) {
+    if (user.roles.length < 2) {
+      return;
+    }
+    setBusyRole({ userId: user.id, role: roleCode });
+    setRoleError(null);
+    try {
+      const updated = await updateManagedUserRoles(user.id, { removeRoles: [roleCode] });
+      setUsers((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    } catch (caughtError) {
+      setRoleError(normalizeError(caughtError, "Не удалось снять роль."));
+    } finally {
+      setBusyRole(null);
+    }
+  }
+
   if (loading || !landing) {
     return (
       <main className="workspace">
@@ -103,10 +135,36 @@ export default function InternalUsersPage() {
         {usersError ? <ScreenState kind="error" title="Не удалось загрузить сотрудников" text={usersError} /> : null}
         {usersLoading ? <SkeletonList count={3} label="Загружаю сотрудников" /> : null}
 
+        {!usersLoading && !usersError && users.length > 0 ? (
+          <Toolbar>
+            <SearchField
+              label="Поиск по имени или почте"
+              placeholder="Имя или почта"
+              value={query}
+              onChange={setQuery}
+            />
+            <span className="toolbar__count">Найдено: {visible.length}</span>
+          </Toolbar>
+        ) : null}
+
+        {roleError ? <p className="form-error">{roleError}</p> : null}
+
         {!usersLoading && !usersError ? (
-          users.length > 0 ? (
+          users.length === 0 ? (
+            <ScreenState
+              kind="empty"
+              title="Сотрудников пока нет"
+              text="Заведите эксперта или нанимающего менеджера, чтобы они могли работать в кабинете."
+            />
+          ) : visible.length === 0 ? (
+            <ScreenState
+              kind="empty"
+              title="Никого не нашли"
+              text="Смените запрос: сотрудники есть, но имя или почта не совпали."
+            />
+          ) : (
             <div className="stack-list">
-              {users.map((user) => (
+              {visible.map((user) => (
                 <article className="candidate-card" key={user.id}>
                   <div className="candidate-card__top">
                     <strong>{user.name}</strong>
@@ -114,17 +172,34 @@ export default function InternalUsersPage() {
                   </div>
                   <div className="candidate-card__meta">
                     <span>{user.email}</span>
-                    <span>{user.created_by_user_id ? "Аккаунт завёл администратор" : "Аккаунт создан при регистрации"}</span>
+                    <span>
+                      {user.created_by_user_id ? "Аккаунт завёл администратор" : "Аккаунт создан при регистрации"}
+                    </span>
                   </div>
+                  <div className="form-actions">
+                    {user.roles.map((code) => {
+                      const lastRole = user.roles.length < 2;
+                      const thisBusy = busyRole?.userId === user.id && busyRole.role === code;
+                      return (
+                        <Button
+                          key={code}
+                          type="button"
+                          variant="secondary"
+                          disabled={lastRole || busyRole?.userId === user.id}
+                          loading={thisBusy}
+                          onClick={() => void removeRole(user, code)}
+                        >
+                          Снять роль «{roleTitle(roleRegistry, code)}»
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  {user.roles.length < 2 ? (
+                    <p className="disabled-hint">Нужна хотя бы одна роль, поэтому снять последнюю нельзя.</p>
+                  ) : null}
                 </article>
               ))}
             </div>
-          ) : (
-            <ScreenState
-              kind="empty"
-              title="Сотрудников пока нет"
-              text="Заведите эксперта или нанимающего менеджера, чтобы они могли работать в кабинете."
-            />
           )
         ) : null}
 

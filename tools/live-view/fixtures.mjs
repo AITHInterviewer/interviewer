@@ -213,7 +213,14 @@ export function respond(pathname) {
     return { id: "c1", status: "open", extra_token: "extra-lida" };
   if (p.endsWith("/auth/me")) return fixtures.user;
   if (p.endsWith("/internal-users/me/landing")) return fixtures.landing;
-  if (p.endsWith("/internal-users")) return { items: [fixtures.user] };
+  if (p.endsWith("/internal-users"))
+    return {
+      items: [
+        fixtures.user,
+        { id: "u-igor", name: "Игорь Матвеев", email: "igor@napoleon-it.ru", roles: ["hiring_manager"], created_by_user_id: "u-anna" },
+        { id: "u-elena", name: "Елена Сорокина", email: "elena@napoleon-it.ru", roles: ["expert"], created_by_user_id: "u-anna" },
+      ],
+    };
   if (p.endsWith("/internal/roles"))
     return {
       items: [
