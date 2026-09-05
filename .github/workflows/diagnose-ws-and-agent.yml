@@ -10,11 +10,14 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: live-agent logs (full)
+      - name: check stt container env and uptime
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps stt
+          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q stt
+          docker inspect $containerId --format "{{.State.StartedAt}}"
+          docker inspect $containerId --format "{{range .Config.Env}}{{println .}}{{end}}" | Select-String "HF_HUB"
 
-      - name: stt logs (tail)
+      - name: stt logs (full traceback for the 500)
         if: always()
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 80
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 150
