@@ -1,41 +1,15 @@
-name: diagnose stt/tts probe (self-hosted, temporary)
+name: diagnose live-agent llm (self-hosted, temporary)
 
 on:
   workflow_dispatch: {}
 
 jobs:
-  probe:
+  logs:
     runs-on: self-hosted
     defaults:
       run:
         shell: powershell
     steps:
-      - name: TTS real synth call
+      - name: live-agent full recent log
         continue-on-error: true
-        run: |
-          $body = @{ model = "speaches-ai/piper-ru_RU-ruslan-medium"; voice = "ruslan"; input = "Проверка синтеза речи." } | ConvertTo-Json
-          try {
-            Invoke-WebRequest -Uri "http://localhost:3906/v1/audio/speech" -Method Post -ContentType "application/json" -Body $body -OutFile "tts-test.wav" -TimeoutSec 30
-            Write-Output "TTS OK, size: $((Get-Item tts-test.wav).Length) bytes"
-          } catch {
-            Write-Output "TTS FAILED: $($_.Exception.Message)"
-            if ($_.ErrorDetails) { Write-Output $_.ErrorDetails.Message }
-          }
-
-      - name: STT models list
-        continue-on-error: true
-        run: |
-          try {
-            $resp = Invoke-WebRequest -Uri "http://localhost:3905/v1/models" -TimeoutSec 15
-            Write-Output $resp.Content
-          } catch {
-            Write-Output "STT models FAILED: $($_.Exception.Message)"
-          }
-
-      - name: recent stt logs
-        continue-on-error: true
-        run: docker logs --tail 40 live-agent-stt-1
-
-      - name: recent tts logs
-        continue-on-error: true
-        run: docker logs --tail 40 live-agent-tts-1
+        run: docker logs --tail 300 live-agent-live-agent-1
