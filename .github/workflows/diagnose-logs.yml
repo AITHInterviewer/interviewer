@@ -1,35 +1,41 @@
-name: diagnose stt/tts (self-hosted, temporary)
+name: diagnose stt/tts probe (self-hosted, temporary)
 
 on:
   workflow_dispatch: {}
 
 jobs:
-  logs:
+  probe:
     runs-on: self-hosted
     defaults:
       run:
         shell: powershell
     steps:
-      - name: stt env
+      - name: TTS real synth call
         continue-on-error: true
-        run: docker exec live-agent-stt-1 env | Select-String "HF_|MODEL|WHISPER"
+        run: |
+          $body = @{ model = "speaches-ai/piper-ru_RU-ruslan-medium"; voice = "ruslan"; input = "Проверка синтеза речи." } | ConvertTo-Json
+          try {
+            Invoke-WebRequest -Uri "http://localhost:3906/v1/audio/speech" -Method Post -ContentType "application/json" -Body $body -OutFile "tts-test.wav" -TimeoutSec 30
+            Write-Output "TTS OK, size: $((Get-Item tts-test.wav).Length) bytes"
+          } catch {
+            Write-Output "TTS FAILED: $($_.Exception.Message)"
+            if ($_.ErrorDetails) { Write-Output $_.ErrorDetails.Message }
+          }
 
-      - name: stt model cache dir
+      - name: STT models list
         continue-on-error: true
-        run: docker exec live-agent-stt-1 sh -c "find /root/.cache/huggingface -maxdepth 6 | head -100"
+        run: |
+          try {
+            $resp = Invoke-WebRequest -Uri "http://localhost:3905/v1/models" -TimeoutSec 15
+            Write-Output $resp.Content
+          } catch {
+            Write-Output "STT models FAILED: $($_.Exception.Message)"
+          }
 
-      - name: stt model.bin size
+      - name: recent stt logs
         continue-on-error: true
-        run: docker exec live-agent-stt-1 sh -c "ls -la /root/.cache/huggingface/hub/models--Systran--faster-whisper-large-v3/snapshots/*/ 2>&1"
+        run: docker logs --tail 40 live-agent-stt-1
 
-      - name: tts env
+      - name: recent tts logs
         continue-on-error: true
-        run: docker exec live-agent-tts-1 env | Select-String "HF_|MODEL|CUDA|ONNX"
-
-      - name: tts nvidia-smi / gpu check
-        continue-on-error: true
-        run: docker exec live-agent-tts-1 sh -c "python3 -c 'import onnxruntime; print(onnxruntime.get_available_providers())' 2>&1"
-
-      - name: docker-compose config for stt/tts
-        continue-on-error: true
-        run: Get-Content live-agent/docker-compose.yml
+        run: docker logs --tail 40 live-agent-tts-1
