@@ -26,6 +26,9 @@ services:
       # локальном запуске .venv-процессом на хосте, см. .env.example).
       - STT_BASE_URL=http://stt:8000/v1
       - TTS_BASE_URL=http://tts:8000/v1
+      - LIVEKIT_URL=ws://livekit-server:7880
+      - LIVEKIT_API_KEY=devkey
+      - LIVEKIT_API_SECRET=dev-secret-change-me-32-characters
     volumes:
       # Claude Agent SDK запускает `claude` CLI подпроцессом (см. Dockerfile) — креды
       # подписки (`claude login`, разово на хосте, НЕ в образе) читает отсюда.

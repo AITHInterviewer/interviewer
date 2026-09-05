@@ -72,9 +72,7 @@ async def interview_control_channel(websocket: WebSocket, access_token: str) -> 
 
 async def _relay_control_events(websocket: WebSocket, redis: Redis, interview_id: str) -> None:
     async with SessionLocal() as session:
-        event_service = InterviewEventService(session)
         async for raw_event in subscribe_raw_events(redis, interview_id):
-            await event_service.record_event(interview_id, raw_event)
             control_event = await to_control_event(session, raw_event)
             if control_event is None:
                 continue

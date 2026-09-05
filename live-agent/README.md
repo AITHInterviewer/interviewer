@@ -45,7 +45,8 @@ flowchart TB
 
     LLM["Claude Agent SDK\nclaude-haiku-4-5, tools=[], max_turns=1\nна подписке (claude login)"]
     Events[("EventLog\nout/&lt;interview_id&gt;.jsonl")]
-    Batch["Batch-контур\n(не реализован)"]
+    Backend["Backend\nRedis Stream consumer"]
+    Batch["Evaluation agent"]
 
     Mic --> VAD --> Session
     Session -- аудио --> STT -- черновой транскрипт --> Session
@@ -56,7 +57,7 @@ flowchart TB
     Graph -- turn_prompt --> LLM -- LiveControlDecision (JSON) --> Graph
     Graph -- каждое событие --> Events
     Session -- текст реплики --> TTS -- аудио --> Speaker
-    Events -.вход для будущего.-> Batch
+    Events -.тот же Event.-> Backend --> Batch
 ```
 
 ## Граф live-контура
@@ -172,7 +173,9 @@ python -m ainterviewer.agent console      # локальный голосово�
 
 ## Протокол событий (итог live-контура)
 
-`out/<interview_id>.jsonl` — построчный JSON, один файл на интервью (`events.py`). Типы:
+`out/<interview_id>.jsonl` — построчный JSON, один файл на интервью (`events.py`). Те же
+события дополнительно публикуются в Redis Pub/Sub для UI и в Redis Stream
+`live-agent:events` для durable backend-потребителя. Типы:
 `interview_started`, `question_started`, `backchannel_played`, `candidate_utterance`,
 `live_control_decision`, `agent_utterance`, `adaptive_question_asked`, `checkin_used`,
 `question_completed`, `interview_completed`. Формат намеренно сырой (черновой ASR, не

@@ -71,7 +71,7 @@ jobs:
           S3_BUCKET=ainterviewer-resumes
           S3_REGION=us-east-1
           LIVEKIT_API_KEY=devkey
-          LIVEKIT_API_SECRET=secret
+          LIVEKIT_API_SECRET=dev-secret-change-me-32-characters
           LIVEKIT_WS_URL=ws://26.67.31.6:3907
           '@
 
@@ -104,7 +104,7 @@ jobs:
             port_range_end: 50100
             node_ip: 26.67.31.6
           keys:
-            devkey: secret
+            devkey: dev-secret-change-me-32-characters
           room:
             auto_create: true
           '@
@@ -219,7 +219,7 @@ jobs:
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
           LIVEKIT_URL=ws://livekit-server:7880
           LIVEKIT_API_KEY=devkey
-          LIVEKIT_API_SECRET=secret
+          LIVEKIT_API_SECRET=dev-secret-change-me-32-characters
           REDIS_URL=redis://redis:6379/0
           '@
 

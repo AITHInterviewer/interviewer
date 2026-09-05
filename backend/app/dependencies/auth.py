@@ -1,9 +1,10 @@
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.db import get_db_session
 from app.models.user import InternalUser
 from app.repositories.user_repository import UserRepository
@@ -102,3 +103,14 @@ def require_area(area_id: str):
         return user
 
     return dependency
+
+
+async def require_service_token(
+    x_service_token: Annotated[str | None, Header()] = None,
+) -> None:
+    """Service-to-service auth for evaluation-agent and other internal callers."""
+    if x_service_token != settings.evaluation_service_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing service token.",
+        )

@@ -1,0 +1,27 @@
+# API-only compose definition for the root stack. PostgreSQL, Redis, and MinIO are supplied
+# by ../infra/docker-compose.yml; backend/docker-compose.yml remains the standalone stack.
+services:
+  backend:
+    build:
+      context: .
+      target: dev
+    command:
+      [
+        "/bin/sh",
+        "-c",
+        "uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
+      ]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ainterviewer:ainterviewer@postgres:5432/ainterviewer
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT_URL: http://minio:9000
+      EVALUATION_SERVICE_TOKEN: ${EVALUATION_SERVICE_TOKEN:-dev-evaluation-token}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy

@@ -13,6 +13,6 @@ rtc:
   port_range_start: 50000
   port_range_end: 50100
 keys:
-  devkey: secret
+  devkey: dev-secret-change-me-32-characters
 room:
   auto_create: true

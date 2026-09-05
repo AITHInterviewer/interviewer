@@ -24,6 +24,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.answer import Answer
+from app.models.evaluation_job import EvaluationJob
+from app.models.interview import Interview
 from app.models.interview_event import InterviewEvent
 from app.models.question import Question
 
@@ -53,16 +55,30 @@ class InterviewEventService:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def record_event(self, interview_id: uuid.UUID | str, raw_event: dict[str, Any]) -> None:
+    async def record_event(
+        self,
+        interview_id: uuid.UUID | str,
+        raw_event: dict[str, Any],
+        source_event_id: str | None = None,
+    ) -> None:
         interview_id = uuid.UUID(str(interview_id))
+        if source_event_id is not None:
+            existing = await self.session.scalar(
+                select(InterviewEvent.id).where(InterviewEvent.source_event_id == source_event_id)
+            )
+            if existing is not None:
+                return
         self.session.add(
             InterviewEvent(
                 interview_id=interview_id,
                 event_type=str(raw_event.get("type", "unknown")),
                 payload=raw_event,
+                source_event_id=source_event_id,
             )
         )
         await self._apply_aggregation(interview_id, raw_event)
+        if str(raw_event.get("type")) == "interview_completed":
+            await self._handle_interview_completed(interview_id)
         await self.session.commit()
 
     async def record_candidate_input(self, interview_id: uuid.UUID | str, message: dict[str, Any]) -> None:
@@ -131,3 +147,18 @@ class InterviewEventService:
         self.session.add(answer)
         await self.session.flush()
         return answer
+
+    async def _handle_interview_completed(self, interview_id: uuid.UUID) -> None:
+        """Transactional outbox: interview completed -> create evaluation_job."""
+        interview = await self.session.get(Interview, interview_id)
+        if interview is not None:
+            interview.status = "completed"
+            interview.completed_at = datetime.now(UTC)
+
+        existing = await self.session.scalar(
+            select(EvaluationJob).where(EvaluationJob.interview_id == interview_id)
+        )
+        if existing is None:
+            self.session.add(
+                EvaluationJob(interview_id=interview_id, status="pending")
+            )

@@ -12,10 +12,10 @@ services:
         required: false
     environment:
       - STT_BASE_URL=http://stt-accurate:8000/v1
+      - BACKEND_URL=http://backend:8000
     depends_on:
       - stt-accurate
-    # Воркер не реализован (см. README) — контейнер сейчас упадёт на NotImplementedError,
-    # это ожидаемо на текущем этапе, не баг сборки.
+    # The worker claims durable jobs from backend over HTTP; it retries while backend starts.
 
   stt-accurate:
     image: fedirz/faster-whisper-server:latest-cpu

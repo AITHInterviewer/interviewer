@@ -5,6 +5,7 @@ from app.dependencies.auth import (
     get_role_service,
     require_area,
     require_capability,
+    require_service_token,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "get_role_service",
     "require_area",
     "require_capability",
+    "require_service_token",
 ]

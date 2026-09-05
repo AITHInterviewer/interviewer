@@ -3,7 +3,8 @@
 # по имени (postgres/redis/minio/livekit-server), см. include: в корневом docker-compose.yml.
 #
 # ВНИМАНИЕ: livekit-server и livekit-egress настроены в dev-режиме с фиксированными
-# ключами (devkey/secret) — годится для локальной разработки и CI, НЕ для прода. Egress
+# ключом devkey и секретом только для разработки — годится для локальной разработки и CI,
+# НЕ для прода. Egress
 # ни разу не проверялся вживую (нет реальной WebRTC-комнаты с записью в этом проекте
 # на момент написания) — конфиг собран по документации LiveKit, не протестирован.
 
@@ -63,14 +64,10 @@ services:
     # Полный конфиг вместо --dev — см. livekit.yaml (там же объяснение use_external_ip
     # и почему ручной --node-ip не решал проблему ICE между live-agent и этим сервером).
     command: --config /etc/livekit.yaml
-    # ./infra/livekit.yaml, не ./livekit.yaml: этот compose-файл всегда запускается как
-    # `docker compose --project-directory . -f infra/docker-compose.yml ...` (из корня
-    # репо, см. деплой-workflow) — относительные пути в volumes резолвятся от
-    # --project-directory, НЕ от папки самого этого файла. С `./livekit.yaml` Docker не
-    # находил файл в корне репо и молча монтировал пустую директорию вместо файла
-    # ("read /etc/livekit.yaml: is a directory", livekit-server не стартовал).
+    # Relative to this included compose file. Keeping the path local also works when the
+    # root compose stack includes infra/docker-compose.yml.
     volumes:
-      - ./infra/livekit.yaml:/etc/livekit.yaml:ro
+      - ./livekit.yaml:/etc/livekit.yaml:ro
     ports:
       - "3907:7880" # HTTP/WS сигналинг
       - "3908:7881" # TCP fallback для ICE/TURN
@@ -87,10 +84,9 @@ services:
   livekit-egress:
     image: livekit/egress:latest
     environment:
-      - EGRESS_CONFIG_BODY=${EGRESS_CONFIG_BODY:-}
+      - EGRESS_CONFIG_FILE=/etc/egress.yaml
     volumes:
       - ./livekit-egress-config.yaml:/etc/egress.yaml:ro
-    command: ["--config", "/etc/egress.yaml"]
     depends_on:
       - redis
       - livekit-server
