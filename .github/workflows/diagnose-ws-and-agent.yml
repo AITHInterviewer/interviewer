@@ -10,14 +10,11 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: check stt container env and uptime
+      - name: list what's actually cached for stt models
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps stt
           $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q stt
-          docker inspect $containerId --format "{{.State.StartedAt}}"
-          docker inspect $containerId --format "{{range .Config.Env}}{{println .}}{{end}}" | Select-String "HF_HUB"
-
-      - name: stt logs (full traceback for the 500)
-        if: always()
-        run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 150
+          docker exec $containerId find /root/.cache/huggingface/hub -maxdepth 1 -type d
+          Write-Output "--- medium snapshot contents ---"
+          docker exec $containerId sh -c "find /root/.cache/huggingface/hub/models--Systran--faster-whisper-medium -type f -o -type l 2>/dev/null | xargs -I{} ls -la {}"
+          Write-Output "--- small snapshot contents (if any) ---"
+          docker exec $containerId sh -c "find /root/.cache/huggingface/hub/models--Systran--faster-whisper-small -type f -o -type l 2>/dev/null | xargs -I{} ls -la {}"
