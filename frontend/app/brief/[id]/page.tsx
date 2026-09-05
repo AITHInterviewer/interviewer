@@ -87,8 +87,26 @@ export default function VacancyBriefPage() {
               description={vacancy ? `Грейд: ${vacancy.grade}` : undefined}
             />
             {vacancy ? (
-              <p>Обязательные навыки: {vacancy.required_skills.join(", ") || "не указаны"}.</p>
-            ) : null}
+              <>
+                <h2>Обязательные навыки</h2>
+                {vacancy.required_skills.length > 0 ? (
+                  <ul className="stack-list">
+                    {vacancy.required_skills.map((skill) => (
+                      <li key={skill}>{skill}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>
+                    Обязательные навыки не указаны. Их добавляет рекрутер в настройках вакансии.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p>
+                Список требований в этот бриф не пришёл — видны только обезличенные числа. Если вы
+                формулировали навыки, откройте вакансию у рекрутера или попросите доступ.
+              </p>
+            )}
             {stats ? (
               <p>
                 Приглашено {stats.invited}, интервью прошли {stats.completed}, решения ждут{" "}
