@@ -12,12 +12,8 @@ jobs:
     steps:
       - name: list all routes fish-speech actually registered
         continue-on-error: true
-        run: docker exec live-agent-tts-1 python3 -c "
-          import sys; sys.path.insert(0, '.');
-          from tools.server.views import routes
-          for r in routes.http_routes:
-              print(r.methods, r.path)
-          "
+        run: |
+          docker exec live-agent-tts-1 python3 -c "from tools.server.views import routes; [print(r.methods, r.path) for r in routes.http_routes]"
 
       - name: raw http probe of /v1/tts
         continue-on-error: true
