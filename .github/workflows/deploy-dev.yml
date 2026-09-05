@@ -77,7 +77,19 @@ jobs:
           '@
 
       - name: Build and (re)start dev baseline
-        run: docker compose -f docker-compose.dev.yml up -d --build --remove-orphans
+        # `up -d` itself can fail here (nonzero exit) when a depends_on:
+        # condition: service_healthy dependency (backend) exits before ever
+        # becoming healthy — before this workflow ever reaches "Wait for
+        # backend health" below, which is the only step that dumps container
+        # logs on failure. Dump logs here too so a crash-on-startup is
+        # diagnosable from the Actions log alone.
+        run: |
+          docker compose -f docker-compose.dev.yml up -d --build --remove-orphans
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "--- docker compose up failed, dumping backend logs ---"
+            docker compose -f docker-compose.dev.yml logs backend --tail 200
+            exit $LASTEXITCODE
+          }
 
       - name: Wait for backend health
         run: |
