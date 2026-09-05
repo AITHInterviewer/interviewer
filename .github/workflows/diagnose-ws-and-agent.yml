@@ -12,16 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: live-agent logs (full)
+      - name: livekit-server logs (full, no tail limit)
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
-
-      - name: livekit-server logs (tail)
-        if: always()
-        run: |
-          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server --tail 100
-
-      - name: tts logs (tail)
-        if: always()
-        run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs tts --tail 60
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server
