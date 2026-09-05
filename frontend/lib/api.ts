@@ -1,13 +1,17 @@
 /**
  * Тонкая fetch-обёртка к backend API. Базовый URL берётся из
- * `NEXT_PUBLIC_BACKEND_URL` (клиентские вызовы) — единственная переменная, которую
- * реально читает этот файл; `BACKEND_INTERNAL_URL` (server-side fetch из RSC) здесь
- * не используется, т.к. все вызовы через `apiFetch` идут из клиентских компонентов
- * (см. specs/004-candidate-interview-flow/plan.md — control-канал и его REST-соседи
- * вызываются из браузера кандидата, не с сервера Next.js).
+ * `NEXT_PUBLIC_BACKEND_URL` (клиентские вызовы), если задан — иначе, в браузере,
+ * берём origin текущей страницы (там же nginx проксирует /api/, см. infra/nginx/nginx.conf),
+ * чтобы не завязываться на конкретный IP/порт раннера: сайт может быть открыт и через
+ * VPN-адрес, и через внешний туннель — оба раза nginx рядом, на том же origin.
+ * `BACKEND_INTERNAL_URL` (server-side fetch из RSC) здесь не используется, т.к. все вызовы
+ * через `apiFetch` идут из клиентских компонентов (см.
+ * specs/004-candidate-interview-flow/plan.md — control-канал и его REST-соседи вызываются
+ * из браузера кандидата, не с сервера Next.js).
  */
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+const BACKEND_URL =
+  process.env.NEXT_PUBLIC_BACKEND_URL || (typeof window !== "undefined" ? window.location.origin : "http://localhost:8000");
 
 export class ApiError extends Error {
   constructor(
