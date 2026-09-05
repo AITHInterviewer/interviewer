@@ -10,8 +10,6 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: check claude CLI prompt directly (no job wrapper)
+      - name: live-agent logs (full)
         run: |
-          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q live-agent
-          docker exec $containerId claude -p "Say OK" --output-format text
-          Write-Output "exit code: $LASTEXITCODE"
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
