@@ -17,7 +17,7 @@ import {
   requestManagedExtra,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav } from "@/lib/nav";
+import { buildNav, expertAuditBreadcrumbs } from "@/lib/nav";
 
 const EXPERT_AREA = "area.expert_questions";
 
@@ -25,6 +25,7 @@ export default function AuditCandidatePage() {
   const params = useParams<{ vacancyId: string; candidateId: string }>();
   const { landing, loading } = useProtectedLanding({ requiredArea: EXPERT_AREA });
   const [interview, setInterview] = useState<Interview | null>(null);
+  const [vacancyTitle, setVacancyTitle] = useState<string | null>(null);
   const [events, setEvents] = useState<InterviewEventsResponse | null>(null);
   const [auditInQueue, setAuditInQueue] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +90,7 @@ export default function AuditCandidatePage() {
           return;
         }
         setInterview(match.interview);
+        setVacancyTitle(match.vacancy_title);
         setAuditInQueue(true);
         const [eventsPayload, clarificationList] = await Promise.all([
           loadInterviewEvents(params.candidateId).catch(() => null),
@@ -131,7 +133,11 @@ export default function AuditCandidatePage() {
         {interview ? (
           <>
             <PageHeader
-              path="Аудит эксперта"
+              breadcrumbs={expertAuditBreadcrumbs({
+                vacancyId: params.vacancyId,
+                vacancyTitle: vacancyTitle ?? undefined,
+                current: interview.candidate_name ?? "Кандидат без имени",
+              })}
               title={interview.candidate_name ?? "Кандидат без имени"}
               description="Просмотр для эксперта: смотрите ответы и решайте, хватает ли данных. Приглашать и передавать менеджеру отсюда нельзя."
             />

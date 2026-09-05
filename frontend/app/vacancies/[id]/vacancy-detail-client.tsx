@@ -6,7 +6,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import { Modal } from "@/components/ui/overlay";
+import { Modal, ModalActions } from "@/components/ui/overlay";
 import { Button } from "@/components/ui/button";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { Tag } from "@/components/ui/tag";
@@ -24,7 +24,7 @@ import {
   sendManagedVacancyToExpert,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { buildNav, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
 import { groupInterviews, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
@@ -268,7 +268,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
         {!vacancyLoading && vacancy ? (
           <>
             <PageHeader
-              path="Вакансии"
+              breadcrumbs={vacancyBreadcrumbs(vacancyId, vacancy.title, "Доска")}
               title={vacancy.title}
               description={
                 <>
@@ -487,7 +487,10 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                       </label>
                     ) : null}
                     {interviewFormError ? <p className="form-error">{interviewFormError}</p> : null}
-                    <div className="form-actions">
+                    <ModalActions>
+                      <Button type="button" variant="secondary" data-modal-initial-focus onClick={() => setInviteOpen(false)}>
+                        Отмена
+                      </Button>
                       <Button
                         type="submit"
                         disabled={!canInvite}
@@ -501,10 +504,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                           Скопировать ссылку
                         </Button>
                       ) : null}
-                      <Button type="button" variant="secondary" onClick={() => setInviteOpen(false)}>
-                        Отмена
-                      </Button>
-                    </div>
+                    </ModalActions>
                     {copyError ? (
                       <p className="form-error" role="alert">
                         {copyError}

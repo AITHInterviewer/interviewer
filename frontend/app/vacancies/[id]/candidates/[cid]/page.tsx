@@ -42,7 +42,7 @@ import {
   uncoveredRequirements,
   type RequirementCoverage,
 } from "@/lib/report";
-import { buildNav } from "@/lib/nav";
+import { buildNav, vacancyBreadcrumbs } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const OPEN_CLARIFICATION = new Set(["requested", "received", "in_progress"]);
@@ -265,7 +265,15 @@ export default function VacancyCandidatePage() {
         {interview ? (
           <>
             <PageHeader
-              path="Вакансии"
+              breadcrumbs={
+                vacancy
+                  ? vacancyBreadcrumbs(
+                      params.id,
+                      vacancy.title,
+                      interview.candidate_name ?? "Кандидат без имени",
+                    )
+                  : [{ label: "Вакансии", href: "/vacancies" }]
+              }
               title={interview.candidate_name ?? "Кандидат без имени"}
               description={interviewStageLabel(interview)}
             />

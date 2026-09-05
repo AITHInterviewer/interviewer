@@ -8,26 +8,27 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { Button } from "@/components/ui/button";
 import type { ExpertQueueResponse } from "@/lib/api";
 import { loadExpertQueue } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav } from "@/lib/nav";
+import { buildNav, expertAuditBreadcrumbs } from "@/lib/nav";
 
 const EXPERT_AREA = "area.expert_questions";
 
-function auditRowContext(item: ExpertQueueResponse["audits"][number]): string {
+export function auditRowContext(item: ExpertQueueResponse["audits"][number]): string {
   const requirement = item.requirement?.trim();
   const reason = item.reason?.trim();
   if (requirement && reason) {
     return `Требование: ${requirement}. ${reason}`;
   }
   if (requirement) {
-    return `Требование: ${requirement}. Причина запроса в очереди не пришла — откройте карточку.`;
+    return `Требование: ${requirement}. Причина не указана. Откройте карточку запроса.`;
   }
   if (reason) {
     return `${reason} Конкретное требование в очереди не указано — откройте карточку.`;
   }
-  return "Требование и причина запроса в очереди не пришли. Откройте карточку: там отчёт целиком.";
+  return "Причина не указана. Откройте карточку запроса.";
 }
 
 export default function AuditVacancyPage() {
@@ -72,25 +73,34 @@ export default function AuditVacancyPage() {
   }
 
   const items = (queue?.audits ?? []).filter((item) => item.vacancy_id === params.vacancyId);
+  const vacancyTitle = items[0]?.vacancy_title ?? "Вакансия";
 
   return (
     <AppShell nav={buildNav(landing)} title="Аудит">
       <div className="workspace">
-        <PageHeader path="Эксперт / Аудит" title="Кандидаты на аудит" />
+        <PageHeader
+          breadcrumbs={expertAuditBreadcrumbs({ vacancyId: params.vacancyId, vacancyTitle })}
+          title={`Аудиты · ${vacancyTitle}`}
+        />
         {pageLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем аудиты…" /> : null}
         {error ? <ScreenState kind="error" title="Нет списка" text={error} /> : null}
         {!pageLoading && !error ? (
           items.length > 0 ? (
-            <ul className="stack-list">
+            <div className="stack-list">
               {items.map((item) => (
-                <li key={item.interview.id}>
-                  <Link href={`/audit/${params.vacancyId}/${item.interview.id}`}>
-                    {item.interview.candidate_name ?? "Кандидат без имени"}
-                  </Link>
-                  <p>{auditRowContext(item)}</p>
-                </li>
+                <article className="candidate-card" key={item.interview.id}>
+                  <div className="candidate-card__top">
+                    <strong>{item.interview.candidate_name ?? "Кандидат без имени"}</strong>
+                  </div>
+                  <p className="muted-copy">{auditRowContext(item)}</p>
+                  <div className="form-actions">
+                    <Button asChild variant="secondary">
+                      <Link href={`/audit/${params.vacancyId}/${item.interview.id}`}>Открыть аудит</Link>
+                    </Button>
+                  </div>
+                </article>
               ))}
-            </ul>
+            </div>
           ) : (
             <ScreenState kind="empty" title="Нет аудитов" text="По этой вакансии открытых аудитов нет." />
           )

@@ -91,7 +91,7 @@ export function InterviewFlow({ token }: { token: string }) {
   if (step === "consent") {
     const { min, max } = info.estimated_duration_min;
     return (
-      <CandidateShell vacancyTitle={info.vacancy_title}>
+      <CandidateShell vacancyTitle={info.vacancy_title} prepStep="Согласие">
         <ConsentStage
           vacancyTitle={info.vacancy_title}
           questionsTotal={info.questions_total}
@@ -108,7 +108,7 @@ export function InterviewFlow({ token }: { token: string }) {
 
   if (step === "setup") {
     return (
-      <CandidateShell vacancyTitle={info.vacancy_title}>
+      <CandidateShell vacancyTitle={info.vacancy_title} prepStep="Устройства">
         <section className="setup-stage">
           <h1>Проверьте микрофон</h1>
           <p>Для голосовых ответов нужен микрофон. Камера не обязательна — интервью можно пройти без неё.</p>
@@ -126,7 +126,7 @@ export function InterviewFlow({ token }: { token: string }) {
   }
 
   return (
-    <CandidateShell vacancyTitle={info.vacancy_title}>
+    <CandidateShell vacancyTitle={info.vacancy_title} prepStep="Интервью">
       <InterviewRoom sessionId={token} stream={stream} initialSpeakerId={speakerId} />
     </CandidateShell>
   );

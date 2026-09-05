@@ -69,5 +69,18 @@ describe("ExpertHomePage", () => {
 
     expect(await screen.findByRole("heading", { name: /вакансии на калибровке/i })).toBeInTheDocument();
     expect(screen.getByText(/backend developer/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /проверить комплект/i })).toHaveAttribute(
+      "href",
+      "/vacancies/v1/rubric",
+    );
+  });
+
+  it("shows separate empty states for calibrations and audits", async () => {
+    vi.mocked(loadExpertQueue).mockResolvedValue({ calibrations: [], audits: [] });
+
+    renderPage();
+
+    expect(await screen.findByText(/комплекты на проверку не поступили/i)).toBeInTheDocument();
+    expect(screen.getByText(/запросов аудита нет/i)).toBeInTheDocument();
   });
 });

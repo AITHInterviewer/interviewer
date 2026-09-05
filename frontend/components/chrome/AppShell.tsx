@@ -6,8 +6,6 @@ import {
   Briefcase,
   CalendarBlank,
   ClipboardText,
-  Moon,
-  Sun,
   UserCircle,
   Users,
 } from "@phosphor-icons/react";
@@ -32,7 +30,6 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from "@/components/shadcn/sidebar";
-import { useTheme } from "@/lib/theme";
 import { vacancyContextNav } from "@/lib/nav";
 
 export function BrandMark() {
@@ -73,7 +70,6 @@ export function AppShell({
   title?: string;
 }) {
   const pathname = usePathname();
-  const { theme, toggleTheme } = useTheme();
   const activeHref = longestMatchingHref(pathname, nav);
 
   // Контекстная группа появляется, только когда человек внутри вакансии.
@@ -159,16 +155,6 @@ export function AppShell({
         <header className="app-topbar">
           <SidebarTrigger className="icon-button" />
           <span className="app-shell__title">{title ?? "Рабочая область"}</span>
-          <div className="app-shell__top-actions">
-            <button
-              className="icon-button"
-              type="button"
-              onClick={toggleTheme}
-              aria-label={theme === "dark" ? "Включить светлую тему" : "Включить тёмную тему"}
-            >
-              {theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}
-            </button>
-          </div>
         </header>
         <div className="app-shell__main">{children}</div>
       </SidebarInset>
