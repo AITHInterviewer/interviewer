@@ -23,10 +23,13 @@ vi.mock("@/lib/auth", async () => {
     loadLanding: vi.fn(),
     loadVacancy: vi.fn(),
     updateManagedVacancy: vi.fn(),
+    archiveManagedVacancy: vi.fn(),
+    pauseManagedVacancy: vi.fn(),
+    resumeManagedVacancy: vi.fn(),
   };
 });
 
-import { loadLanding, loadVacancy, updateManagedVacancy } from "@/lib/auth";
+import { archiveManagedVacancy, loadLanding, loadVacancy, updateManagedVacancy } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import { VacancySettingsClient } from "./settings-client";
 
@@ -103,5 +106,20 @@ describe("VacancySettingsClient", () => {
       }),
     );
     await waitFor(() => expect(screen.getByText(/изменения сохранены/i)).toBeInTheDocument());
+  });
+
+  it("asks for confirmation before archiving", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "active" });
+    vi.mocked(archiveManagedVacancy).mockResolvedValue({ ...baseVacancy, status: "archived" });
+
+    renderClient("v1");
+
+    fireEvent.click(await screen.findByRole("button", { name: /^архив$/i }));
+    expect(screen.getByRole("dialog", { name: /архивировать вакансию/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^архивировать$/i }));
+
+    await waitFor(() => expect(archiveManagedVacancy).toHaveBeenCalledWith("v1"));
+    await waitFor(() => expect(screen.getByText(/вакансия в архиве/i)).toBeInTheDocument());
   });
 });
