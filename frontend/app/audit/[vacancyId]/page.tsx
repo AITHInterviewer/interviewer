@@ -8,18 +8,32 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import type { ExpertQueueResponse, VacancyDetail } from "@/lib/api";
-import { loadExpertQueue, loadVacancy } from "@/lib/auth";
+import type { ExpertQueueResponse } from "@/lib/api";
+import { loadExpertQueue } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
 
 const EXPERT_AREA = "area.expert_questions";
 
+function auditRowContext(item: ExpertQueueResponse["audits"][number]): string {
+  const requirement = item.requirement?.trim();
+  const reason = item.reason?.trim();
+  if (requirement && reason) {
+    return `Требование: ${requirement}. ${reason}`;
+  }
+  if (requirement) {
+    return `Требование: ${requirement}. Причина запроса в очереди не пришла — откройте карточку.`;
+  }
+  if (reason) {
+    return `${reason} Конкретное требование в очереди не указано — откройте карточку.`;
+  }
+  return "Требование и причина запроса в очереди не пришли. Откройте карточку: там отчёт целиком.";
+}
+
 export default function AuditVacancyPage() {
   const params = useParams<{ vacancyId: string }>();
   const { landing, loading } = useProtectedLanding({ requiredArea: EXPERT_AREA });
   const [queue, setQueue] = useState<ExpertQueueResponse | null>(null);
-  const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
 
@@ -28,11 +42,10 @@ export default function AuditVacancyPage() {
       return;
     }
     let cancelled = false;
-    Promise.all([loadExpertQueue(), loadVacancy(params.vacancyId).catch(() => null)])
-      .then(([payload, detail]) => {
+    loadExpertQueue()
+      .then((payload) => {
         if (!cancelled) {
           setQueue(payload);
-          setVacancy(detail);
         }
       })
       .catch((caughtError: unknown) => {
@@ -48,7 +61,7 @@ export default function AuditVacancyPage() {
     return () => {
       cancelled = true;
     };
-  }, [landing, params.vacancyId]);
+  }, [landing]);
 
   if (loading || !landing) {
     return (
@@ -69,25 +82,14 @@ export default function AuditVacancyPage() {
         {!pageLoading && !error ? (
           items.length > 0 ? (
             <ul className="stack-list">
-              {items.map((item) => {
-                const requirement =
-                  item.requirement?.trim() ||
-                  (vacancy?.required_skills.length ? vacancy.required_skills.join(", ") : null);
-                const reason = item.reason?.trim() || "Рекрутер попросил взгляд эксперта на отчёт.";
-                return (
-                  <li key={item.interview.id}>
-                    <Link href={`/audit/${params.vacancyId}/${item.interview.id}`}>
-                      {item.interview.candidate_name ?? "Кандидат без имени"}
-                    </Link>
-                    <p>
-                      {requirement
-                        ? `Требование: ${requirement}.`
-                        : "Требования вакансии в очереди не пришли. Откройте карточку или настройки вакансии."}{" "}
-                      {reason}
-                    </p>
-                  </li>
-                );
-              })}
+              {items.map((item) => (
+                <li key={item.interview.id}>
+                  <Link href={`/audit/${params.vacancyId}/${item.interview.id}`}>
+                    {item.interview.candidate_name ?? "Кандидат без имени"}
+                  </Link>
+                  <p>{auditRowContext(item)}</p>
+                </li>
+              ))}
             </ul>
           ) : (
             <ScreenState kind="empty" title="Нет аудитов" text="По этой вакансии открытых аудитов нет." />
