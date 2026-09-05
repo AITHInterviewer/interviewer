@@ -67,7 +67,7 @@ describe("ExpertHomePage", () => {
   it("renders calibration queue from loadExpertQueue", async () => {
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: /калибровка/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /вакансии на калибровке/i })).toBeInTheDocument();
     expect(screen.getByText(/backend developer/i)).toBeInTheDocument();
   });
 });

@@ -71,7 +71,7 @@ export default function LoginPage() {
         {error ? <p className="form-error">{error}</p> : null}
         <div className="form-actions">
           <button className="button button--primary" type="submit" disabled={submitting}>
-            {submitting ? "Вхожу…" : "Войти"}
+            Войти
           </button>
           <button className="button button--secondary" type="button" disabled title="Самостоятельная регистрация выключена: аккаунт заводит администратор">
             Регистрация

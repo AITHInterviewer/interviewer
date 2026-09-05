@@ -8,6 +8,8 @@ import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
+import { SkeletonTable } from "@/components/ui/skeleton";
+import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import type { Vacancy } from "@/lib/api";
 import { loadVacancies } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
@@ -16,12 +18,12 @@ import { buildNav, OWNER_LABEL, VACANCY_STATUS_LABEL } from "@/lib/nav";
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
 
-function statusTone(status: Vacancy["status"]): "positive" | "warning" | undefined {
-  if (status === "active" || status === "ready") return "positive";
+function statusTone(status: Vacancy["status"]): StatusTone {
+  if (status === "active" || status === "ready" || status === "approved") return "positive";
   if (status === "calibration" || status === "pending_review" || status === "changes_requested") {
     return "warning";
   }
-  return undefined;
+  return "neutral";
 }
 
 function ownerLabel(vacancy: Vacancy): string {
@@ -108,7 +110,7 @@ export default function VacanciesPage() {
           }
         />
 
-        {vacanciesLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем вакансии…" /> : null}
+        {vacanciesLoading ? <SkeletonTable rows={3} columns={4} label="Загружаю вакансии" /> : null}
         {error ? <ScreenState kind="error" title="Не удалось загрузить вакансии" text={error} /> : null}
 
         {!vacanciesLoading && !error ? (
@@ -129,9 +131,9 @@ export default function VacanciesPage() {
                       <Link href={`/vacancies/${vacancy.id}`}>{vacancy.title}</Link>
                     </td>
                     <td>
-                      <span className="status" data-tone={statusTone(vacancy.status)}>
+                      <StatusPill tone={statusTone(vacancy.status)}>
                         {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
-                      </span>
+                      </StatusPill>
                     </td>
                     <td>{ownerLabel(vacancy)}</td>
                     <td>{vacancy.candidate_count ?? "—"}</td>

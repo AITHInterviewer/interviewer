@@ -29,10 +29,7 @@ function areaHref(area: LandingArea): string | null {
  * (deduped by path, since a combo-role user's areas can point at the same real route), plus
  * a "Users" entry when the signed-in user can manage internal users.
  */
-export function buildNav(
-  landing: LandingResponse,
-  options?: { includeDemo?: boolean },
-): { href: string; label: string }[] {
+export function buildNav(landing: LandingResponse): { href: string; label: string }[] {
   const seenPaths = new Set<string>();
   const nav: { href: string; label: string }[] = [];
 
@@ -47,10 +44,6 @@ export function buildNav(
 
   if (landing.available_actions.includes(USERS_MANAGE_ACTION) && !seenPaths.has("/internal/users")) {
     nav.push({ href: "/internal/users", label: "Пользователи" });
-  }
-
-  if (options?.includeDemo && !seenPaths.has("/vacancies/demo/board")) {
-    nav.push({ href: "/vacancies/demo/board", label: "Демо: отчёт" });
   }
 
   return nav;

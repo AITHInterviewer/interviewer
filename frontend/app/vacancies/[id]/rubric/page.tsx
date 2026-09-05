@@ -95,7 +95,7 @@ function RubricInner() {
                       <strong>Версия {version.version_number}</strong>
                       <p>
                         {version.approved_at
-                          ? new Date(version.approved_at).toLocaleString("ru-RU")
+                          ? new Date(version.approved_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })
                           : "Дата одобрения не указана"}
                       </p>
                       <p>{snapshotText(version.snapshot)}</p>

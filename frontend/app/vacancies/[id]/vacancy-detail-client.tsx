@@ -6,7 +6,10 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { Modal } from "@/components/ui/overlay";
 import { Button } from "@/components/ui/button";
+import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { Tag } from "@/components/ui/tag";
 import { CandidateCard } from "@/components/ui/candidate-card";
 import { ToastStack, type ToastItem } from "@/components/ui/toast";
 import type { AnonymizedStats, Interview, VacancyDetail } from "@/lib/api";
@@ -28,12 +31,12 @@ import { groupInterviews, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipe
 const RECRUITER_AREA = "area.recruiter_workspace";
 const HIRING_MANAGER_AREA = "area.hiring_manager_review";
 
-function statusTone(status: VacancyDetail["status"]): "positive" | "warning" | undefined {
-  if (status === "active" || status === "ready") return "positive";
+function statusTone(status: VacancyDetail["status"]): StatusTone {
+  if (status === "active" || status === "ready" || status === "approved") return "positive";
   if (status === "calibration" || status === "pending_review" || status === "changes_requested") {
     return "warning";
   }
-  return undefined;
+  return "neutral";
 }
 
 function inviteLink(accessToken: string): string {
@@ -62,6 +65,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const [interviewFormSubmitting, setInterviewFormSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
@@ -171,7 +175,8 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
       } catch {
         // Clipboard can fail; the toast still shows the path.
       }
-      pushToast("Ссылка готова. Отправьте её сами.");
+      pushToast("Ссылка готова и скопирована. Отправьте её кандидату сами.");
+      setInviteOpen(false);
       setCandidateName("");
       setResumeFile(null);
       await refreshInterviews();
@@ -216,12 +221,35 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
             <PageHeader
               path="Вакансии"
               title={vacancy.title}
-              description={vacancy.description}
+              description={
+                <>
+                  <p>{vacancy.description}</p>
+                  {vacancy.required_skills.length > 0 ? (
+                    <p className="table-tags">
+                      {vacancy.required_skills.map((skill) => (
+                        <Tag key={skill} label={skill} />
+                      ))}
+                    </p>
+                  ) : null}
+                </>
+              }
               actions={
                 <>
-                  <span className="status" data-tone={statusTone(vacancy.status)}>
+                  <StatusPill tone={statusTone(vacancy.status)}>
                     {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
-                  </span>
+                  </StatusPill>
+                  {canManage ? (
+                    <span>
+                      <Button type="button" disabled={!canInvite} onClick={() => setInviteOpen(true)}>
+                        Пригласить кандидата
+                      </Button>
+                      {!canInvite ? (
+                        <p className="disabled-hint">
+                          Пригласить можно после того, как эксперт одобрит версию и вакансия станет активной.
+                        </p>
+                      ) : null}
+                    </span>
+                  ) : null}
                   {showGenerate ? (
                     <Button
                       type="button"
@@ -229,7 +257,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                       disabled={actionBusy}
                       onClick={() => void handleGenerateQuestions()}
                     >
-                      {actionBusy ? "Собираю вопросы…" : "Собрать вопросы"}
+                      Собрать вопросы
                     </Button>
                   ) : null}
                   {showSend ? (
@@ -343,8 +371,12 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                 ) : null}
 
                 {canManage ? (
+                  <Modal
+                    open={inviteOpen}
+                    title="Пригласить кандидата"
+                    onClose={() => setInviteOpen(false)}
+                  >
                   <form className="form-surface" onSubmit={handleCreateInterview}>
-                    <h2>Пригласить кандидата</h2>
                     <p className="muted-copy">
                       Система готовит ссылку и копирует её в буфер. Письмо кандидату отправляете вы.
                     </p>
@@ -369,20 +401,20 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                     </label>
                     {interviewFormError ? <p className="form-error">{interviewFormError}</p> : null}
                     <div className="form-actions">
-                      <button
-                        className="button button--primary"
+                      <Button
                         type="submit"
-                        disabled={!canInvite || interviewFormSubmitting}
+                        disabled={!canInvite}
+                        loading={interviewFormSubmitting}
+                        loadingLabel="Готовлю ссылку…"
                       >
-                        {interviewFormSubmitting ? "Создаём ссылку…" : "Пригласить кандидата"}
-                      </button>
+                        Подготовить ссылку
+                      </Button>
+                      <Button type="button" variant="secondary" onClick={() => setInviteOpen(false)}>
+                        Отмена
+                      </Button>
                     </div>
-                    {!canInvite ? (
-                      <p className="disabled-hint">
-                        Сначала эксперт одобряет версию, затем активируйте вакансию.
-                      </p>
-                    ) : null}
                   </form>
+                  </Modal>
                 ) : null}
               </>
             )}

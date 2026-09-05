@@ -7,6 +7,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SkeletonList } from "@/components/ui/skeleton";
 import type { ExpertQueueResponse } from "@/lib/api";
 import { loadExpertQueue } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
@@ -61,7 +62,7 @@ export default function ExpertHomePage() {
           title="Что ждёт вас"
           description="Сверху вакансии, которым нужна рубрика и вопросы. Ниже отчёты, по которым рекрутер попросил ваш взгляд."
         />
-        {queueLoading ? <ScreenState kind="loading" title="Загрузка" text="Собираем очередь…" /> : null}
+        {queueLoading ? <SkeletonList count={2} label="Собираю очередь" /> : null}
         {error ? <ScreenState kind="error" title="Очередь недоступна" text={error} /> : null}
         {queue ? (
           <>

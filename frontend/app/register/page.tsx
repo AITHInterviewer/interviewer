@@ -77,7 +77,7 @@ export default function RegisterPage() {
         {error ? <p className="form-error">{error}</p> : null}
         <div className="form-actions">
           <button className="button button--primary" type="submit" disabled={submitting}>
-            {submitting ? "Создаю аккаунт…" : "Создать аккаунт"}
+            Создать аккаунт
           </button>
           <Link className="button button--secondary" href="/login">
             У меня уже есть доступ

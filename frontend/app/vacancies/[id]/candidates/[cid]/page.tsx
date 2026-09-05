@@ -7,6 +7,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SkeletonText } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { ClarificationRequest, Interview, InterviewEventsResponse, StaffManager } from "@/lib/api";
 import { ApiError } from "@/lib/api";
@@ -219,7 +220,7 @@ export default function VacancyCandidatePage() {
   return (
     <AppShell nav={buildNav(landing)} title="Кандидат">
       <div className="workspace">
-        {pageLoading ? <ScreenState kind="loading" title="Загрузка" text="Открываем карточку…" /> : null}
+        {pageLoading ? <SkeletonText lines={4} label="Открываю карточку" /> : null}
         {error && !interview ? <ScreenState kind="error" title="Нет карточки" text={error} /> : null}
         {interview ? (
           <>

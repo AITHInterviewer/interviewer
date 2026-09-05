@@ -7,6 +7,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SkeletonTable } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import type { ManagerCandidate } from "@/lib/api";
 import { loadManagerCandidates } from "@/lib/auth";
@@ -78,7 +79,7 @@ export default function ManagerListPage() {
     <AppShell nav={buildNav(landing)} title="Встречи">
       <div className="workspace">
         <PageHeader path="Менеджер" title="Кандидаты к встрече" />
-        {pageLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем передачи…" /> : null}
+        {pageLoading ? <SkeletonTable rows={3} columns={4} label="Загружаю кандидатов" /> : null}
         {error ? <ScreenState kind="error" title="Нет списка" text={error} /> : null}
         {!pageLoading && !error ? (
           items.length > 0 ? (

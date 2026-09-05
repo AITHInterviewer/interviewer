@@ -3,6 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import * as React from "react";
 
 import { cn } from "@/lib/utils";
+import { Spinner } from "@/components/ui/spinner";
 
 const buttonVariants = cva("button", {
   variants: {
@@ -29,12 +30,39 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /** Показывает спиннер, ставит aria-busy и запрещает повторное нажатие. */
+  loading?: boolean;
+  /** Текст на время процесса: «Сохраняю…». */
+  loadingLabel?: string;
+  /** Иконка слева, 16px. */
+  icon?: React.ReactNode;
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  (
+    { className, variant, size, asChild = false, loading, loadingLabel, icon, children, disabled, ...props },
+    ref,
+  ) => {
     const Comp = asChild ? Slot : "button";
-    return <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />;
+    if (asChild) {
+      return (
+        <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props}>
+          {children}
+        </Comp>
+      );
+    }
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        aria-busy={loading || undefined}
+        disabled={disabled || loading}
+        {...props}
+      >
+        {loading ? <Spinner /> : icon}
+        {loading && loadingLabel ? loadingLabel : children}
+      </Comp>
+    );
   },
 );
 Button.displayName = "Button";

@@ -228,7 +228,7 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
             {status ? <p className="success-message">{status}</p> : null}
             <div className="form-actions">
               <button className="button button--primary" type="submit" disabled={submitting}>
-                {submitting ? "Сохраняю…" : "Сохранить"}
+                Сохранить
               </button>
             </div>
           </form>

@@ -19,6 +19,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -78,8 +79,10 @@ export function AppShell({
   // Контекстная группа появляется, только когда человек внутри вакансии.
   const vacancySegment = pathname.startsWith("/vacancies/") ? pathname.split("/")[2] : undefined;
   const openVacancyId = vacancySegment && vacancySegment !== "new" ? vacancySegment : undefined;
-  const showVacancyGroup =
-    Boolean(openVacancyId) && nav.some((item) => item.href === "/vacancies");
+  // Разделы открытой вакансии показываем всем, кто внутри неё: у эксперта в
+  // меню нет пункта «Вакансии», но рубрика и вопросы ему нужны.
+  const showVacancyGroup = Boolean(openVacancyId);
+  const hasVacanciesItem = nav.some((item) => item.href === "/vacancies");
 
   return (
     <SidebarProvider>
@@ -99,7 +102,7 @@ export function AppShell({
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
-                    {showVacancyGroup && item.href === "/vacancies" && openVacancyId ? (
+                    {showVacancyGroup && hasVacanciesItem && item.href === "/vacancies" && openVacancyId ? (
                       <SidebarMenuSub>
                         {vacancyContextNav(openVacancyId).map((sub) => (
                           <SidebarMenuSubItem key={sub.href}>
@@ -118,6 +121,24 @@ export function AppShell({
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+          {showVacancyGroup && !hasVacanciesItem && openVacancyId ? (
+            <SidebarGroup>
+              <SidebarGroupLabel>Открытая вакансия</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {vacancyContextNav(openVacancyId).map((sub) => (
+                    <SidebarMenuItem key={sub.href}>
+                      <SidebarMenuButton asChild isActive={pathname === sub.href.split("?")[0]}>
+                        <Link href={sub.href}>
+                          <span>{sub.label}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ) : null}
         </SidebarContent>
         <SidebarFooter>
           <SidebarMenu>

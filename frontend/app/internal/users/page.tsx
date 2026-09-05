@@ -7,6 +7,8 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SkeletonList } from "@/components/ui/skeleton";
+import { StatusPill } from "@/components/ui/status-pill";
 import type { InternalUser } from "@/lib/api";
 import { loadInternalUsers, loadRoleRegistry } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
@@ -99,7 +101,7 @@ export default function InternalUsersPage() {
         />
 
         {usersError ? <ScreenState kind="error" title="Не удалось загрузить сотрудников" text={usersError} /> : null}
-        {usersLoading ? <ScreenState kind="loading" title="Загружаю" text="Собираю список сотрудников." /> : null}
+        {usersLoading ? <SkeletonList count={3} label="Загружаю сотрудников" /> : null}
 
         {!usersLoading && !usersError ? (
           users.length > 0 ? (
@@ -108,7 +110,7 @@ export default function InternalUsersPage() {
                 <article className="candidate-card" key={user.id}>
                   <div className="candidate-card__top">
                     <strong>{user.name}</strong>
-                    <span className="status">{formatRoleList(roleRegistry, user.roles)}</span>
+                    <StatusPill tone="neutral">{formatRoleList(roleRegistry, user.roles)}</StatusPill>
                   </div>
                   <div className="candidate-card__meta">
                     <span>{user.email}</span>

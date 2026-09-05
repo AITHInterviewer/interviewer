@@ -81,19 +81,19 @@ describe("InternalUsersPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/no managed users yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/сотрудников пока нет/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /add new user/i }));
+    fireEvent.click(screen.getByRole("button", { name: /завести сотрудника/i }));
 
-    fireEvent.change(screen.getByLabelText(/full name/i), { target: { value: "Manager One" } });
-    fireEvent.change(screen.getByLabelText(/work email/i), { target: { value: "manager@example.com" } });
-    fireEvent.change(screen.getByLabelText(/temporary password/i), { target: { value: "TempPass123" } });
+    fireEvent.change(screen.getByLabelText(/имя и фамилия/i), { target: { value: "Manager One" } });
+    fireEvent.change(screen.getByLabelText(/рабочая почта/i), { target: { value: "manager@example.com" } });
+    fireEvent.change(screen.getByLabelText(/временный пароль/i), { target: { value: "TempPass123" } });
 
     // First registry entry is preselected by default; choose hiring manager instead.
     fireEvent.click(await screen.findByRole("checkbox", { name: /recruiter/i }));
     fireEvent.click(screen.getByRole("checkbox", { name: /^hiring manager$/i }));
 
-    fireEvent.submit(screen.getByRole("button", { name: /create internal user/i }).closest("form")!);
+    fireEvent.submit(screen.getByRole("button", { name: /завести сотрудника/i }).closest("form")!);
 
     await waitFor(() =>
       expect(createManagedInternalUser).toHaveBeenCalledWith({

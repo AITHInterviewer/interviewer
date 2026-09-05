@@ -442,7 +442,7 @@ input:hover, textarea:hover { border-color: var(--border-strong); }
 .status-pill[data-tone="partial"] { border-color: var(--warning); background: var(--warning-soft); color: var(--warning); }
 .status-pill[data-tone="unconfirmed"], .status-pill[data-tone="contradiction"] { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
 .status-pill[data-tone="insufficient"] { border-style: dashed; border-color: var(--ink-secondary); color: var(--ink-secondary); }
-.status-pill[data-tone="unchecked"], .status-pill[data-tone="pilot"] { border-style: dashed; border-color: var(--border-strong); color: var(--ink-tertiary); background: transparent; }
+.status-pill[data-tone="unchecked"], .status-pill[data-tone="pilot"], .status-pill[data-tone="neutral"] { border-style: dashed; border-color: var(--border-strong); color: var(--ink-tertiary); background: transparent; }
 .avatar { display: inline-flex; width: 26px; height: 26px; flex: 0 0 26px; align-items: center; justify-content: center; border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--ink-secondary); font-size: var(--text-logo); font-weight: 600; }
 .avatar[data-accent="true"] { background: var(--surface-selected); color: var(--accent); }
 .tag { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--ink-secondary); font-size: var(--text-meta); }
@@ -505,3 +505,9 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .app-topbar .app-shell__top-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .answer-record { display: flex; flex-direction: column; gap: 8px; padding: 14px 0; border-top: 1px solid var(--surface-muted); }
 .answer-record blockquote { margin: 0; padding-left: 12px; border-left: 2px solid var(--border); color: var(--ink-secondary); }
+.status-pill[data-tone="positive"] { border-color: var(--positive); background: var(--positive-soft); color: var(--positive); }
+.status-pill[data-tone="warning"] { border-color: var(--warning); background: var(--warning-soft); color: var(--warning); }
+.status-pill[data-tone="danger"] { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+.skeleton-table { display: grid; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); overflow: hidden; }
+.skeleton-table .skeleton-row:first-child { border-top: 0; }
+.skeleton-text { display: grid; gap: 10px; padding: 18px 0; }

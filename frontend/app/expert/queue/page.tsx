@@ -7,6 +7,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SkeletonList } from "@/components/ui/skeleton";
 import type { ExpertQueueResponse } from "@/lib/api";
 import { loadExpertQueue } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
@@ -64,7 +65,7 @@ export default function ExpertQueuePage() {
           title="Аудиты отчётов"
           description="Отчёты, по которым рекрутер попросил взгляд эксперта."
         />
-        {queueLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем аудиты…" /> : null}
+        {queueLoading ? <SkeletonList count={2} label="Загружаю аудиты" /> : null}
         {error ? <ScreenState kind="error" title="Аудиты недоступны" text={error} /> : null}
         {!queueLoading && !error ? (
           audits.length > 0 ? (

@@ -41,9 +41,9 @@ describe("LoginPage", () => {
 
     render(<LoginPage />);
 
-    fireEvent.change(screen.getByLabelText(/work email/i), { target: { value: "expert@example.com" } });
-    fireEvent.change(screen.getByLabelText(/^password$/i), { target: { value: "TempPass123" } });
-    fireEvent.submit(screen.getByRole("button", { name: /^sign in$/i }).closest("form")!);
+    fireEvent.change(screen.getByLabelText(/рабочая почта/i), { target: { value: "expert@example.com" } });
+    fireEvent.change(screen.getByLabelText(/^пароль$/i), { target: { value: "TempPass123" } });
+    fireEvent.submit(screen.getByRole("button", { name: /^войти$/i }).closest("form")!);
 
     await waitFor(() => expect(signIn).toHaveBeenCalled());
     await waitFor(() => expect(push).toHaveBeenCalledWith("/internal/expert"));

@@ -87,11 +87,11 @@ describe("VacancySettingsClient", () => {
 
     renderClient("v1");
 
-    const titleInput = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
+    const titleInput = (await screen.findByLabelText(/название/i)) as HTMLInputElement;
     expect(titleInput.value).toBe("Backend Developer");
 
     fireEvent.change(titleInput, { target: { value: "Senior Backend Developer" } });
-    fireEvent.submit(screen.getByRole("button", { name: /save changes/i }).closest("form")!);
+    fireEvent.submit(screen.getByRole("button", { name: /сохранить/i }).closest("form")!);
 
     await waitFor(() =>
       expect(updateManagedVacancy).toHaveBeenCalledWith("v1", {
@@ -102,6 +102,6 @@ describe("VacancySettingsClient", () => {
         niceToHaveSkills: [],
       }),
     );
-    await waitFor(() => expect(screen.getByText(/vacancy updated/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/изменения сохранены/i)).toBeInTheDocument());
   });
 });

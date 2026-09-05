@@ -52,3 +52,28 @@ export function SkeletonList({ count = 3, label }: { count?: number; label?: str
     </div>
   );
 }
+
+/** Скелетон таблицы: шапка и несколько строк той же сетки. */
+export function SkeletonTable({ rows = 4, columns = 4, label }: { rows?: number; columns?: number; label?: string }) {
+  return (
+    <div className="skeleton-table" role="status" aria-live="polite">
+      <span className="visually-hidden">{label ?? "Загружаю"}</span>
+      {Array.from({ length: rows }).map((_, index) => (
+        <SkeletonRow key={index} columns={columns} />
+      ))}
+    </div>
+  );
+}
+
+/** Скелетон текстового блока: заголовок и пара строк. */
+export function SkeletonText({ lines = 3, label }: { lines?: number; label?: string }) {
+  return (
+    <div className="skeleton-text" role="status" aria-live="polite">
+      <span className="visually-hidden">{label ?? "Загружаю"}</span>
+      <Skeleton width="40%" height={20} />
+      {Array.from({ length: lines }).map((_, index) => (
+        <Skeleton key={index} width={index === lines - 1 ? "60%" : "100%"} />
+      ))}
+    </div>
+  );
+}

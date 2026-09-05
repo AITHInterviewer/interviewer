@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
@@ -77,7 +77,7 @@ describe("VacancyDetailClient", () => {
     expect(await screen.findByRole("heading", { name: /backend developer/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /пригласить кандидата/i })).toBeDisabled();
     expect(
-      screen.getByText(/сначала эксперт одобряет версию, затем активируйте вакансию/i),
+      screen.getByText(/пригласить можно после того, как эксперт одобрит версию/i),
     ).toBeInTheDocument();
   });
 
@@ -87,8 +87,13 @@ describe("VacancyDetailClient", () => {
     renderClient("v1");
 
     await screen.findByRole("heading", { name: /backend developer/i });
-    expect(screen.getByLabelText(/файл резюме/i)).not.toBeDisabled();
-    expect(screen.getByRole("button", { name: /пригласить кандидата/i })).not.toBeDisabled();
+    const invite = screen.getByRole("button", { name: /пригласить кандидата/i });
+    expect(invite).not.toBeDisabled();
+
+    // Форма живёт в модалке: до нажатия её на странице нет.
+    expect(screen.queryByLabelText(/резюме кандидата/i)).not.toBeInTheDocument();
+    fireEvent.click(invite);
+    expect(await screen.findByLabelText(/резюме кандидата/i)).not.toBeDisabled();
   });
 
   it("hides recruiter-only invite for users without the recruiter area", async () => {
@@ -106,6 +111,7 @@ describe("VacancyDetailClient", () => {
 
     await screen.findByRole("heading", { name: /backend developer/i });
     expect(screen.queryByRole("button", { name: /пригласить кандидата/i })).not.toBeInTheDocument();
+    // Разделы вакансии живут в сайдбаре: он рисуется вокруг экрана в AppShell.
     expect(screen.getByRole("link", { name: /вопросы/i })).toBeInTheDocument();
   });
 });
