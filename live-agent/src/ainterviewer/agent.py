@@ -39,6 +39,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from livekit.agents import Agent, AgentSession, JobContext, ModelSettings, WorkerOptions, cli
 from livekit.agents.llm import ChatContext
+from livekit.agents.voice.room_io import RoomInputOptions
 from livekit.plugins import openai as lk_openai
 from livekit.plugins import silero
 
@@ -167,12 +168,30 @@ async def entrypoint(ctx: JobContext) -> None:
     logger.info("entrypoint: ctx.connect()...")
     await ctx.connect()
     logger.info("entrypoint: ctx.connect() done, session.start()...")
+
+    # Временные хуки — диагностика (2026-09-05): после фикса room=ctx.room агент реально
+    # публикует TTS-аудио (подтверждено логами livekit-server), но ни разу не дошло до
+    # STT (ни одного запроса в логах STT-сервера) — неясно, доходит ли звук кандидата до
+    # VAD вообще. audio_enabled=True — явно, не полагаясь на разрешение NOT_GIVEN по
+    # умолчанию, на случай если оно резолвится не так, как ожидается.
+    @session.on("user_input_transcribed")
+    def _on_user_transcript(ev):  # noqa: ANN001
+        logger.info("user_input_transcribed: %r", ev)
+
+    @session.on("user_state_changed")
+    def _on_user_state(ev):  # noqa: ANN001
+        logger.info("user_state_changed: %r", ev)
+
     # room=ctx.room — реальный найденный баг (2026-09-05): без него AgentSession.start()
     # не создаёт RoomIO вообще ("Create a default RoomIO if the input or output audio is
     # not already set", см. докстринг) — TTS вызывался и реально синтезировал (подтверждено
     # логами tts), но публиковать аудио было некуда, и STT кандидата тоже не читался.
     # Молча, без единой ошибки — session.say() просто возвращает SpeechHandle сразу же.
-    await session.start(agent=agent, room=ctx.room)
+    await session.start(
+        agent=agent,
+        room=ctx.room,
+        room_input_options=RoomInputOptions(audio_enabled=True),
+    )
     logger.info("entrypoint: session.start() done, engine.start()...")
 
     first_utterance = f"{INTRO_PHRASE} {await engine.start()}"
