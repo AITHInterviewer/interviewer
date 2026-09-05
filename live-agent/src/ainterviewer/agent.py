@@ -40,6 +40,7 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 from livekit.agents import Agent, AgentSession, JobContext, ModelSettings, WorkerOptions, cli
+from livekit.agents import tts as lk_tts
 from livekit.agents.llm import ChatContext
 from livekit.agents.voice.room_io import RoomInputOptions
 from livekit.agents.voice.turn import InterruptionOptions, TurnHandlingOptions
@@ -237,15 +238,25 @@ async def entrypoint(ctx: JobContext) -> None:
         # код-свитчинг звучит естественно. Свой self-hosted сервер (не облако Fish Audio),
         # но протокол/эндпоинты (POST {base_url}/v1/tts) у OSS-сервера те же, что и у
         # облака — тот же клиентский плагин работает на оба.
-        tts=fishaudio.TTS(
-            base_url=os.environ["TTS_BASE_URL"],  # напр. http://tts:8080 (без /v1 — плагин сам добавляет)
-            # Self-hosted сервер не проверяет ключ — плагин всё равно требует непустую
-            # строку (иначе ValueError), реальный ключ Fish Audio тут не нужен.
-            api_key=os.environ.get("TTS_API_KEY", "not-needed"),
-            # voice_id по умолчанию — UUID голоса из облака Fish Audio, которого на нашем
-            # сервере нет (нет референсного аудио) — пустая строка = базовый спикер
-            # чекпоинта, тот же, что в warm-up самого сервера (reference_id=None).
-            voice_id="",
+        #
+        # StreamAdapter — обязателен: плагин всегда объявляет capabilities.streaming=True
+        # (жёстко, не отключается параметром) и поэтому framework вызывает tts.stream(),
+        # который у fishaudio означает WS-эндпоинт /v1/tts/live — тот существует только в
+        # облаке Fish Audio, self-hosted v1.5.1-сервер отдаёт на него голый 404 (реальный
+        # найденный баг, 2026-09-06: "AgentSession is closing due to unrecoverable error").
+        # StreamAdapter извне навязывает синхронный путь — бьёт по HTTP /v1/tts (тот самый,
+        # что действительно есть у сервера) отдельно на каждое предложение.
+        tts=lk_tts.StreamAdapter(
+            tts=fishaudio.TTS(
+                base_url=os.environ["TTS_BASE_URL"],  # напр. http://tts:8080 (без /v1 — плагин сам добавляет)
+                # Self-hosted сервер не проверяет ключ — плагин всё равно требует непустую
+                # строку (иначе ValueError), реальный ключ Fish Audio тут не нужен.
+                api_key=os.environ.get("TTS_API_KEY", "not-needed"),
+                # voice_id по умолчанию — UUID голоса из облака Fish Audio, которого на нашем
+                # сервере нет (нет референсного аудио) — пустая строка = базовый спикер
+                # чекпоинта, тот же, что в warm-up самого сервера (reference_id=None).
+                voice_id="",
+            ),
         ),
         # Пауза детектится по VAD (Silero), не через LLM — раздел 3 архитектурного
         # документа: "живая пауза" не должна ждать ещё один сетевой запрос сверху.
