@@ -1,18 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { ApiError, createQuestion } from "@/lib/api";
-import { getSession, loadLanding } from "@/lib/auth";
+import { loadLanding } from "@/lib/auth";
 
-const QUESTIONS_EDIT_ACTION = "action.questions.edit";
+const QUESTIONS_EDIT_ACTION = "action.vacancies.review";
 
 export function ExpertWorkspace() {
   const [availableActions, setAvailableActions] = useState<string[] | null>(null);
-  const [text, setText] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,33 +34,6 @@ export function ExpertWorkspace() {
 
   const canEditQuestions = availableActions?.includes(QUESTIONS_EDIT_ACTION) ?? false;
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const session = getSession();
-    if (!session) {
-      setError("Authentication required.");
-      return;
-    }
-
-    setSubmitting(true);
-    setError(null);
-    setStatus(null);
-
-    try {
-      const question = await createQuestion(session.token, { text });
-      setStatus(`Question ${question.id.slice(0, 8)} created.`);
-      setText("");
-    } catch (caughtError) {
-      if (caughtError instanceof ApiError) {
-        setError(caughtError.message);
-      } else {
-        setError("Could not create the question.");
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   if (availableActions === null) {
     return <p className="field-hint">Loading expert capabilities...</p>;
   }
@@ -78,22 +48,16 @@ export function ExpertWorkspace() {
   }
 
   return (
-    <form className="auth-form" onSubmit={handleSubmit}>
-      <div className="form-intro">
-        <span className="status">Expert</span>
-        <p className="field-hint">Create an interview question. Full question management arrives in a later slice.</p>
-      </div>
-      <label>
-        Question text
-        <textarea value={text} onChange={(event) => setText(event.target.value)} name="text" required />
-      </label>
+    <div className="placeholder-card recruiter-helper-card">
+      <span className="status">Expert</span>
+      <strong>Review submitted vacancies from one shared workspace.</strong>
+      <p className="field-hint">Use the review queue to edit question packs, approve assessments, or request recruiter changes.</p>
       {error ? <p className="field-error">{error}</p> : null}
-      {status ? <p className="success-message">{status}</p> : null}
-      <div className="form-actions">
-        <button className="button button--primary" type="submit" disabled={submitting}>
-          {submitting ? "Creating..." : "Create question"}
-        </button>
+      <div className="page-actions">
+        <Link className="button button--primary" href="/internal/expert/vacancies">
+          Open review queue
+        </Link>
       </div>
-    </form>
+    </div>
   );
 }

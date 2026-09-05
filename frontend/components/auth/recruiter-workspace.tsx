@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { InternalUserForm } from "@/components/auth/internal-user-form";
@@ -175,11 +176,26 @@ export function RecruiterWorkspace() {
         </div>
       ) : (
         <section className="placeholder-card recruiter-placeholder-panel">
-          <span className="status" data-tone="warning">Placeholder</span>
-          <strong>{activeTab === "vacancies" ? "Vacancies tab is reserved for recruiter workflows." : "Candidates tab is reserved for interview result workflows."}</strong>
-          <p>
-            This tab is part of the final workspace structure, but the full flow will be implemented in a later feature slice.
-          </p>
+          {activeTab === "vacancies" ? (
+            <>
+              <span className="status" data-tone="positive">Live flow</span>
+              <strong>Vacancy authoring and review flow is available.</strong>
+              <p>Open the recruiter vacancy list to create, edit, submit, archive, or restore recruiter-accessible vacancies.</p>
+              <div className="page-actions">
+                <Link className="button button--primary" href="/internal/recruiter/vacancies">
+                  Open vacancies
+                </Link>
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="status" data-tone="warning">Placeholder</span>
+              <strong>Candidates tab is reserved for interview result workflows.</strong>
+              <p>
+                This tab is part of the final workspace structure, but the candidate flow will be implemented in a later feature slice.
+              </p>
+            </>
+          )}
         </section>
       )}
     </section>

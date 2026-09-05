@@ -90,3 +90,54 @@ async def login(client: AsyncClient, email: str, password: str = "TempPass123") 
     )
     assert response.status_code == 200
     return response.json()["access_token"]
+
+
+async def create_vacancy(
+    client: AsyncClient,
+    token: str,
+    *,
+    title: str = "Backend Engineer",
+    grade: str | None = "senior",
+    job_description: str | None = "Build internal systems.",
+    ideal_candidate_profile: str | None = "Pragmatic and clear communicator.",
+    required_skills: list[str] | None = None,
+    nice_to_have_skills: list[str] | None = None,
+) -> dict:
+    response = await client.post(
+        "/api/v1/vacancies",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "title": title,
+            "grade": grade,
+            "job_description": job_description,
+            "ideal_candidate_profile": ideal_candidate_profile,
+            "required_skills": required_skills or ["Python"],
+            "nice_to_have_skills": nice_to_have_skills or ["Docker"],
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+async def add_vacancy_question(
+    client: AsyncClient,
+    token: str,
+    vacancy_id: str,
+    expected_updated_at: str,
+    *,
+    text: str,
+    reference_answer: str | None = None,
+    skill_tags: list[str] | None = None,
+) -> dict:
+    response = await client.post(
+        f"/api/v1/vacancies/{vacancy_id}/questions",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "expected_updated_at": expected_updated_at,
+            "text": text,
+            "reference_answer": reference_answer,
+            "skill_tags": skill_tags,
+        },
+    )
+    assert response.status_code == 200
+    return response.json()

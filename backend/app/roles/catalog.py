@@ -6,6 +6,8 @@ AREA_EXPERT_QUESTIONS = "area.expert_questions"
 
 ACTION_INTERNAL_USERS_MANAGE = "action.internal_users.manage"
 ACTION_QUESTIONS_EDIT = "action.questions.edit"
+ACTION_VACANCIES_MANAGE = "action.vacancies.manage"
+ACTION_VACANCIES_REVIEW = "action.vacancies.review"
 
 # Paths are frontend routing metadata for landing areas; they live next to the
 # capability catalog so new areas declare their route in one place.
@@ -21,6 +23,8 @@ BUILTIN_CAPABILITIES: tuple[Capability, ...] = (
     Capability(id=AREA_EXPERT_QUESTIONS, kind=CapabilityKind.AREA, label="Expert workspace"),
     Capability(id=ACTION_INTERNAL_USERS_MANAGE, kind=CapabilityKind.ACTION, label="Manage internal users"),
     Capability(id=ACTION_QUESTIONS_EDIT, kind=CapabilityKind.ACTION, label="Edit interview questions"),
+    Capability(id=ACTION_VACANCIES_MANAGE, kind=CapabilityKind.ACTION, label="Manage recruiter vacancies"),
+    Capability(id=ACTION_VACANCIES_REVIEW, kind=CapabilityKind.ACTION, label="Review submitted vacancies"),
 )
 
 BUILTIN_ROLES: tuple[RoleDefinition, ...] = (
@@ -29,7 +33,9 @@ BUILTIN_ROLES: tuple[RoleDefinition, ...] = (
         title="Recruiter",
         is_assignable=True,
         sort_order=0,
-        capabilities=frozenset({AREA_RECRUITER_WORKSPACE, ACTION_INTERNAL_USERS_MANAGE}),
+        capabilities=frozenset(
+            {AREA_RECRUITER_WORKSPACE, ACTION_INTERNAL_USERS_MANAGE, ACTION_VACANCIES_MANAGE}
+        ),
     ),
     RoleDefinition(
         code="hiring_manager",
@@ -43,7 +49,7 @@ BUILTIN_ROLES: tuple[RoleDefinition, ...] = (
         title="Expert",
         is_assignable=True,
         sort_order=2,
-        capabilities=frozenset({AREA_EXPERT_QUESTIONS, ACTION_QUESTIONS_EDIT}),
+        capabilities=frozenset({AREA_EXPERT_QUESTIONS, ACTION_QUESTIONS_EDIT, ACTION_VACANCIES_REVIEW}),
     ),
 )
 

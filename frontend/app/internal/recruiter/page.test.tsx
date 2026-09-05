@@ -73,7 +73,7 @@ describe("RecruiterInternalPage", () => {
 
     fireEvent.click((await screen.findAllByRole("tab", { name: /vacancies/i }))[0]);
 
-    expect(screen.getByText(/placeholder/i)).toBeInTheDocument();
-    expect(screen.getByText(/vacancies tab is reserved/i)).toBeInTheDocument();
+    expect(screen.getByText(/live flow/i)).toBeInTheDocument();
+    expect(screen.getByText(/vacancy authoring and review flow is available/i)).toBeInTheDocument();
   });
 });

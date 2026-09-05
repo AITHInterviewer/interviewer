@@ -4,9 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import models as _models  # noqa: F401
 from app.config import settings
 from app.db import Base, engine
-from app.routers import auth, health, questions, roles
+from app.routers import auth, expert_vacancies, health, questions, roles, vacancies
 from app.services.role_service import RoleService
 
 
@@ -35,3 +36,5 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(roles.router)
 app.include_router(questions.router)
+app.include_router(vacancies.router)
+app.include_router(expert_vacancies.router)

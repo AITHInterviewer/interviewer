@@ -39,6 +39,90 @@ export type RoleRegistrySnapshot = {
   items: RoleRegistryEntry[];
 };
 
+export type VacancyStatus =
+  | "draft"
+  | "submitted_for_review"
+  | "changes_requested"
+  | "approved"
+  | "archived";
+
+export type VacancyGrade = "intern" | "junior" | "middle" | "senior" | "lead";
+
+export type ReviewDecision = "approved" | "changes_requested";
+
+export type ViewerPermission =
+  | "vacancy.body.edit"
+  | "vacancy.questions.edit"
+  | "vacancy.submit"
+  | "vacancy.approve"
+  | "vacancy.request_changes"
+  | "vacancy.archive"
+  | "vacancy.restore"
+  | "vacancy.review_history.view";
+
+export type VacancyQuestion = {
+  id: string;
+  text: string;
+  order: number;
+  skill_tags?: string[] | null;
+  intent?: string | null;
+  reference_answer?: string | null;
+  format: string;
+  role: string;
+  difficulty: string;
+  estimated_duration_sec?: number | null;
+  stimulus?: string | null;
+  source: string;
+  updated_at: string;
+};
+
+export type ReviewState = {
+  status: VacancyStatus;
+  latest_review_decision?: ReviewDecision | null;
+  latest_review_comment?: string | null;
+  latest_reviewed_at?: string | null;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  approved_by_user_id?: string | null;
+  archived_at?: string | null;
+  archived_by_user_id?: string | null;
+};
+
+export type VacancySummary = {
+  id: string;
+  title: string;
+  grade?: VacancyGrade | null;
+  status: VacancyStatus;
+  question_count: number;
+  updated_at: string;
+  submitted_at?: string | null;
+  approved_at?: string | null;
+  latest_review_decision?: ReviewDecision | null;
+};
+
+export type VacancyDetail = {
+  id: string;
+  title: string;
+  grade?: VacancyGrade | null;
+  job_description?: string | null;
+  ideal_candidate_profile?: string | null;
+  required_skills: string[];
+  nice_to_have_skills: string[];
+  status: VacancyStatus;
+  created_by_recruiter_id: string;
+  created_by_user_id: string;
+  managing_recruiter_id: string;
+  created_at: string;
+  updated_at: string;
+  questions: VacancyQuestion[];
+  review_state: ReviewState;
+  viewer_permissions: ViewerPermission[];
+};
+
+export type VacancyListResponse = {
+  items: VacancySummary[];
+};
+
 type RequestOptions = {
   method?: string;
   token?: string;
@@ -117,4 +201,187 @@ export function fetchRoleRegistry(token: string) {
 
 export function createQuestion(token: string, body: { text: string }) {
   return request<{ id: string; text: string }>("/api/v1/questions", { method: "POST", token, body });
+}
+
+export function listRecruiterVacancies(token: string, status?: VacancyStatus) {
+  const suffix = status ? `?status=${status}` : "";
+  return request<VacancyListResponse>(`/api/v1/vacancies${suffix}`, { token });
+}
+
+export function createRecruiterVacancy(
+  token: string,
+  body: {
+    title?: string;
+    grade?: VacancyGrade | null;
+    job_description?: string | null;
+    ideal_candidate_profile?: string | null;
+    required_skills?: string[];
+    nice_to_have_skills?: string[];
+  },
+) {
+  return request<VacancyDetail>("/api/v1/vacancies", { method: "POST", token, body });
+}
+
+export function fetchRecruiterVacancy(token: string, vacancyId: string) {
+  return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}`, { token });
+}
+
+export function updateRecruiterVacancy(
+  token: string,
+  vacancyId: string,
+  body: {
+    expected_updated_at: string;
+    title?: string | null;
+    grade?: VacancyGrade | null;
+    job_description?: string | null;
+    ideal_candidate_profile?: string | null;
+    required_skills?: string[];
+    nice_to_have_skills?: string[];
+  },
+) {
+  return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}`, { method: "PATCH", token, body });
+}
+
+export function addRecruiterVacancyQuestion(
+  token: string,
+  vacancyId: string,
+  body: {
+    expected_updated_at: string;
+    text: string;
+    order?: number;
+    skill_tags?: string[];
+    intent?: string | null;
+    reference_answer?: string | null;
+    format?: string | null;
+    role?: string | null;
+    difficulty?: string | null;
+    estimated_duration_sec?: number | null;
+    stimulus?: string | null;
+    source?: string | null;
+  },
+) {
+  return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}/questions`, { method: "POST", token, body });
+}
+
+export function updateRecruiterVacancyQuestion(
+  token: string,
+  vacancyId: string,
+  questionId: string,
+  body: {
+    expected_updated_at: string;
+    text?: string;
+    order?: number;
+    skill_tags?: string[];
+    intent?: string | null;
+    reference_answer?: string | null;
+    format?: string | null;
+    role?: string | null;
+    difficulty?: string | null;
+    estimated_duration_sec?: number | null;
+    stimulus?: string | null;
+    source?: string | null;
+  },
+) {
+  return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}/questions/${questionId}`, {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
+export function deleteRecruiterVacancyQuestion(
+  token: string,
+  vacancyId: string,
+  questionId: string,
+  expectedUpdatedAt: string,
+) {
+  return request<VacancyDetail>(
+    `/api/v1/vacancies/${vacancyId}/questions/${questionId}?expected_updated_at=${encodeURIComponent(expectedUpdatedAt)}`,
+    {
+      method: "DELETE",
+      token,
+    },
+  );
+}
+
+export function submitRecruiterVacancy(token: string, vacancyId: string, expected_updated_at: string) {
+  return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}/submit-for-review`, {
+    method: "POST",
+    token,
+    body: { expected_updated_at },
+  });
+}
+
+export function archiveRecruiterVacancy(token: string, vacancyId: string, expected_updated_at: string) {
+  return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}/archive`, {
+    method: "POST",
+    token,
+    body: { expected_updated_at },
+  });
+}
+
+export function restoreRecruiterVacancy(token: string, vacancyId: string, expected_updated_at: string) {
+  return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}/restore`, {
+    method: "POST",
+    token,
+    body: { expected_updated_at },
+  });
+}
+
+export function listExpertVacancies(token: string) {
+  return request<VacancyListResponse>("/api/v1/expert/vacancies", { token });
+}
+
+export function fetchExpertVacancy(token: string, vacancyId: string) {
+  return request<VacancyDetail>(`/api/v1/expert/vacancies/${vacancyId}`, { token });
+}
+
+export function updateExpertVacancyQuestion(
+  token: string,
+  vacancyId: string,
+  questionId: string,
+  body: {
+    expected_updated_at: string;
+    text?: string;
+    order?: number;
+    skill_tags?: string[];
+    intent?: string | null;
+    reference_answer?: string | null;
+    format?: string | null;
+    role?: string | null;
+    difficulty?: string | null;
+    estimated_duration_sec?: number | null;
+    stimulus?: string | null;
+    source?: string | null;
+  },
+) {
+  return request<VacancyDetail>(`/api/v1/expert/vacancies/${vacancyId}/questions/${questionId}`, {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
+export function approveExpertVacancy(
+  token: string,
+  vacancyId: string,
+  body: { expected_updated_at: string; comment?: string },
+) {
+  return request<VacancyDetail>(`/api/v1/expert/vacancies/${vacancyId}/approve`, {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
+export function requestExpertVacancyChanges(
+  token: string,
+  vacancyId: string,
+  body: { expected_updated_at: string; comment?: string },
+) {
+  return request<VacancyDetail>(`/api/v1/expert/vacancies/${vacancyId}/request-changes`, {
+    method: "POST",
+    token,
+    body,
+  });
 }

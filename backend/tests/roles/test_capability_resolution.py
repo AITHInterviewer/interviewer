@@ -1,6 +1,11 @@
 import pytest
 
-from app.roles.catalog import ACTION_QUESTIONS_EDIT, build_default_registry
+from app.roles.catalog import (
+    ACTION_QUESTIONS_EDIT,
+    ACTION_VACANCIES_MANAGE,
+    ACTION_VACANCIES_REVIEW,
+    build_default_registry,
+)
 from app.roles.models import Capability, CapabilityKind, RoleDefinition, RoleRegistry
 
 
@@ -15,6 +20,8 @@ async def test_capabilities_union_across_multiple_roles() -> None:
         "action.internal_users.manage",
         "area.expert_questions",
         ACTION_QUESTIONS_EDIT,
+        ACTION_VACANCIES_MANAGE,
+        ACTION_VACANCIES_REVIEW,
     }
 
 

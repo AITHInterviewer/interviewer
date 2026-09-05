@@ -1,0 +1,753 @@
+openapi: 3.1.0
+info:
+  title: Recruiter Vacancy Review Contract
+  version: 0.1.0
+  description: >-
+    Contract for recruiter vacancy authoring and expert review. Recruiter and
+    expert APIs are role-separated, while vacancy detail responses share a
+    common resource shape so one frontend workspace can render role-aware
+    controls from backend-provided viewer permissions.
+paths:
+  /api/v1/vacancies:
+    get:
+      summary: List vacancies directly owned or managed by the current recruiter
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: '#/components/schemas/VacancyStatus'
+      responses:
+        '200':
+          description: Recruiter-accessible vacancies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyListResponse'
+        '401':
+          description: Authentication required or token invalid
+        '403':
+          description: Recruiter capability required
+    post:
+      summary: Create a new recruiter-accessible vacancy draft
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VacancyCreateRequest'
+      responses:
+        '201':
+          description: Vacancy created in draft status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '401':
+          description: Authentication required or token invalid
+        '403':
+          description: Recruiter capability required
+
+  /api/v1/vacancies/{vacancy_id}:
+    get:
+      summary: Read one recruiter-accessible vacancy in the shared workspace shape
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+      responses:
+        '200':
+          description: Vacancy detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '401':
+          description: Authentication required or token invalid
+        '403':
+          description: Vacancy not accessible through the current recruiter's ownership chain or recruiter capability missing
+        '404':
+          description: Vacancy not found
+    patch:
+      summary: Update recruiter-managed vacancy fields
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VacancyUpdateRequest'
+      responses:
+        '200':
+          description: Updated vacancy detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '401':
+          description: Authentication required or token invalid
+        '403':
+          description: Vacancy not owned by current recruiter or vacancy not editable by recruiter
+        '404':
+          description: Vacancy not found
+        '409':
+          description: Stale write conflict
+
+  /api/v1/vacancies/{vacancy_id}/questions:
+    post:
+      summary: Add a question to a recruiter-owned vacancy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionCreateRequest'
+      responses:
+        '200':
+          description: Updated vacancy detail after question add
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '403':
+          description: Vacancy not editable by current recruiter
+        '404':
+          description: Vacancy not found
+        '409':
+          description: Stale write conflict
+
+  /api/v1/vacancies/{vacancy_id}/questions/{question_id}:
+    patch:
+      summary: Update a question on a recruiter-owned vacancy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+        - $ref: '#/components/parameters/QuestionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionUpdateRequest'
+      responses:
+        '200':
+          description: Updated vacancy detail after question update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '403':
+          description: Vacancy not editable by current recruiter
+        '404':
+          description: Vacancy or question not found
+        '409':
+          description: Stale write conflict
+    delete:
+      summary: Delete a question from a recruiter-owned vacancy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+        - $ref: '#/components/parameters/QuestionId'
+        - in: query
+          name: expected_updated_at
+          required: true
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Updated vacancy detail after question delete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '403':
+          description: Vacancy not editable by current recruiter
+        '404':
+          description: Vacancy or question not found
+        '409':
+          description: Stale write conflict
+
+  /api/v1/vacancies/{vacancy_id}/submit-for-review:
+    post:
+      summary: Submit a recruiter-owned vacancy for expert review
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpectedUpdateRequest'
+      responses:
+        '200':
+          description: Vacancy submitted for review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '403':
+          description: Vacancy not editable by current recruiter
+        '404':
+          description: Vacancy not found
+        '409':
+          description: Stale write conflict
+
+  /api/v1/vacancies/{vacancy_id}/archive:
+    post:
+      summary: Archive a recruiter-owned vacancy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpectedUpdateRequest'
+      responses:
+        '200':
+          description: Vacancy archived
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '403':
+          description: Archive not allowed for current recruiter
+        '404':
+          description: Vacancy not found
+        '409':
+          description: Stale write conflict
+
+  /api/v1/vacancies/{vacancy_id}/restore:
+    post:
+      summary: Restore an archived recruiter-owned vacancy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpectedUpdateRequest'
+      responses:
+        '200':
+          description: Vacancy restored to its previous non-archived state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '403':
+          description: Restore not allowed for current recruiter
+        '404':
+          description: Vacancy not found
+        '409':
+          description: Stale write conflict
+
+  /api/v1/expert/vacancies:
+    get:
+      summary: List vacancies currently awaiting expert review
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [submitted_for_review]
+      responses:
+        '200':
+          description: Expert review queue
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyListResponse'
+        '401':
+          description: Authentication required or token invalid
+        '403':
+          description: Expert capability required
+
+  /api/v1/expert/vacancies/{vacancy_id}:
+    get:
+      summary: Read one submitted vacancy for expert review
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+      responses:
+        '200':
+          description: Vacancy detail for expert review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '401':
+          description: Authentication required or token invalid
+        '403':
+          description: Expert capability required or vacancy not reviewable
+        '404':
+          description: Vacancy not found
+
+  /api/v1/expert/vacancies/{vacancy_id}/questions/{question_id}:
+    patch:
+      summary: Update question pack content during expert review
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+        - $ref: '#/components/parameters/QuestionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuestionUpdateRequest'
+      responses:
+        '200':
+          description: Updated vacancy detail after expert question update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '403':
+          description: Expert editing not allowed for this vacancy
+        '404':
+          description: Vacancy or question not found
+        '409':
+          description: Stale write conflict
+
+  /api/v1/expert/vacancies/{vacancy_id}/approve:
+    post:
+      summary: Approve a submitted vacancy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+      responses:
+        '200':
+          description: Vacancy approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '403':
+          description: Approval not allowed for this vacancy
+        '404':
+          description: Vacancy not found
+        '409':
+          description: Stale write conflict
+
+  /api/v1/expert/vacancies/{vacancy_id}/request-changes:
+    post:
+      summary: Request recruiter changes on a submitted vacancy
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/VacancyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewDecisionRequest'
+      responses:
+        '200':
+          description: Vacancy returned for recruiter changes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VacancyDetail'
+        '403':
+          description: Change request not allowed for this vacancy
+        '404':
+          description: Vacancy not found
+        '409':
+          description: Stale write conflict
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    VacancyId:
+      in: path
+      name: vacancy_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    QuestionId:
+      in: path
+      name: question_id
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    VacancyStatus:
+      type: string
+      enum: [draft, submitted_for_review, changes_requested, approved, archived]
+    VacancyGrade:
+      type: string
+      enum: [intern, junior, middle, senior, lead]
+    ReviewDecision:
+      type: string
+      enum: [approved, changes_requested]
+    ViewerPermission:
+      type: string
+      enum:
+        - vacancy.body.edit
+        - vacancy.questions.edit
+        - vacancy.submit
+        - vacancy.approve
+        - vacancy.request_changes
+        - vacancy.archive
+        - vacancy.restore
+        - vacancy.review_history.view
+    ExpectedUpdateRequest:
+      type: object
+      required: [expected_updated_at]
+      properties:
+        expected_updated_at:
+          type: string
+          format: date-time
+    VacancyCreateRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        grade:
+          $ref: '#/components/schemas/VacancyGrade'
+        job_description:
+          type: string
+        ideal_candidate_profile:
+          type: string
+        required_skills:
+          type: array
+          items:
+            type: string
+        nice_to_have_skills:
+          type: array
+          items:
+            type: string
+      additionalProperties: false
+    VacancyUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/ExpectedUpdateRequest'
+        - type: object
+          properties:
+            title:
+              type: string
+            grade:
+              $ref: '#/components/schemas/VacancyGrade'
+            job_description:
+              type: string
+            ideal_candidate_profile:
+              type: string
+            required_skills:
+              type: array
+              items:
+                type: string
+            nice_to_have_skills:
+              type: array
+              items:
+                type: string
+          additionalProperties: false
+    VacancyQuestion:
+      type: object
+      required: [id, text, order, format, role, difficulty, source, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        text:
+          type: string
+        order:
+          type: integer
+        skill_tags:
+          type:
+            - array
+            - 'null'
+          items:
+            type: string
+        intent:
+          type:
+            - string
+            - 'null'
+        reference_answer:
+          type:
+            - string
+            - 'null'
+        format:
+          type: string
+        role:
+          type: string
+        difficulty:
+          type: string
+        estimated_duration_sec:
+          type:
+            - integer
+            - 'null'
+          minimum: 0
+        stimulus:
+          type:
+            - string
+            - 'null'
+        source:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+    QuestionCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/ExpectedUpdateRequest'
+        - type: object
+          required: [text]
+          properties:
+            text:
+              type: string
+            order:
+              type: integer
+            skill_tags:
+              type: array
+              items:
+                type: string
+            intent:
+              type: string
+            reference_answer:
+              type: string
+            format:
+              type: string
+            role:
+              type: string
+            difficulty:
+              type: string
+            estimated_duration_sec:
+              type: integer
+              minimum: 0
+            stimulus:
+              type: string
+            source:
+              type: string
+          additionalProperties: false
+    QuestionUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/ExpectedUpdateRequest'
+        - type: object
+          properties:
+            text:
+              type: string
+            order:
+              type: integer
+            skill_tags:
+              type: array
+              items:
+                type: string
+            intent:
+              type: string
+            reference_answer:
+              type: string
+            format:
+              type: string
+            role:
+              type: string
+            difficulty:
+              type: string
+            estimated_duration_sec:
+              type: integer
+              minimum: 0
+            stimulus:
+              type: string
+            source:
+              type: string
+          additionalProperties: false
+    ReviewState:
+      type: object
+      required: [status]
+      properties:
+        status:
+          $ref: '#/components/schemas/VacancyStatus'
+        latest_review_decision:
+          oneOf:
+            - $ref: '#/components/schemas/ReviewDecision'
+            - type: 'null'
+        latest_review_comment:
+          type:
+            - string
+            - 'null'
+        latest_reviewed_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        submitted_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        approved_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        approved_by_user_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+        archived_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        archived_by_user_id:
+          type:
+            - string
+            - 'null'
+          format: uuid
+    VacancySummary:
+      type: object
+      required: [id, title, status, updated_at, question_count]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        grade:
+          oneOf:
+            - $ref: '#/components/schemas/VacancyGrade'
+            - type: 'null'
+        status:
+          $ref: '#/components/schemas/VacancyStatus'
+        question_count:
+          type: integer
+          minimum: 0
+        updated_at:
+          type: string
+          format: date-time
+        submitted_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        approved_at:
+          type:
+            - string
+            - 'null'
+          format: date-time
+        latest_review_decision:
+          oneOf:
+            - $ref: '#/components/schemas/ReviewDecision'
+            - type: 'null'
+    VacancyDetail:
+      type: object
+      required:
+        - id
+        - status
+        - title
+        - required_skills
+        - nice_to_have_skills
+        - questions
+        - review_state
+        - viewer_permissions
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        grade:
+          oneOf:
+            - $ref: '#/components/schemas/VacancyGrade'
+            - type: 'null'
+        job_description:
+          type:
+            - string
+            - 'null'
+        ideal_candidate_profile:
+          type:
+            - string
+            - 'null'
+        required_skills:
+          type: array
+          items:
+            type: string
+        nice_to_have_skills:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/VacancyStatus'
+        created_by_recruiter_id:
+          type: string
+          format: uuid
+        created_by_user_id:
+          type: string
+          format: uuid
+        managing_recruiter_id:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/VacancyQuestion'
+        review_state:
+          $ref: '#/components/schemas/ReviewState'
+        viewer_permissions:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/ViewerPermission'
+    VacancyListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/VacancySummary'
+    ReviewDecisionRequest:
+      allOf:
+        - $ref: '#/components/schemas/ExpectedUpdateRequest'
+        - type: object
+          properties:
+            comment:
+              type: string
+          additionalProperties: false
+
+# Error contract: all errors are JSON { "detail": string }.
+# Conflict contract: stale-write responses use HTTP 409 and describe the vacancy
+# as changed since the client last loaded it.

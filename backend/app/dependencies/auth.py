@@ -7,8 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db_session
 from app.models.user import InternalUser
 from app.repositories.user_repository import UserRepository
+from app.repositories.vacancy_repository import VacancyRepository
+from app.roles.catalog import AREA_EXPERT_QUESTIONS, AREA_RECRUITER_WORKSPACE
 from app.services.auth_service import AuthenticationError, AuthService
 from app.services.role_service import RoleService
+from app.services.vacancy_service import VacancyReviewService, VacancyService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -28,6 +31,26 @@ def get_role_service(request: Request) -> RoleService:
     if role_service is None:
         raise RuntimeError("RoleService is not initialized on app.state.")
     return role_service
+
+
+def get_vacancy_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> VacancyRepository:
+    return VacancyRepository(session)
+
+
+def get_vacancy_service(
+    vacancy_repository: Annotated[VacancyRepository, Depends(get_vacancy_repository)],
+    user_repository: Annotated[UserRepository, Depends(get_current_user_repository)],
+) -> VacancyService:
+    return VacancyService(vacancy_repository, user_repository)
+
+
+def get_vacancy_review_service(
+    vacancy_repository: Annotated[VacancyRepository, Depends(get_vacancy_repository)],
+    vacancy_service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> VacancyReviewService:
+    return VacancyReviewService(vacancy_repository, vacancy_service)
 
 
 async def get_current_user(
@@ -80,3 +103,7 @@ def require_area(area_id: str):
         return user
 
     return dependency
+
+
+require_recruiter_workspace = require_area(AREA_RECRUITER_WORKSPACE)
+require_expert_workspace = require_area(AREA_EXPERT_QUESTIONS)
