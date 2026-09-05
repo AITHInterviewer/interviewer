@@ -115,14 +115,20 @@ services:
   # infra/livekit.yaml) — оба читают один и тот же ./infra/tls.
   acme:
     image: neilpang/acme.sh
+    # Без ":?required" — Compose интерполирует ВЕСЬ файл, включая этот сервис, даже когда
+    # `up`/`down` нацелены на другие сервисы и эти переменные не заданы в их шагах (env
+    # одного шага workflow не переживает переход к следующему) — с required-синтаксисом
+    # любой такой вызов падал с "required variable ... is missing a value", хотя acme
+    # вообще не запускался. Пустые значения здесь безвредны: acme.sh сам явно сообщит об
+    # ошибке, если его действительно запустят (см. deploy-full.yml) без DUCKDNS_TOKEN/TLS_DOMAIN.
     environment:
-      - DuckDNS_Token=${DUCKDNS_TOKEN:?DuckDNS_Token is required to issue/renew the TLS cert}
+      - DuckDNS_Token=${DUCKDNS_TOKEN}
     volumes:
       - ./infra/tls:/acme.sh/output
     entrypoint: sh
     command: >-
-      -c "acme.sh --issue --dns dns_duckdns -d ${TLS_DOMAIN:?TLS_DOMAIN is required} --server letsencrypt --cert-home /acme.sh/output &&
-      acme.sh --install-cert -d ${TLS_DOMAIN:?TLS_DOMAIN is required} --cert-home /acme.sh/output --key-file /acme.sh/output/domain.key --fullchain-file /acme.sh/output/fullchain.pem"
+      -c "acme.sh --issue --dns dns_duckdns -d ${TLS_DOMAIN} --server letsencrypt --cert-home /acme.sh/output &&
+      acme.sh --install-cert -d ${TLS_DOMAIN} --cert-home /acme.sh/output --key-file /acme.sh/output/domain.key --fullchain-file /acme.sh/output/fullchain.pem"
 
   livekit-egress:
     image: livekit/egress:latest
