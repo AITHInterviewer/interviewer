@@ -219,13 +219,11 @@ jobs:
           Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
           LLM_MODEL=claude-haiku-4-5
           STT_BASE_URL=http://stt:8000/v1
-          TTS_BASE_URL=http://tts:8000/v1
+          TTS_BASE_URL=http://tts:8080
           STT_API_KEY=not-needed
           TTS_API_KEY=not-needed
           STT_MODEL=whisper-1
           STT_LANGUAGE=ru
-          TTS_MODEL=speaches-ai/piper-ru_RU-ruslan-medium
-          TTS_VOICE=ruslan
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
           BACKEND_BASE_URL=http://backend:8000
           LIVE_AGENT_TOKEN=development-live-agent-token
@@ -310,20 +308,6 @@ jobs:
       - name: Build and (re)start live-agent (+ its stt/tts)
         run: |
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --remove-orphans
-
-      - name: Ensure TTS voice model is downloaded
-        # tts (live-agent/docker-compose.yml) has no volume for its model cache — voices are
-        # downloaded straight into the container's writable layer (see comment there:
-        # PermissionError with a named volume, root vs. non-root uid 1000). Any container
-        # recreation (image/tag change, `down`/`up`, host reboot) wipes that cache, and the
-        # agent then fails every reply with a 404 ("Model ... is not installed locally")
-        # instead of falling back or erroring loudly at startup - the interview just goes
-        # silent. `model download` is idempotent (a no-op if the voice is already cached).
-        # uvx isn't a separate binary in this image, only uv itself - "uvx foo" is
-        # equivalent to "uv tool run foo" (see 2026-09-04 diagnostic run, same 404-on-missing
-        # voice bug hit and fixed once already via the now-removed download-tts-voice.yml).
-        run: |
-          docker exec live-agent-tts-1 uv tool run speaches-cli model download speaches-ai/piper-ru_RU-ruslan-medium
 
       - name: Build and (re)start evaluation-agent's stt-accurate
         run: |

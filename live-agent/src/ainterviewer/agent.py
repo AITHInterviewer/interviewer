@@ -43,6 +43,7 @@ from livekit.agents import Agent, AgentSession, JobContext, ModelSettings, Worke
 from livekit.agents.llm import ChatContext
 from livekit.agents.voice.room_io import RoomInputOptions
 from livekit.agents.voice.turn import InterruptionOptions, TurnHandlingOptions
+from livekit.plugins import fishaudio
 from livekit.plugins import openai as lk_openai
 from livekit.plugins import silero
 
@@ -230,15 +231,21 @@ async def entrypoint(ctx: JobContext) -> None:
             # техтерминов, не гипотетическая.
             prompt=_build_stt_vocabulary_prompt(interview),
         ),
-        tts=lk_openai.TTS(
-            base_url=os.environ["TTS_BASE_URL"],  # напр. http://localhost:8002/v1
+        # fishaudio, не lk_openai.TTS — см. docker-compose.yml, сервис tts: Piper не мог
+        # прилично произносить английские термины вперемешку с русским (транслитерация
+        # через espeak-ng), Fish Speech — настоящая мультиязычная акустическая модель,
+        # код-свитчинг звучит естественно. Свой self-hosted сервер (не облако Fish Audio),
+        # но протокол/эндпоинты (POST {base_url}/v1/tts) у OSS-сервера те же, что и у
+        # облака — тот же клиентский плагин работает на оба.
+        tts=fishaudio.TTS(
+            base_url=os.environ["TTS_BASE_URL"],  # напр. http://tts:8080 (без /v1 — плагин сам добавляет)
+            # Self-hosted сервер не проверяет ключ — плагин всё равно требует непустую
+            # строку (иначе ValueError), реальный ключ Fish Audio тут не нужен.
             api_key=os.environ.get("TTS_API_KEY", "not-needed"),
-            voice=os.environ.get("TTS_VOICE", "ruslan"),
-            # Плагин по умолчанию шлёт model="gpt-4o-mini-tts" — реальный найденный баг,
-            # с ним падают все self-hosted TTS-сервисы (не облачные имена моделей). Для
-            # speaches.ai `model` — это полный HF repo id голоса
-            # (speaches-ai/piper-ru_RU-<имя>-medium), не просто псевдоним вроде "tts-1".
-            model=os.environ.get("TTS_MODEL", "speaches-ai/piper-ru_RU-ruslan-medium"),
+            # voice_id по умолчанию — UUID голоса из облака Fish Audio, которого на нашем
+            # сервере нет (нет референсного аудио) — пустая строка = базовый спикер
+            # чекпоинта, тот же, что в warm-up самого сервера (reference_id=None).
+            voice_id="",
         ),
         # Пауза детектится по VAD (Silero), не через LLM — раздел 3 архитектурного
         # документа: "живая пауза" не должна ждать ещё один сетевой запрос сверху.

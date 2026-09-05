@@ -89,29 +89,33 @@ services:
       - stt-cache:/root/.cache/huggingface
 
   tts:
-    # Пробовали -cuda (2026-09-05): onnxruntime реально умеет CUDAExecutionProvider в этом
-    # образе, но GPU-ускорение того не стоило — при смене образа контейнер пересоздался с
-    # нуля (кэша моделей нет, см. комментарий ниже), а докачать голос заново не вышло: CDN
-    # HuggingFace (us.aws.cdn.hf.co/xet-bridge-us) в этот момент рвал TLS-соединение с этой
-    # сети на каждую попытку. Откатились на -cpu — тот образ синтезирует без GPU, но
-    # быстро (30-400мс/фразу) и не зависит от того же CDN сильнее, чем -cuda.
-    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    # Piper/speaches (и -cpu, и -cuda) откинули: правильно произносит русский, но грубо
+    # коверкает вставки английских терминов (транслитерация через espeak-ng-фонемизацию,
+    # не настоящая мультиязычная акустическая модель) — реальная жалоба на качество для
+    # технического интервью (2026-09-05/06). Fish Speech v1.5.1 — мультиязычная модель,
+    # код-свитчинг RU+EN в одном предложении звучит естественно, без транслитерации.
+    # Свой образ (не готовый с ghcr/docker hub — upstream не публикует его сам), собран из
+    # официального репо fish-speech с минимальным патчем (см. docker/fish-speech/) —
+    # опциональный импорт funasr (нужен только для ASR-режима, который мы не используем) и
+    # torch.compile mode="default" вместо "reduce-overhead" (CUDA Graph capture ловил
+    # "accessing tensor output of CUDAGraphs that has been overwritten" на этом GPU).
+    build:
+      context: .
+      dockerfile: docker/fish-speech/Dockerfile
     ports:
-      - "3906:8000"
-    environment:
-      # Модель скачивает сам сервер (в ответ на запрос от speaches-cli, не CLI-процесс) —
-      # переменная нужна именно тут, `docker exec -e` на отдельный exec-процесс не влияет
-      # на уже запущенный сервер. Новый xet-транспорт huggingface_hub падал с TLS handshake
-      # eof / CAS service error на этой сети — принудительно классический HTTP-download.
-      - HF_HUB_DISABLE_XET=1
-      # Дефолтный таймаут huggingface_hub (10с) не хватает на этой сети — реально видели
-      # ReadTimeoutError на скачивании model.onnx с us.aws.cdn.hf.co.
-      - HF_HUB_DOWNLOAD_TIMEOUT=60
-    # Без volume для кэша моделей — реальная проверка показала PermissionError: именованный
-    # volume создаётся Docker'ом от root, а образ работает под непривилегированным ubuntu
-    # (uid 1000) и не может в него писать. Можно было бы chown'ить volume отдельным init-шагом,
-    # но для MVP проще принять, что голос перекачивается заново при пересоздании контейнера —
-    # `docker compose stop/start` (без rm) кэш внутри слоя контейнера сохраняет.
+      - "3906:8080"
+    volumes:
+      # Чекпойнты (веса модели, ~1.4GB) — общий с другим проектом путь на этом раннере,
+      # не наш deploy их не качает и не хранит. checkpoints/fish-speech-1.5/... — путь,
+      # который ждёт CMD в Dockerfile (--llama-checkpoint-path/--decoder-checkpoint-path).
+      - C:\ai-interviewer-assets\fish-speech-1.5:/opt/fish-speech/checkpoints/fish-speech-1.5:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
 volumes:
   stt-cache:
