@@ -141,6 +141,21 @@ services:
       - redis
       - livekit-server
 
+  # backend определён в docker-compose.dev.yml, не здесь — этот стэнза только добавляет
+  # networks: к уже описанному сервису (Compose мержит по имени сервиса, когда оба файла
+  # переданы вместе через -f, см. deploy-full.yml). Без ainterviewer-shared live-agent
+  # (отдельный compose-проект/сеть) не резолвит "backend" по имени и не может получить
+  # интервью-данные (GET /api/v1/interviews/{id}/live-input) — падает с
+  # httpcore.ConnectTimeout, кандидат никогда не получает первый вопрос и виснет на
+  # "Подключаемся...". Не трогаем сам docker-compose.dev.yml: он ещё и самостоятельный
+  # local-dev quickstart (см. корневой README.md) без внешней сети ainterviewer-shared —
+  # добавление networks: там сломало бы `docker compose -f docker-compose.dev.yml up`
+  # само по себе (внешняя сеть не создана и не нужна в этом сценарии).
+  backend:
+    networks:
+      default:
+      ainterviewer-shared:
+
 volumes:
   postgres-data:
   minio-data:
