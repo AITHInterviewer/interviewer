@@ -269,7 +269,10 @@ jobs:
               # файлы настоящими — никакого дальнейшего вмешательства не требуется.
               Write-Output "WARNING: acme.sh failed and there is no cert on disk - generating a TEMPORARY self-signed fallback so the site doesn't go down entirely. Browsers will show a security warning until the next successful Let's Encrypt run replaces it."
               New-Item -ItemType Directory -Force infra/tls | Out-Null
-              & openssl req -x509 -newkey rsa:2048 -nodes -keyout infra/tls/domain.key -out infra/tls/fullchain.pem -days 7 -subj "/CN=ainterviewer.duckdns.org"
+              # openssl isn't on PATH on this runner's plain PowerShell - generate it inside
+              # a throwaway container instead (Docker is guaranteed to be here).
+              $tlsPath = (Resolve-Path infra/tls).Path
+              docker run --rm -v "${tlsPath}:/out" alpine/openssl req -x509 -newkey rsa:2048 -nodes -keyout /out/domain.key -out /out/fullchain.pem -days 7 -subj "/CN=ainterviewer.duckdns.org"
             }
           }
           $global:LASTEXITCODE = 0
