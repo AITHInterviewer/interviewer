@@ -90,7 +90,7 @@ function RequestBody({ token }: { token: string }) {
         </Field>
         <div className="form-actions">
           <Button type="submit" disabled={value.trim() === ""}>
-            Записать у себя
+            Сохранить заметку
           </Button>
           <Button asChild variant="secondary">
             <Link href={`/i/${token}/done`}>Назад</Link>
