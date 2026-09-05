@@ -74,8 +74,18 @@ jobs:
           foreach ($name in $rules.Keys) {
             $existing = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
             if (-not $existing) {
-              New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol $rules[$name].Proto -LocalPort $rules[$name].Port -Action Allow | Out-Null
-              Write-Output "created: $name"
+              # Runner service account turned out to lack rights to create NEW rules
+              # (existing ones were set up once, out-of-band, with elevation) - "Access
+              # is denied" (Win32 error 5) here used to be a terminating error that
+              # aborted the whole deploy over a single missing rule. Warn and continue
+              # instead: whoever manages the runner needs to create it once manually,
+              # same as the ones already in place.
+              try {
+                New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol $rules[$name].Proto -LocalPort $rules[$name].Port -Action Allow -ErrorAction Stop | Out-Null
+                Write-Output "created: $name"
+              } catch {
+                Write-Output "WARNING: could not create firewall rule '$name' ($($_.Exception.Message)) - create it manually on the runner"
+              }
             } else {
               Write-Output "already exists: $name"
             }
