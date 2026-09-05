@@ -6,15 +6,23 @@ Create Date: 2026-09-05
 
 Переносит `vacancy.recruiter_id` на `internal_users.id` (реальная identity/auth-модель) —
 `Recruiter` был временной заглушкой (см. `app/models/recruiter.py`), больше не FK-цель.
-Бэкфилла нет: реальных строк `vacancy` не существует, только демо-сид-скрипт
-(`scripts/seed_demo_interview.py`), который сам обновлён под `InternalUser`.
+
+ИСПРАВЛЕНО 2026-09-05: изначально считалось, что бэкфилл не нужен ("реальных строк
+`vacancy` не существует") — оказалось неверно на реальном деплое (self-hosted раннер),
+там уже были демо-данные из `scripts/seed_demo_interview.py`/`seed-demo-interview.yml`
+со старыми `recruiter_id`, и `ALTER TABLE ... ADD CONSTRAINT` падал с
+`ForeignKeyViolationError`. Теперь `_backfill_recruiter_to_internal_user` заводит (или
+переиспользует по email) `InternalUser` на каждого `Recruiter`, на которого реально
+ссылается `vacancy.recruiter_id`, и перекладывает ссылки — до навешивания FK.
 
 Также добавляет `pending_review` в `vacancy_status` (`draft → pending_review → ready`) и
 создаёт `interview_event` — сырой лог событий интервью (MVP-запись, см. план
 `interview_event_service.py`).
 """
 
+import uuid
 from collections.abc import Sequence
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 from alembic import op
@@ -31,8 +39,71 @@ _NEW_VACANCY_STATUS = postgresql.ENUM(
 )
 
 
+def _backfill_recruiter_to_internal_user(bind: sa.engine.Connection) -> None:
+    """Для каждого `recruiter.id`, на который ссылается существующий `vacancy.recruiter_id`,
+    находит по email (или создаёт) соответствующий `internal_users` и перекладывает
+    ссылку — иначе `ADD CONSTRAINT vacancy_recruiter_id_fkey` падает на реальных данных."""
+    recruiter = sa.table(
+        "recruiter",
+        sa.column("id", sa.Uuid()),
+        sa.column("email", sa.Text()),
+        sa.column("name", sa.Text()),
+    )
+    internal_users = sa.table(
+        "internal_users",
+        sa.column("id", sa.Uuid()),
+        sa.column("email", sa.String()),
+        sa.column("name", sa.String()),
+        sa.column("password_hash", sa.String()),
+        sa.column("must_rotate_password", sa.Boolean()),
+        sa.column("created_at", sa.DateTime(timezone=True)),
+    )
+    vacancy = sa.table(
+        "vacancy",
+        sa.column("id", sa.Uuid()),
+        sa.column("recruiter_id", sa.Uuid()),
+    )
+
+    used_recruiter_ids = {
+        row.recruiter_id for row in bind.execute(sa.select(vacancy.c.recruiter_id).distinct())
+    }
+    if not used_recruiter_ids:
+        return
+
+    recruiters = bind.execute(
+        sa.select(recruiter.c.id, recruiter.c.email, recruiter.c.name).where(
+            recruiter.c.id.in_(used_recruiter_ids)
+        )
+    ).all()
+
+    for old_id, email, name in recruiters:
+        new_id = bind.execute(
+            sa.select(internal_users.c.id).where(internal_users.c.email == email)
+        ).scalar_one_or_none()
+        if new_id is None:
+            new_id = uuid.uuid4()
+            bind.execute(
+                internal_users.insert().values(
+                    id=new_id,
+                    email=email,
+                    name=name,
+                    # Сентинел, а не настоящий хэш — у мигрированных из Recruiter
+                    # пользователей никогда не было пароля; must_rotate_password=True
+                    # не даёт залогиниться этим сентинелом молча.
+                    password_hash="!migrated-recruiter-no-login",
+                    must_rotate_password=True,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+        bind.execute(
+            vacancy.update().where(vacancy.c.recruiter_id == old_id).values(recruiter_id=new_id)
+        )
+
+
 def upgrade() -> None:
     bind = op.get_bind()
+
+    _backfill_recruiter_to_internal_user(bind)
 
     # 1. `vacancy.recruiter_id` FK: recruiter.id → internal_users.id.
     if bind.dialect.name == "postgresql":
