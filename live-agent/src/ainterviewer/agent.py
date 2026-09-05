@@ -69,16 +69,21 @@ class InterviewerAgent(Agent):
         self.engine = engine
 
     async def llm_node(self, chat_ctx: ChatContext, tools: list, model_settings: ModelSettings):  # noqa: ARG002
+        logger.info("llm_node: called, messages=%d", len(chat_ctx.messages))
         user_messages = [m for m in chat_ctx.messages if m.role == "user"]
         if not user_messages:
+            logger.info("llm_node: no user messages, returning")
             return
         last_text = user_messages[-1].text_content or ""
+        logger.info("llm_node: last_text=%r", last_text)
 
         # Слой 1 — мгновенный бэкчаннел без LLM (раздел 9.2, п.4 архитектурного документа).
         yield self.engine.backchannel_phrase()
 
         # Слой 2 — собственно решение реактивного цикла (см. state_machine.py).
+        logger.info("llm_node: calling engine.on_candidate_final_turn...")
         reply = await self.engine.on_candidate_final_turn(last_text)
+        logger.info("llm_node: engine.on_candidate_final_turn returned %r", reply)
         if reply:
             yield reply
 
