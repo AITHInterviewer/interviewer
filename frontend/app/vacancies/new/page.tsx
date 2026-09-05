@@ -130,6 +130,9 @@ export default function NewVacancyPage() {
                 {submitting ? "Собираем вопросы…" : "Создать и собрать вопросы"}
               </button>
             </div>
+            <p className="disabled-hint">
+              Дальше по порядку: создаём вакансию, собираем вопросы, отправляем эксперту.
+            </p>
           </form>
         ) : (
           <section className="form-surface">

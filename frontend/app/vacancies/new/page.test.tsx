@@ -100,6 +100,7 @@ describe("NewVacancyPage", () => {
     renderPage();
 
     fireEvent.change(await screen.findByLabelText(/название/i), { target: { value: "Backend Developer" } });
+    expect(screen.getByText(/создаём вакансию, собираем вопросы, отправляем эксперту/i)).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/описание/i), { target: { value: "Build things" } });
     fireEvent.change(screen.getByLabelText(/грейд/i), { target: { value: "middle" } });
     fireEvent.change(screen.getByLabelText(/обязательные навыки/i), { target: { value: "python, sql" } });
