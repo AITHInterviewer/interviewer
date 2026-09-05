@@ -67,6 +67,21 @@ describe("ManagerCandidatePage", () => {
     vi.mocked(loadRubricVersions).mockResolvedValue({ items: [] });
   });
 
+  it("treats handoff as meeting and opinion as not a meeting", async () => {
+    vi.mocked(loadManagerCandidate).mockResolvedValueOnce({
+      interview,
+      vacancy_title: "Backend",
+      access: "handoff",
+      from_recruiter_name: "Anna",
+      summary: "Нужна встреча",
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/передан вам, нужна встреча/i)).toBeInTheDocument();
+    expect(screen.getByText(/с человеком нужна встреча/i)).toBeInTheDocument();
+  });
+
   it("treats opinion as not a meeting and has no outcome controls", async () => {
     vi.mocked(loadManagerCandidate).mockResolvedValue({
       interview,

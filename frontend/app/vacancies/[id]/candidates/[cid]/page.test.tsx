@@ -10,7 +10,7 @@ import {
 } from "@/lib/report";
 import type { InterviewAnswer, Question } from "@/lib/api";
 
-function question(id: string, order: number, skills: string[], mandatory = true): Question {
+function question(id: string, order: number, skills: string[]): Question {
   return {
     id,
     vacancy_id: "v1",

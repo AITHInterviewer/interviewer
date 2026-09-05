@@ -21,6 +21,7 @@ vi.mock("@/lib/auth", async () => {
     loadLanding: vi.fn(),
     loadVacancy: vi.fn(),
     loadInterviews: vi.fn(),
+    loadClarifications: vi.fn(),
     loadAnonymizedStats: vi.fn(),
     generateVacancyQuestions: vi.fn(),
     createManagedInterview: vi.fn(),
@@ -31,7 +32,7 @@ vi.mock("@/lib/auth", async () => {
   };
 });
 
-import { createManagedInterview, loadInterviews, loadLanding, loadVacancy } from "@/lib/auth";
+import { createManagedInterview, loadClarifications, loadInterviews, loadLanding, loadVacancy } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import { VacancyDetailClient } from "./vacancy-detail-client";
 
@@ -97,6 +98,7 @@ describe("VacancyDetailClient", () => {
     });
     vi.mocked(loadVacancy).mockResolvedValue(baseVacancy);
     vi.mocked(loadInterviews).mockResolvedValue({ items: [] });
+    vi.mocked(loadClarifications).mockResolvedValue({ items: [] });
     vi.mocked(createManagedInterview).mockReset();
   });
 
@@ -172,6 +174,33 @@ describe("VacancyDetailClient", () => {
     expect(screen.queryByText("Никого ещё не приглашали")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /открыть lida/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /приостановить/i })).toBeInTheDocument();
+  });
+
+  it("shows open clarification badge without moving card to another column", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "active" });
+    vi.mocked(loadInterviews).mockResolvedValue({
+      items: [
+        {
+          id: "i-lida",
+          vacancy_id: "v1",
+          candidate_name: "Lida",
+          resume_file_url: "",
+          access_token: "t",
+          status: "completed",
+          created_at: "2026-01-01T00:00:00Z",
+          product_state: "report_ready",
+          recruiter_decision: "awaiting",
+        },
+      ],
+    });
+    vi.mocked(loadClarifications).mockResolvedValue({
+      items: [{ id: "c1", interview_id: "i-lida", type: "expert_audit", status: "requested" }],
+    });
+
+    renderClient("v1");
+
+    expect(await screen.findByText(/открыто уточнение/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /готовы к решению/i })).toBeInTheDocument();
   });
 
   it("does not claim the link was copied when clipboard write fails", async () => {
