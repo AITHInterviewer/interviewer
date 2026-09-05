@@ -132,16 +132,19 @@ export const fixtures = {
 export function respond(pathname) {
   const p = pathname.replace(/\?.*$/, "");
   // Кандидатский маршрут: /api/interview/:token
-  if (/^\/api\/interview\/[^/]+$/.test(p))
+  if (/^\/api\/interview\/[^/]+$/.test(p)) {
+    // PW_STATE позволяет снять кандидатские шаги после согласия и после сдачи.
+    const state = process.env.PW_STATE ?? "opened";
     return {
       interview_id: "i-lida",
-      status: "in_progress",
+      status: state === "submitted" ? "completed" : "in_progress",
       vacancy_title: "Middle+ Python Developer",
       questions_total: 5,
       estimated_duration_min: { min: 20, max: 25 },
-      product_state: "opened",
-      consented: false,
+      product_state: state,
+      consented: state !== "opened",
     };
+  }
   if (/^\/api\/interview\/[^/]+\/(consent|progress)$/.test(p)) return { product_state: "consented" };
   if (/^\/api\/interview\/[^/]+\/extra\/[^/]+$/.test(p))
     return { id: "c1", status: "open", extra_token: "extra-lida" };

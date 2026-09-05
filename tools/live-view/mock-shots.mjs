@@ -39,9 +39,11 @@ page.on("console", (m) => {
 });
 
 await page.goto(base + "/login", { waitUntil: "domcontentloaded" });
-await page.evaluate((session) => {
-  window.localStorage.setItem("ainterviewer-auth", JSON.stringify(session));
-}, { access_token: "demo-token", token_type: "bearer", user: fixtures.user });
+if (process.env.PW_ANON !== "1") {
+  await page.evaluate((session) => {
+    window.localStorage.setItem("ainterviewer-auth", JSON.stringify(session));
+  }, { access_token: "demo-token", token_type: "bearer", user: fixtures.user });
+}
 
 for (const arg of process.argv.slice(2)) {
   const [name, path] = arg.split("=");

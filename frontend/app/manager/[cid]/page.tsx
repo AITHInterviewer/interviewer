@@ -136,25 +136,35 @@ export default function ManagerCandidatePage() {
     <AppShell nav={nav} title="Перед встречей">
       <div className="workspace">
         <PageHeader
-          path={`${candidate.interview.candidate_name ?? "Кандидат"} · ${candidate.vacancy_title}`}
+          path="Встречи"
           title={candidate.interview.candidate_name ?? "Кандидат без имени"}
           description={
-            candidate.access === "handoff"
-              ? `Передача от ${candidate.from_recruiter_name ?? "рекрутера"}`
-              : "Открыто только мнение, без передачи кандидата."
+            <>
+              <p>
+                {candidate.vacancy_title}.{" "}
+                {candidate.access === "handoff"
+                  ? `Передал ${candidate.from_recruiter_name ?? "рекрутер"}: с человеком нужна встреча.`
+                  : "Рекрутер спросил ваше мнение: кандидат вам не передан."}
+              </p>
+              <p className="muted-copy">
+                Здесь только то, что нужно перед разговором. Прокторинга и оценки тут нет: решение
+                принимает человек.
+              </p>
+            </>
+          }
+          actions={
+            <Button asChild variant="secondary">
+              <Link href="/manager">К встречам</Link>
+            </Button>
           }
         />
-        <section className="plain-section">
-          <h2>Вакансия</h2>
-          <p>{candidate.vacancy_title}</p>
-        </section>
         <section className="plain-section">
           <h2>Что передал рекрутер</h2>
           <p>{candidate.summary || "Рекрутер не оставил комментарий: смотрите отчёт."}</p>
         </section>
         {candidate.interview.rubric_version_id ? (
           <section className="plain-section">
-            <h2>Версия рубрики</h2>
+            <h2>По какой версии требований оценивали</h2>
             {rubric ? (
               <p>
                 Версия {rubric.version_number}
