@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db_session
-from app.dependencies.auth import require_capability
+from app.dependencies.auth import require_any_capability, require_capability
 from app.dependencies.live_agent_auth import require_live_agent_token
 from app.models.answer import Answer
 from app.models.interview import Interview
@@ -19,7 +19,7 @@ from app.models.interview_event import InterviewEvent
 from app.models.question import Question
 from app.models.user import InternalUser
 from app.models.vacancy import Vacancy
-from app.roles.catalog import AREA_RECRUITER_WORKSPACE
+from app.roles.catalog import AREA_EXPERT_QUESTIONS, AREA_RECRUITER_WORKSPACE
 from app.schemas.interview import (
     AnswerResponse,
     InterviewEventResponse,
@@ -32,6 +32,7 @@ from app.services.interview_admin_service import InterviewAdminService
 router = APIRouter(prefix="/api/v1/interviews", tags=["interviews"])
 
 require_recruiter = require_capability(AREA_RECRUITER_WORKSPACE)
+require_interview_reader = require_any_capability(AREA_RECRUITER_WORKSPACE, AREA_EXPERT_QUESTIONS)
 
 
 def get_interview_admin_service(
@@ -43,7 +44,7 @@ def get_interview_admin_service(
 @router.get("/{interview_id}", response_model=InterviewResponse)
 async def get_interview(
     interview_id: UUID,
-    _: Annotated[InternalUser, Depends(require_recruiter)],
+    _: Annotated[InternalUser, Depends(require_interview_reader)],
     service: Annotated[InterviewAdminService, Depends(get_interview_admin_service)],
 ) -> InterviewResponse:
     interview = await service.get_interview(interview_id)
@@ -55,7 +56,7 @@ async def get_interview(
 @router.get("/{interview_id}/events", response_model=InterviewEventsResponse)
 async def get_interview_events(
     interview_id: UUID,
-    _: Annotated[InternalUser, Depends(require_recruiter)],
+    _: Annotated[InternalUser, Depends(require_interview_reader)],
     service: Annotated[InterviewAdminService, Depends(get_interview_admin_service)],
     session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> InterviewEventsResponse:

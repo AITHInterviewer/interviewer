@@ -1,13 +1,15 @@
-"""Бизнес-правила вакансии: переходы статуса (`draft → pending_review → ready`),
-инвариант approve-времени (`role=assessment` ⇒ непустые `intent`/`reference_answer`/
-`skill_tag`) и блокировка правок после `ready` (contracts/api.md).
+"""Бизнес-правила вакансии: draft → extracted → calibration → approved → active
+(specs/009-pilot-product-model). Правки блокируются после approved.
 """
 
 from __future__ import annotations
 
 from uuid import UUID
 
+from sqlalchemy import func, select
+
 from app.models.question import Question
+from app.models.rubric_version import RubricVersion
 from app.models.vacancy import Vacancy
 from app.repositories.question_repository import QuestionRepository
 from app.repositories.vacancy_repository import VacancyRepository
@@ -23,7 +25,11 @@ class QuestionNotFoundError(Exception):
 
 
 class VacancyLockedError(Exception):
-    """Вакансия уже `ready` — правки вакансии/вопросов/регенерация заблокированы (409)."""
+    """Вакансия уже одобрена или активна — правки заблокированы (409)."""
+
+
+class VacancyTransitionError(Exception):
+    """Недопустимый переход статуса."""
 
 
 class InvalidQuestionError(Exception):
@@ -145,7 +151,7 @@ class VacancyService:
             await self.question_repository.create(question)
             created.append(question)
 
-        vacancy.status = "pending_review"
+        vacancy.status = "extracted"
         await self.vacancy_repository.commit()
         return created
 
@@ -238,9 +244,11 @@ class VacancyService:
         await self.question_repository.delete(question)
         await self.question_repository.commit()
 
-    async def approve_vacancy(self, vacancy_id: UUID) -> Vacancy:
+    async def approve_vacancy(self, vacancy_id: UUID, *, approved_by_id: UUID | None = None) -> Vacancy:
         vacancy = await self.get_vacancy(vacancy_id)
         self._ensure_unlocked(vacancy)
+        if vacancy.status not in {"calibration", "pending_review"}:
+            raise VacancyTransitionError
 
         questions = await self.question_repository.list_for_vacancy(vacancy_id)
         offending = [
@@ -253,11 +261,99 @@ class VacancyService:
         if not questions or offending:
             raise VacancyNotReadyError(offending)
 
-        vacancy.status = "ready"
+        questions_payload = [
+            {"id": str(q.id), "text": q.text, "skill_tag": list(q.skill_tag), "role": q.role}
+            for q in questions
+        ]
+        version_number = await self._next_rubric_version(vacancy_id)
+        self.vacancy_repository.session.add(
+            RubricVersion(
+                vacancy_id=vacancy_id,
+                version_number=version_number,
+                approved_by_id=approved_by_id,
+                snapshot={
+                    "title": vacancy.title,
+                    "required_skills": list(vacancy.required_skills),
+                    "nice_to_have_skills": list(vacancy.nice_to_have_skills),
+                    "questions": questions_payload,
+                },
+            )
+        )
+        vacancy.status = "approved"
         await self.vacancy_repository.commit()
         return vacancy
 
+    async def send_to_expert(self, vacancy_id: UUID) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status not in {"draft", "extracted", "changes_requested"}:
+            raise VacancyTransitionError
+        vacancy.status = "calibration"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def request_changes(self, vacancy_id: UUID, reason: str) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status not in {"calibration", "pending_review"}:
+            raise VacancyTransitionError
+        if not reason.strip():
+            raise VacancyTransitionError
+        vacancy.status = "changes_requested"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def activate(self, vacancy_id: UUID) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status != "approved":
+            raise VacancyTransitionError
+        vacancy.status = "active"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def pause(self, vacancy_id: UUID) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status != "active":
+            raise VacancyTransitionError
+        vacancy.status = "paused"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def resume(self, vacancy_id: UUID) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status != "paused":
+            raise VacancyTransitionError
+        vacancy.status = "active"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def archive(self, vacancy_id: UUID) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status not in {"paused", "active", "approved"}:
+            raise VacancyTransitionError
+        vacancy.status = "archived"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def list_rubric_versions(self, vacancy_id: UUID) -> list[RubricVersion]:
+        await self.get_vacancy(vacancy_id)
+        result = await self.vacancy_repository.session.execute(
+            select(RubricVersion)
+            .where(RubricVersion.vacancy_id == vacancy_id)
+            .order_by(RubricVersion.version_number.desc())
+        )
+        return list(result.scalars().all())
+
+    async def _next_rubric_version(self, vacancy_id: UUID) -> int:
+        result = await self.vacancy_repository.session.execute(
+            select(func.max(RubricVersion.version_number)).where(RubricVersion.vacancy_id == vacancy_id)
+        )
+        current = result.scalar_one_or_none() or 0
+        return int(current) + 1
+
+    @staticmethod
+    def owner_next(status: str) -> str:
+        return "expert" if status == "calibration" else "recruiter"
+
     @staticmethod
     def _ensure_unlocked(vacancy: Vacancy) -> None:
-        if vacancy.status == "ready":
+        if vacancy.status in {"approved", "active", "paused", "archived"}:
             raise VacancyLockedError

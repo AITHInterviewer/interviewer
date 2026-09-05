@@ -94,7 +94,7 @@ async def test_generate_questions_replaces_base_generated_only(db_session: Async
     await service.generate_questions(vacancy.id)
     questions = await service.list_questions(vacancy.id)
 
-    assert vacancy.status == "pending_review"
+    assert vacancy.status == "extracted"
     assert llm.calls == 1
     sources = sorted(q.source for q in questions)
     assert sources == ["base_generated", "base_generated", "base_generated", "base_manual"]
@@ -128,6 +128,7 @@ async def test_approve_requires_non_empty_assessment_fields(db_session: AsyncSes
     # (e.g. LLM-generated then role changed).
     bad_question.role = "assessment"
     await db_session.commit()
+    await service.send_to_expert(vacancy.id)
 
     with pytest.raises(VacancyNotReadyError) as exc_info:
         await service.approve_vacancy(vacancy.id)
@@ -155,10 +156,10 @@ async def test_approve_sets_status_ready_when_valid(db_session: AsyncSession) ->
         intent="intent",
         reference_answer="reference",
     )
-
+    await service.send_to_expert(vacancy.id)
     approved = await service.approve_vacancy(vacancy.id)
 
-    assert approved.status == "ready"
+    assert approved.status == "approved"
 
 
 @pytest.mark.anyio
@@ -182,6 +183,7 @@ async def test_ready_vacancy_locks_mutations(db_session: AsyncSession) -> None:
         intent="intent",
         reference_answer="reference",
     )
+    await service.send_to_expert(vacancy.id)
     await service.approve_vacancy(vacancy.id)
 
     with pytest.raises(VacancyLockedError):

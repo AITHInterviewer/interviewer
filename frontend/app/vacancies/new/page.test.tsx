@@ -15,10 +15,12 @@ vi.mock("@/lib/auth", async () => {
     ...actual,
     loadLanding: vi.fn(),
     createManagedVacancy: vi.fn(),
+    generateVacancyQuestions: vi.fn(),
+    sendManagedVacancyToExpert: vi.fn(),
   };
 });
 
-import { createManagedVacancy, loadLanding } from "@/lib/auth";
+import { createManagedVacancy, generateVacancyQuestions, loadLanding } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import NewVacancyPage from "./page";
 
@@ -29,6 +31,36 @@ function renderPage() {
     </ThemeProvider>,
   );
 }
+
+const created = {
+  id: "v1",
+  recruiter_id: "r1",
+  title: "Backend Developer",
+  description: "Build things",
+  grade: "middle",
+  required_skills: ["python", "sql"],
+  nice_to_have_skills: ["docker"],
+  status: "extracted" as const,
+  created_at: "2026-01-01T00:00:00Z",
+  questions: [
+    {
+      id: "q1",
+      vacancy_id: "v1",
+      interview_id: null,
+      text: "Explain GIL",
+      order: 0,
+      skill_tag: ["python"],
+      intent: "assess",
+      reference_answer: "...",
+      format: "voice" as const,
+      role: "assessment" as const,
+      difficulty: "baseline" as const,
+      estimated_duration_sec: 120,
+      stimulus: null,
+      source: "base_generated" as const,
+    },
+  ],
+};
 
 describe("NewVacancyPage", () => {
   beforeEach(() => {
@@ -61,28 +93,19 @@ describe("NewVacancyPage", () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/vacancies"));
   });
 
-  it("submits the create-vacancy form with parsed skills and routes to the new vacancy", async () => {
-    vi.mocked(createManagedVacancy).mockResolvedValue({
-      id: "v1",
-      recruiter_id: "r1",
-      title: "Backend Developer",
-      description: "Build things",
-      grade: "middle",
-      required_skills: ["python", "sql"],
-      nice_to_have_skills: ["docker"],
-      status: "draft",
-      created_at: "2026-01-01T00:00:00Z",
-    });
+  it("creates a vacancy, generates questions and shows send-to-expert", async () => {
+    vi.mocked(createManagedVacancy).mockResolvedValue(created);
+    vi.mocked(generateVacancyQuestions).mockResolvedValue(created);
 
     renderPage();
 
-    fireEvent.change(await screen.findByLabelText(/title/i), { target: { value: "Backend Developer" } });
-    fireEvent.change(screen.getByLabelText(/description/i), { target: { value: "Build things" } });
-    fireEvent.change(screen.getByLabelText(/grade/i), { target: { value: "middle" } });
-    fireEvent.change(screen.getByLabelText(/required skills/i), { target: { value: "python, sql" } });
-    fireEvent.change(screen.getByLabelText(/nice-to-have skills/i), { target: { value: "docker" } });
+    fireEvent.change(await screen.findByLabelText(/название/i), { target: { value: "Backend Developer" } });
+    fireEvent.change(screen.getByLabelText(/описание/i), { target: { value: "Build things" } });
+    fireEvent.change(screen.getByLabelText(/грейд/i), { target: { value: "middle" } });
+    fireEvent.change(screen.getByLabelText(/обязательные навыки/i), { target: { value: "python, sql" } });
+    fireEvent.change(screen.getByLabelText(/желательные навыки/i), { target: { value: "docker" } });
 
-    fireEvent.submit(screen.getByRole("button", { name: /create vacancy/i }).closest("form")!);
+    fireEvent.submit(screen.getByRole("button", { name: /создать и собрать вопросы/i }).closest("form")!);
 
     await waitFor(() =>
       expect(createManagedVacancy).toHaveBeenCalledWith({
@@ -93,6 +116,8 @@ describe("NewVacancyPage", () => {
         niceToHaveSkills: ["docker"],
       }),
     );
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/vacancies/v1"));
+    await waitFor(() => expect(generateVacancyQuestions).toHaveBeenCalledWith("v1"));
+    expect(await screen.findByText(/explain gil/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /отправить эксперту/i })).toBeInTheDocument();
   });
 });

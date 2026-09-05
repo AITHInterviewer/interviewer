@@ -128,22 +128,42 @@ async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.Monkey
     get_response = await client.get(
         f"/api/v1/vacancies/{vacancy_id}", headers={"Authorization": f"Bearer {combo_token}"}
     )
-    assert get_response.json()["status"] == "pending_review"
+    assert get_response.json()["status"] == "extracted"
+
+    send_response = await client.post(
+        f"/api/v1/vacancies/{vacancy_id}/send-to-expert",
+        headers={"Authorization": f"Bearer {combo_token}"},
+    )
+    assert send_response.status_code == 200
+    assert send_response.json()["status"] == "calibration"
 
     approve_response = await client.post(
         f"/api/v1/vacancies/{vacancy_id}/approve",
         headers={"Authorization": f"Bearer {combo_token}"},
     )
     assert approve_response.status_code == 200
-    assert approve_response.json()["status"] == "ready"
+    assert approve_response.json()["status"] == "approved"
 
-    # Once ready, mutations are locked.
     locked_response = await client.patch(
         f"/api/v1/vacancies/{vacancy_id}",
         headers={"Authorization": f"Bearer {combo_token}"},
         json={"title": "New title"},
     )
     assert locked_response.status_code == 409
+
+    too_early = await client.post(
+        f"/api/v1/vacancies/{vacancy_id}/interviews",
+        headers={"Authorization": f"Bearer {combo_token}"},
+        files={"resume_file": ("resume.pdf", b"%PDF-1.4 ...", "application/pdf")},
+    )
+    assert too_early.status_code == 422
+
+    activate_response = await client.post(
+        f"/api/v1/vacancies/{vacancy_id}/activate",
+        headers={"Authorization": f"Bearer {combo_token}"},
+    )
+    assert activate_response.status_code == 200
+    assert activate_response.json()["status"] == "active"
 
     interview_response = await client.post(
         f"/api/v1/vacancies/{vacancy_id}/interviews",
@@ -155,7 +175,7 @@ async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.Monkey
     interview_payload = interview_response.json()
     interview_id = interview_payload["interview"]["id"]
     access_token = interview_payload["interview"]["access_token"]
-    assert interview_payload["candidate_link"].endswith(f"/interview/{access_token}")
+    assert interview_payload["candidate_link"].endswith(f"/i/{access_token}")
 
     list_interviews_response = await client.get(
         f"/api/v1/vacancies/{vacancy_id}/interviews",
@@ -199,4 +219,4 @@ async def test_interview_events_endpoint_requires_recruiter(client) -> None:
         headers={"Authorization": f"Bearer {expert_token}"},
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 404

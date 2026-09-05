@@ -33,6 +33,17 @@ class Vacancy(Base):
     required_skills: Mapped[list[str]] = mapped_column(_text_array, nullable=False, default=list)
     nice_to_have_skills: Mapped[list[str]] = mapped_column(_text_array, nullable=False, default=list)
     status: Mapped[str] = mapped_column(
-        Enum("draft", "pending_review", "ready", name="vacancy_status"), default="draft"
+        Enum(
+            "draft",
+            "extracted",
+            "calibration",
+            "changes_requested",
+            "approved",
+            "active",
+            "paused",
+            "archived",
+            name="vacancy_status",
+        ),
+        default="draft",
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

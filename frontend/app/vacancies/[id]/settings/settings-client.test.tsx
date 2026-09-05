@@ -8,6 +8,14 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/vacancies/v1/settings",
 }));
 
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...props }: React.ComponentProps<"a">) => (
+    <a href={href as string} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
 vi.mock("@/lib/auth", async () => {
   const actual = await vi.importActual<typeof import("@/lib/auth")>("@/lib/auth");
   return {

@@ -11,14 +11,14 @@ ACTION_QUESTIONS_EDIT = "action.questions.edit"
 # capability catalog so new areas declare their route in one place.
 AREA_PATHS: dict[str, str] = {
     AREA_RECRUITER_WORKSPACE: "/vacancies",
-    AREA_HIRING_MANAGER_REVIEW: "/internal/hiring-manager",
-    AREA_EXPERT_QUESTIONS: "/vacancies",
+    AREA_HIRING_MANAGER_REVIEW: "/manager",
+    AREA_EXPERT_QUESTIONS: "/expert",
 }
 
 BUILTIN_CAPABILITIES: tuple[Capability, ...] = (
-    Capability(id=AREA_RECRUITER_WORKSPACE, kind=CapabilityKind.AREA, label="Recruiter workspace"),
-    Capability(id=AREA_HIRING_MANAGER_REVIEW, kind=CapabilityKind.AREA, label="Hiring manager workspace"),
-    Capability(id=AREA_EXPERT_QUESTIONS, kind=CapabilityKind.AREA, label="Expert workspace"),
+    Capability(id=AREA_RECRUITER_WORKSPACE, kind=CapabilityKind.AREA, label="Вакансии"),
+    Capability(id=AREA_HIRING_MANAGER_REVIEW, kind=CapabilityKind.AREA, label="Встречи"),
+    Capability(id=AREA_EXPERT_QUESTIONS, kind=CapabilityKind.AREA, label="Задачи"),
     Capability(id=ACTION_INTERNAL_USERS_MANAGE, kind=CapabilityKind.ACTION, label="Manage internal users"),
     Capability(id=ACTION_QUESTIONS_EDIT, kind=CapabilityKind.ACTION, label="Edit interview questions"),
 )

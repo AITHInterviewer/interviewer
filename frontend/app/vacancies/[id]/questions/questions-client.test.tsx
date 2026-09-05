@@ -4,6 +4,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => "/vacancies/v1/questions",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...props }: React.ComponentProps<"a">) => (
+    <a href={href as string} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 vi.mock("@/lib/auth", async () => {

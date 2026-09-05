@@ -29,7 +29,8 @@ deploy.
   fresh on every run (values baked in near the top of the workflow) — don't hand-edit those
   `.env` files on the runner, edit the workflow instead.
 - External access is via `https://ainterviewer.duckdns.org:12345` (DuckDNS domain pointed at
-  the runner's tunnel IP), proxied by nginx to `/` (frontend), `/api/` (backend),
+  the runner's tunnel IP, currently `89.149.199.118` — update the DuckDNS A record if that
+  tunnel IP changes again), proxied by nginx to `/` (frontend), `/api/` (backend),
   `/docs`/`/redoc`/`/openapi.json` (FastAPI docs), `/rtc/` (livekit signaling). The frontend
   calls its backend via the page's own origin (`frontend/lib/api.ts`,
   `window.location.origin` fallback) precisely so it works through both the VPN address and
