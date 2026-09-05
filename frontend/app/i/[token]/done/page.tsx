@@ -22,16 +22,10 @@ export default function DonePage() {
             связывается с вами сам.
           </p>
           <CandidateDeadline deadline={info.deadline} />
-          <p>
-            Пока можно свериться с расшифровкой своих ответов или написать рекрутеру, если что-то
-            нужно уточнить.
-          </p>
+          <p>По вопросам свяжитесь с рекрутером тем способом, которым получили приглашение.</p>
           <div className="form-actions">
             <Button asChild>
               <Link href={`/i/${accessToken}/transcript`}>Расшифровка</Link>
-            </Button>
-            <Button asChild variant="secondary">
-              <Link href={`/i/${accessToken}/request`}>Написать рекрутеру</Link>
             </Button>
           </div>
         </section>

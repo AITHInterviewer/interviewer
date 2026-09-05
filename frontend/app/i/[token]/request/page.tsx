@@ -18,7 +18,11 @@ function readStored(token: string): string {
     const parsed = JSON.parse(raw) as { text?: string };
     return parsed.text?.trim() ? parsed.text : "";
   } catch {
-    window.localStorage.removeItem(storageKey(token));
+    try {
+      window.localStorage.removeItem(storageKey(token));
+    } catch {
+      // snapshot не должен падать, даже если хранилище недоступно
+    }
     return "";
   }
 }
@@ -43,37 +47,74 @@ function RequestBody({ token }: { token: string }) {
     () => "",
   );
   const [text, setText] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [status, setStatus] = useState<"saved" | "copied" | "deleted" | null>(null);
   const value = text ?? stored;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next = value.trim();
     if (!next) {
-      setError("Напишите, о чём спросить рекрутера.");
-      setSaved(false);
+      setFieldError("Напишите текст заметки.");
+      setActionError(null);
+      setStatus(null);
       return;
     }
-    window.localStorage.setItem(
-      storageKey(token),
-      JSON.stringify({ text: next, at: new Date().toISOString() }),
-    );
-    setText(next);
-    setError(null);
-    setSaved(true);
+    try {
+      window.localStorage.setItem(
+        storageKey(token),
+        JSON.stringify({ text: next, at: new Date().toISOString() }),
+      );
+      setText(next);
+      setFieldError(null);
+      setActionError(null);
+      setStatus("saved");
+    } catch {
+      setFieldError(null);
+      setActionError("Не удалось сохранить заметку в этом браузере.");
+      setStatus(null);
+    }
+  }
+
+  async function handleCopy() {
+    setFieldError(null);
+    const writeText = navigator.clipboard?.writeText;
+    if (!writeText) {
+      setStatus(null);
+      setActionError("Не удалось скопировать. Выделите текст в поле и скопируйте вручную.");
+      return;
+    }
+    try {
+      await writeText.call(navigator.clipboard, value);
+      setActionError(null);
+      setStatus("copied");
+    } catch {
+      setStatus(null);
+      setActionError("Не удалось скопировать. Выделите текст в поле и скопируйте вручную.");
+    }
+  }
+
+  function handleDelete() {
+    try {
+      window.localStorage.removeItem(storageKey(token));
+      setText("");
+      setFieldError(null);
+      setActionError(null);
+      setStatus("deleted");
+    } catch {
+      setStatus(null);
+      setActionError("Не удалось удалить заметку в этом браузере.");
+    }
   }
 
   return (
     <section className="setup-stage setup-stage--full">
-      <p className="path">Запрос рекрутеру</p>
-      <h1>Что нужно уточнить</h1>
-      <p>
-        Напишите вопрос или комментарий. Сейчас это сохраняется только у вас в браузере: отдельной
-        отправки на сервер ещё нет.
-      </p>
+      <p className="path">Черновик заметки</p>
+      <h1>Текст для себя</h1>
+      <p>Текст сохранится только в этом браузере. Рекрутер его не получит.</p>
       <form onSubmit={handleSubmit}>
-        <Field label="Сообщение" error={error ?? undefined}>
+        <Field label="Заметка" error={fieldError ?? undefined}>
           {({ id, describedBy, invalid }) => (
             <TextArea
               id={id}
@@ -83,23 +124,44 @@ function RequestBody({ token }: { token: string }) {
               value={value}
               onChange={(event) => {
                 setText(event.target.value);
-                setSaved(false);
+                setFieldError(null);
+                setActionError(null);
+                setStatus(null);
               }}
             />
           )}
         </Field>
         <div className="form-actions">
-          <Button type="submit" disabled={value.trim() === ""}>
-            Сохранить заметку
+          <Button type="submit">Сохранить заметку</Button>
+          <Button type="button" variant="secondary" onClick={() => void handleCopy()}>
+            Скопировать текст
+          </Button>
+          <Button type="button" variant="secondary" onClick={handleDelete}>
+            Удалить заметку
           </Button>
           <Button asChild variant="secondary">
             <Link href={`/i/${token}/done`}>Назад</Link>
           </Button>
         </div>
+        {actionError ? (
+          <p className="field__error" role="alert">
+            {actionError}
+          </p>
+        ) : null}
       </form>
-      {saved || (text === null && stored !== "") ? (
-        <p className="pilot-hint">
-          Заявка записана у вас на устройстве, рекрутер получит её в следующей версии.
+      {status === "saved" ? (
+        <p className="pilot-hint" role="status">
+          Сохранено в этом браузере
+        </p>
+      ) : null}
+      {status === "copied" ? (
+        <p className="pilot-hint" role="status">
+          Текст скопирован
+        </p>
+      ) : null}
+      {status === "deleted" ? (
+        <p className="pilot-hint" role="status">
+          Заметка удалена в этом браузере
         </p>
       ) : null}
     </section>

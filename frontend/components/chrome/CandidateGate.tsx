@@ -12,13 +12,20 @@ export function CandidateFrame({
   current,
   vacancyTitle,
   children,
+  showStepper = true,
 }: {
   current: CandidateStep;
   vacancyTitle?: string;
   children: ReactNode;
+  showStepper?: boolean;
 }) {
   return (
-    <CandidateShell steps={[...CANDIDATE_STEPS]} current={current} vacancyTitle={vacancyTitle}>
+    <CandidateShell
+      steps={[...CANDIDATE_STEPS]}
+      current={current}
+      vacancyTitle={vacancyTitle}
+      showStepper={showStepper}
+    >
       {children}
     </CandidateShell>
   );
