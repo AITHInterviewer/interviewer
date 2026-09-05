@@ -190,6 +190,11 @@ export default function InternalUsersPage() {
                         {user.created_by_user_id ? "Аккаунт создан вручную" : "Аккаунт создан при регистрации"}
                       </span>
                     </div>
+                    {lastRole ? (
+                      <p className="disabled-hint">Нужна хотя бы одна роль, поэтому снять последнюю нельзя.</p>
+                    ) : (
+                      <p className="muted-copy">Изменить роли</p>
+                    )}
                     <div className="form-actions">
                       {assignedRoles.map((code) => {
                         const thisBusy = busyRole?.userId === user.id && busyRole.role === code;
@@ -202,14 +207,11 @@ export default function InternalUsersPage() {
                             loading={thisBusy}
                             onClick={() => void removeRole(user, code)}
                           >
-                            Снять роль «{roleTitle(roleRegistry, code)}»
+                            Снять «{roleTitle(roleRegistry, code)}»
                           </Button>
                         );
                       })}
                     </div>
-                    {lastRole ? (
-                      <p className="disabled-hint">Нужна хотя бы одна роль, поэтому снять последнюю нельзя.</p>
-                    ) : null}
                   </article>
                 );
               })}

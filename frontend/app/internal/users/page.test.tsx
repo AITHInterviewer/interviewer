@@ -135,19 +135,20 @@ describe("InternalUsersPage", () => {
 
     expect(await screen.findByText("Anna Recruiter")).toBeInTheDocument();
     expect(screen.getByText("Igor Manager")).toBeInTheDocument();
+    expect(screen.getByText(/изменить роли/i)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/поиск по имени или почте/i), { target: { value: "igor" } });
     expect(screen.queryByText("Anna Recruiter")).not.toBeInTheDocument();
     expect(screen.getByText("Igor Manager")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/поиск по имени или почте/i), { target: { value: "" } });
-    fireEvent.click(await screen.findByRole("button", { name: /снять роль «expert»/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /снять «expert»/i }));
 
     await waitFor(() =>
       expect(updateManagedUserRoles).toHaveBeenCalledWith("1", { removeRoles: ["expert"] }),
     );
 
-    expect(screen.getByRole("button", { name: /снять роль «hiring manager»/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /снять «hiring manager»/i })).toBeDisabled();
   });
 
   it("hides a fictional admin role and does not send it to the API", async () => {
@@ -171,7 +172,7 @@ describe("InternalUsersPage", () => {
     expect(screen.queryByRole("button", { name: /снять роль «администратор»/i })).not.toBeInTheDocument();
     expect(screen.getByText("Аккаунт создан вручную")).toBeInTheDocument();
 
-    const lastRegistryRole = screen.getByRole("button", { name: /снять роль «recruiter»/i });
+    const lastRegistryRole = screen.getByRole("button", { name: /снять «recruiter»/i });
     expect(lastRegistryRole).toBeDisabled();
     fireEvent.click(lastRegistryRole);
     expect(updateManagedUserRoles).not.toHaveBeenCalled();
