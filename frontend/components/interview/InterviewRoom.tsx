@@ -107,6 +107,8 @@ export function InterviewRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, stream]);
 
+  const hasCamera = Boolean(stream && stream.getVideoTracks().length > 0);
+
   const questionText =
     channelState.status === "question_active" || channelState.status === "completed"
       ? channelState.event.text
@@ -142,13 +144,18 @@ export function InterviewRoom({
               будучи абсолютно спозиционированным поверх неё. */}
           <div className="relative">
             <div
-              className={`aspect-video overflow-hidden rounded-xl border-4 bg-[var(--surface-muted)] transition-colors duration-150 ${
+              className={`relative aspect-video overflow-hidden rounded-xl border-4 bg-[var(--surface-muted)] transition-colors duration-150 ${
                 candidateSpeaking
                   ? "border-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_25%,transparent)]"
                   : "border-transparent"
               }`}
             >
               <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+              {!hasCamera ? (
+                <div className="absolute inset-0 flex items-center justify-center text-sm text-[var(--ink-secondary)]">
+                  Камера выключена
+                </div>
+              ) : null}
               <div
                 className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-medium text-[var(--accent-ink)] transition-opacity ${
                   candidateSpeaking ? "opacity-100" : "opacity-0"

@@ -11,6 +11,12 @@ const CONSENT_INFO = {
   estimated_duration_min: { min: 25, max: 40 },
 };
 
+const MIC_AUDIO = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+};
+
 function mockFetchOnce(body: unknown, status = 200) {
   vi.stubGlobal(
     "fetch",
@@ -20,6 +26,34 @@ function mockFetchOnce(body: unknown, status = 200) {
       json: async () => body,
     }),
   );
+}
+
+function fakeTrack(kind: "audio" | "video", deviceId: string) {
+  return {
+    kind,
+    stop: vi.fn(),
+    getSettings: () => ({ deviceId }),
+  } as unknown as MediaStreamTrack;
+}
+
+function fakeStream(tracks: MediaStreamTrack[]) {
+  const list = [...tracks];
+  return {
+    getTracks: () => list,
+    getVideoTracks: () => list.filter((track) => track.kind === "video"),
+    getAudioTracks: () => list.filter((track) => track.kind === "audio"),
+    addTrack: (track: MediaStreamTrack) => {
+      list.push(track);
+    },
+    removeTrack: (track: MediaStreamTrack) => {
+      const index = list.indexOf(track);
+      if (index >= 0) list.splice(index, 1);
+    },
+  } as unknown as MediaStream;
+}
+
+function getUserMediaMock() {
+  return navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>;
 }
 
 describe("InterviewPage", () => {
@@ -49,41 +83,71 @@ describe("InterviewPage", () => {
     expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("requests camera/mic access after clicking the permission button and shows a live preview once granted", async () => {
+  it("requests microphone first, then optional camera, and shows a live preview once both are granted", async () => {
     mockFetchOnce(CONSENT_INFO);
-    const fakeStream = {
-      getTracks: () => [],
-      getVideoTracks: () => [],
-      getAudioTracks: () => [],
-    } as unknown as MediaStream;
-    (navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>).mockResolvedValue(fakeStream);
+    getUserMediaMock().mockImplementation((constraints: MediaStreamConstraints) => {
+      if (constraints.audio) {
+        return Promise.resolve(fakeStream([fakeTrack("audio", "mic-1")]));
+      }
+      if (constraints.video) {
+        return Promise.resolve(fakeStream([fakeTrack("video", "cam-1")]));
+      }
+      return Promise.reject(new Error("unexpected constraints"));
+    });
 
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
 
-    fireEvent.click(await screen.findByRole("button", { name: /разрешить доступ/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /разрешить микрофон/i }));
 
-    await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+    await waitFor(() => expect(getUserMediaMock()).toHaveBeenCalledTimes(2));
+    expect(getUserMediaMock()).toHaveBeenNthCalledWith(1, { audio: MIC_AUDIO });
+    expect(getUserMediaMock()).toHaveBeenNthCalledWith(2, { video: true });
+    expect(getUserMediaMock()).not.toHaveBeenCalledWith({
       video: true,
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-    }));
-    expect(await screen.findByText(/камера и микрофон готовы/i)).toBeInTheDocument();
+      audio: MIC_AUDIO,
+    });
+    expect(await screen.findByText(/микрофон и камера готовы/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /начать интервью/i })).toBeInTheDocument();
   });
 
-  it("blocks progression and offers a retry when camera/mic access is denied", async () => {
+  it("lets the candidate proceed when the camera is denied but the microphone works", async () => {
     mockFetchOnce(CONSENT_INFO);
-    (navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>).mockRejectedValue(
-      new DOMException("Permission denied", "NotAllowedError"),
-    );
+    getUserMediaMock().mockImplementation((constraints: MediaStreamConstraints) => {
+      if (constraints.video) {
+        return Promise.reject(new DOMException("Permission denied", "NotAllowedError"));
+      }
+      return Promise.resolve(fakeStream([fakeTrack("audio", "mic-1")]));
+    });
 
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
 
-    fireEvent.click(await screen.findByRole("button", { name: /разрешить доступ/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /разрешить микрофон/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/нет доступа к камере или микрофону/i);
-    expect(screen.queryByText(/камера и микрофон готовы/i)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /запросить доступ снова/i })).toBeInTheDocument();
+    await waitFor(() => expect(getUserMediaMock()).toHaveBeenCalledTimes(2));
+    expect(getUserMediaMock()).toHaveBeenNthCalledWith(1, { audio: MIC_AUDIO });
+    expect(await screen.findByText(/микрофон готов/i)).toBeInTheDocument();
+    expect(screen.getByText(/камера выключена — это нормально/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /включить камеру/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /начать интервью/i })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(/нет доступа к микрофону/i)).not.toBeInTheDocument();
+  });
+
+  it("blocks progression when the microphone is denied", async () => {
+    mockFetchOnce(CONSENT_INFO);
+    getUserMediaMock().mockRejectedValue(new DOMException("Permission denied", "NotAllowedError"));
+
+    const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
+    render(ui);
+
+    fireEvent.click(await screen.findByRole("button", { name: /разрешить микрофон/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/нет доступа к микрофону/i);
+    expect(screen.queryByRole("button", { name: /начать интервью/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/микрофон готов/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /запросить микрофон снова/i })).toBeInTheDocument();
   });
 
   it("shows an already-completed screen instead of consent when the interview is done", async () => {
@@ -92,7 +156,7 @@ describe("InterviewPage", () => {
     render(ui);
 
     expect(await screen.findByText(/уже пройдено/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /разрешить доступ/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /разрешить микрофон/i })).not.toBeInTheDocument();
   });
 
   it("shows an invalid-link message for an unknown token", async () => {
