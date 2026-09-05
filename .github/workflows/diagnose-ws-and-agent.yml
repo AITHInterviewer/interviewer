@@ -10,11 +10,19 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: live-agent logs (full)
+      - name: check claude CLI works inside live-agent container
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
-
-      - name: stt logs (tail)
-        if: always()
-        run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 80
+          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q live-agent
+          docker exec $containerId claude --version
+          Write-Output "--- simple prompt test (30s timeout) ---"
+          $job = Start-Job -ScriptBlock {
+            param($cid)
+            docker exec $cid claude -p "Say OK" --output-format text
+          } -ArgumentList $containerId
+          if (Wait-Job $job -Timeout 30) {
+            Receive-Job $job
+          } else {
+            Write-Output "TIMED OUT after 30s"
+            Stop-Job $job
+          }
+          Remove-Job $job -Force
