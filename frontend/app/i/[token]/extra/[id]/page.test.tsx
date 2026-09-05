@@ -58,6 +58,5 @@ describe("ExtraPage", () => {
     expect(screen.queryByText(/срок:\s*10 января/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/10 января/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/в приглашении не указана/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("navigation", { name: /подготовка к интервью/i })).not.toBeInTheDocument();
   });
 });

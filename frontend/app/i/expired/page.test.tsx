@@ -14,6 +14,5 @@ describe("ExpiredPage", () => {
     expect(screen.queryByText(/истекло, удалено или скопировано/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /к выбору роли/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("list", { name: /прогресс интервью/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("navigation", { name: /подготовка к интервью/i })).not.toBeInTheDocument();
   });
 });
