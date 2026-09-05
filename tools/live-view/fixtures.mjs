@@ -245,6 +245,14 @@ export function respond(pathname) {
           summary: "Разбор инцидента раскрыт частично.",
           access: "handoff",
         },
+        {
+          interview: fixtures.interviews[1],
+          vacancy_title: "Middle+ Python Developer",
+          handed_off_at: "2026-09-04T12:00:00Z",
+          from_recruiter_name: "Анна Ковалёва",
+          summary: "Нужна вторая пара глаз по SQL.",
+          access: "opinion",
+        },
       ],
     };
   if (/\/manager\/candidates\/[^/]+$/.test(p))

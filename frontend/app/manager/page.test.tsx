@@ -54,4 +54,45 @@ describe("ManagerListPage", () => {
 
     expect(await screen.findByText(/пока нет кандидатов/i)).toBeInTheDocument();
   });
+
+  it("merges access and next step into one column", async () => {
+    vi.mocked(loadManagerCandidates).mockResolvedValue({
+      items: [
+        {
+          interview: {
+            id: "i1",
+            vacancy_id: "v1",
+            candidate_name: "Lida",
+            resume_file_url: "",
+            access_token: "t",
+            status: "report_ready",
+            created_at: "2026-09-01T00:00:00Z",
+          },
+          vacancy_title: "Backend",
+          handed_off_at: "2026-09-05T08:00:00Z",
+          from_recruiter_name: "Anna",
+          access: "handoff",
+        },
+        {
+          interview: {
+            id: "i2",
+            vacancy_id: "v1",
+            candidate_name: "Pavel",
+            resume_file_url: "",
+            access_token: "t2",
+            status: "report_ready",
+            created_at: "2026-09-02T00:00:00Z",
+          },
+          vacancy_title: "Backend",
+          access: "opinion",
+        },
+      ],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/передан вам, нужна встреча/i)).toBeInTheDocument();
+    expect(screen.getByText(/спросили мнение/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^доступ$/i)).not.toBeInTheDocument();
+  });
 });

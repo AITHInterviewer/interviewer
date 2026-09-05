@@ -16,12 +16,8 @@ import { buildNav } from "@/lib/nav";
 
 const HIRING_MANAGER_AREA = "area.hiring_manager_review";
 
-function accessLabel(access: ManagerCandidate["access"]): string {
-  return access === "handoff" ? "Передан вам" : "Спросили мнение";
-}
-
-function actionLabel(item: ManagerCandidate): string {
-  return item.access === "handoff" ? "Нужна встреча" : "Нужно мнение";
+function accessTask(item: ManagerCandidate): string {
+  return item.access === "handoff" ? "Передан вам, нужна встреча" : "Спросили мнение";
 }
 
 function formatWhen(value?: string | null): string {
@@ -79,7 +75,7 @@ export default function ManagerListPage() {
     <AppShell nav={buildNav(landing)} title="Встречи">
       <div className="workspace">
         <PageHeader path="Менеджер" title="Кандидаты к встрече" />
-        {pageLoading ? <SkeletonTable rows={3} columns={4} label="Загружаю кандидатов" /> : null}
+        {pageLoading ? <SkeletonTable rows={3} columns={5} label="Загружаю кандидатов" /> : null}
         {error ? <ScreenState kind="error" title="Нет списка" text={error} /> : null}
         {!pageLoading && !error ? (
           items.length > 0 ? (
@@ -90,7 +86,6 @@ export default function ManagerListPage() {
                   <th>Вакансия</th>
                   <th>Кто передал</th>
                   <th>Когда</th>
-                  <th>Доступ</th>
                   <th>Что сделать</th>
                   <th></th>
                 </tr>
@@ -102,8 +97,7 @@ export default function ManagerListPage() {
                     <td>{item.vacancy_title}</td>
                     <td>{item.from_recruiter_name ?? "—"}</td>
                     <td>{formatWhen(item.handed_off_at)}</td>
-                    <td>{accessLabel(item.access)}</td>
-                    <td>{actionLabel(item)}</td>
+                    <td>{accessTask(item)}</td>
                     <td>
                       <Button asChild variant="secondary">
                         <Link href={`/manager/${item.interview.id}`}>Открыть</Link>
