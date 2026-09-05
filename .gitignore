@@ -46,3 +46,4 @@ htmlcov/
 # Live artifacts
 live-agent/out/*.jsonl
 live-agent/out/*.mp3
+admin-credentials.local.md
