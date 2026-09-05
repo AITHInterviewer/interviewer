@@ -35,10 +35,15 @@ jobs:
 
       - name: Write backend/.env
         # backend/app/config.py requires all of these (no defaults) — without them
-        # Settings() raises ValidationError at import and the container won't even start,
-        # regardless of whether postgres/redis/minio are actually running. This baseline
-        # (docker-compose.dev.yml) does not start those services, so the values below are
-        # placeholders satisfying validation, not live connections.
+        # Settings() raises ValidationError at import and the container won't even start.
+        # postgres and minio ARE real, running services in this baseline as of
+        # docker-compose.dev.yml's `minio` service + its `environment:` overrides on
+        # `backend` (POSTGRES_HOST/DATABASE_URL/S3_ENDPOINT_URL) — the
+        # "not-running-in-this-baseline" placeholders below for those get overridden by
+        # compose and are effectively dead text, kept only so `.env` alone still passes
+        # Settings() validation if someone runs the container without compose. redis is
+        # genuinely NOT running in this baseline — the WS control-channel/live-event path
+        # (interview_ws.py) still won't work here, only under deploy-full.yml's infra.
         run: |
           Set-Content -Path backend/.env -Encoding utf8 -Value @'
           CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
@@ -86,7 +91,8 @@ jobs:
         run: |
           docker compose -f docker-compose.dev.yml up -d --build --remove-orphans
           if ($LASTEXITCODE -ne 0) {
-            Write-Output "--- docker compose up failed, dumping backend logs ---"
+            Write-Output "--- docker compose up failed, dumping minio + backend logs ---"
+            docker compose -f docker-compose.dev.yml logs minio --tail 100
             docker compose -f docker-compose.dev.yml logs backend --tail 200
             exit $LASTEXITCODE
           }

@@ -15,6 +15,28 @@ services:
       timeout: 5s
       retries: 12
 
+  minio:
+    # Resume upload (backend/app/services/storage.py) needs a real S3-compatible store even
+    # in the lightweight dev baseline — it's a real feature now, not experimental, and
+    # shouldn't only work under the heavy full deploy (infra/docker-compose.yml +
+    # live-agent). Found the hard way: interview creation hung ~20s then 500'd because
+    # `S3_ENDPOINT_URL` pointed at a "minio" host that didn't exist in this stack.
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ainterviewer
+      MINIO_ROOT_PASSWORD: ainterviewer123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   backend:
     build:
       context: ./backend
@@ -25,6 +47,7 @@ services:
     environment:
       POSTGRES_HOST: postgres
       DATABASE_URL: postgresql+asyncpg://ainterviewer:ainterviewer@postgres:5432/ainterviewer
+      S3_ENDPOINT_URL: http://minio:9000
     ports:
       - "8000:8000"
     volumes:
@@ -37,6 +60,8 @@ services:
       - ${CLAUDE_CONFIG_DIR:-~/.claude}:/root/.claude:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     healthcheck:
       test:
@@ -79,5 +104,6 @@ services:
 
 volumes:
   postgres-data:
+  minio-data:
   frontend-node-modules:
   frontend-next:
