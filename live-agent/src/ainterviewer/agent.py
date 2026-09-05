@@ -86,8 +86,12 @@ class InterviewerAgent(Agent):
         self.engine = engine
 
     async def llm_node(self, chat_ctx: ChatContext, tools: list, model_settings: ModelSettings):  # noqa: ARG002
-        logger.info("llm_node: called, messages=%d", len(chat_ctx.messages))
-        user_messages = [m for m in chat_ctx.messages if m.role == "user"]
+        # ChatContext.messages — метод (список нужно ЗВАТЬ, `chat_ctx.messages()`), не
+        # свойство — реальный найденный баг (2026-09-05): `len(chat_ctx.messages)` падал
+        # с TypeError, роняя llm_node сразу после первого реального вызова (фикс llm=
+        # наконец довёл выполнение досюда). `.items` — правильное свойство, `list[ChatItem]`.
+        logger.info("llm_node: called, items=%d", len(chat_ctx.items))
+        user_messages = [m for m in chat_ctx.items if getattr(m, "role", None) == "user"]
         if not user_messages:
             logger.info("llm_node: no user messages, returning")
             return
