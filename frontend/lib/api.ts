@@ -292,7 +292,13 @@ export type ManagerCandidate = {
 
 export type ExpertQueueResponse = {
   calibrations: Vacancy[];
-  audits: Array<{ interview: Interview; vacancy_id: string; vacancy_title: string }>;
+  audits: Array<{
+    interview: Interview;
+    vacancy_id: string;
+    vacancy_title: string;
+    requirement?: string | null;
+    reason?: string | null;
+  }>;
 };
 
 export type AnonymizedStats = {

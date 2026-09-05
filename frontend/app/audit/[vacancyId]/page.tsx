@@ -8,8 +8,8 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import type { ExpertQueueResponse } from "@/lib/api";
-import { loadExpertQueue } from "@/lib/auth";
+import type { ExpertQueueResponse, VacancyDetail } from "@/lib/api";
+import { loadExpertQueue, loadVacancy } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
 
@@ -19,6 +19,7 @@ export default function AuditVacancyPage() {
   const params = useParams<{ vacancyId: string }>();
   const { landing, loading } = useProtectedLanding({ requiredArea: EXPERT_AREA });
   const [queue, setQueue] = useState<ExpertQueueResponse | null>(null);
+  const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
 
@@ -27,10 +28,11 @@ export default function AuditVacancyPage() {
       return;
     }
     let cancelled = false;
-    loadExpertQueue()
-      .then((payload) => {
+    Promise.all([loadExpertQueue(), loadVacancy(params.vacancyId).catch(() => null)])
+      .then(([payload, detail]) => {
         if (!cancelled) {
           setQueue(payload);
+          setVacancy(detail);
         }
       })
       .catch((caughtError: unknown) => {
@@ -46,7 +48,7 @@ export default function AuditVacancyPage() {
     return () => {
       cancelled = true;
     };
-  }, [landing]);
+  }, [landing, params.vacancyId]);
 
   if (loading || !landing) {
     return (
@@ -67,13 +69,25 @@ export default function AuditVacancyPage() {
         {!pageLoading && !error ? (
           items.length > 0 ? (
             <ul className="stack-list">
-              {items.map((item) => (
-                <li key={item.interview.id}>
-                  <Link href={`/audit/${params.vacancyId}/${item.interview.id}`}>
-                    {item.interview.candidate_name ?? "Кандидат без имени"}
-                  </Link>
-                </li>
-              ))}
+              {items.map((item) => {
+                const requirement =
+                  item.requirement?.trim() ||
+                  (vacancy?.required_skills.length ? vacancy.required_skills.join(", ") : null);
+                const reason = item.reason?.trim() || "Рекрутер попросил взгляд эксперта на отчёт.";
+                return (
+                  <li key={item.interview.id}>
+                    <Link href={`/audit/${params.vacancyId}/${item.interview.id}`}>
+                      {item.interview.candidate_name ?? "Кандидат без имени"}
+                    </Link>
+                    <p>
+                      {requirement
+                        ? `Требование: ${requirement}.`
+                        : "Требования вакансии в очереди не пришли. Откройте карточку или настройки вакансии."}{" "}
+                      {reason}
+                    </p>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <ScreenState kind="empty" title="Нет аудитов" text="По этой вакансии открытых аудитов нет." />

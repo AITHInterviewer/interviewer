@@ -232,7 +232,15 @@ export function respond(pathname) {
   if (p.endsWith("/expert/queue"))
     return {
       calibrations: [fixtures.vacancies[1]],
-      audits: [{ interview: fixtures.interviews[0], vacancy_id: "v-python", vacancy_title: "Middle+ Python Developer" }],
+      audits: [
+        {
+          interview: fixtures.interviews[0],
+          vacancy_id: "v-python",
+          vacancy_title: "Middle+ Python Developer",
+          requirement: "Разбор инцидента",
+          reason: "Рекрутер просит взгляд: в отчёте требование раскрыто частично.",
+        },
+      ],
     };
   if (p.endsWith("/manager/candidates"))
     return {
