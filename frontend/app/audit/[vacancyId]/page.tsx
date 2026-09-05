@@ -13,23 +13,11 @@ import type { ExpertQueueResponse } from "@/lib/api";
 import { loadExpertQueue } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, expertAuditBreadcrumbs } from "@/lib/nav";
+import { auditRowContext } from "@/lib/audit";
 
 const EXPERT_AREA = "area.expert_questions";
 
-export function auditRowContext(item: ExpertQueueResponse["audits"][number]): string {
-  const requirement = item.requirement?.trim();
-  const reason = item.reason?.trim();
-  if (requirement && reason) {
-    return `Требование: ${requirement}. ${reason}`;
-  }
-  if (requirement) {
-    return `Требование: ${requirement}. Причина не указана. Откройте карточку запроса.`;
-  }
-  if (reason) {
-    return `${reason} Конкретное требование в очереди не указано — откройте карточку.`;
-  }
-  return "Причина не указана. Откройте карточку запроса.";
-}
+export { auditRowContext };
 
 export default function AuditVacancyPage() {
   const params = useParams<{ vacancyId: string }>();
