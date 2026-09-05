@@ -30,9 +30,13 @@ services:
         required: false
     environment:
       # Внутри docker-сети — по имени сервиса, не localhost (тот действует только при
-      # локальном запуске .venv-процессом на хосте, см. .env.example).
+      # локальном запуске .venv-процессом на хосте, см. .env.example). ВАЖНО: этот блок
+      # имеет приоритет над env_file — реальный найденный баг (2026-09-06), значение TTS_BASE_URL
+      # здесь оставалось на старом Piper-порту 8000 ещё три деплоя после смены live-agent/.env
+      # на Fish Speech (8080), потому что deploy-full.yml переписывает только .env, не этот
+      # файл — агент продолжал ловить ConnectionRefusedError на каждую реплику молча.
       - STT_BASE_URL=http://stt:8000/v1
-      - TTS_BASE_URL=http://tts:8000/v1
+      - TTS_BASE_URL=http://tts:8080
     volumes:
       # Claude Agent SDK запускает `claude` CLI подпроцессом (см. Dockerfile) — креды
       # подписки (`claude login`, разово на хосте, НЕ в образе) читает отсюда.
