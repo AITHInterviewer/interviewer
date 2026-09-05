@@ -252,10 +252,12 @@ async def entrypoint(ctx: JobContext) -> None:
                 # Self-hosted сервер не проверяет ключ — плагин всё равно требует непустую
                 # строку (иначе ValueError), реальный ключ Fish Audio тут не нужен.
                 api_key=os.environ.get("TTS_API_KEY", "not-needed"),
-                # voice_id по умолчанию — UUID голоса из облака Fish Audio, которого на нашем
-                # сервере нет (нет референсного аудио) — пустая строка = базовый спикер
-                # чекпоинта, тот же, что в warm-up самого сервера (reference_id=None).
-                voice_id="",
+                # "pushkin" — не UUID из облака Fish Audio (которого на self-hosted сервере
+                # нет), а id референсной папки references/pushkin/ (см. Dockerfile,
+                # ReferenceLoader.load_by_id) — клонирует голос из короткого сэмпла
+                # Russian LibriSpeech (public domain, LibriVox), а не дефолтный спикер
+                # чекпоинта.
+                voice_id=os.environ.get("TTS_VOICE_ID", "pushkin"),
             ),
         ),
         # Пауза детектится по VAD (Silero), не через LLM — раздел 3 архитектурного
