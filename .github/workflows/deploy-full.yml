@@ -218,6 +218,7 @@ jobs:
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
           BACKEND_BASE_URL=http://backend:8000
           LIVE_AGENT_TOKEN=development-live-agent-token
+          REDIS_URL=redis://redis:6379/0
           LIVEKIT_URL=ws://livekit-server:7880
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret
