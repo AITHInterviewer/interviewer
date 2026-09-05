@@ -10,11 +10,16 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: live-agent logs (full)
+      - name: inspect RoomInputOptions and RoomIO defaults
         run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs live-agent
-
-      - name: stt logs (tail)
-        if: always()
-        run: |
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml logs stt --tail 60
+          Set-Content -Path probe_roomio.py -Encoding utf8 -Value @'
+          import inspect
+          from livekit.agents.voice import room_io
+          print("--- RoomInputOptions ---")
+          print(inspect.signature(room_io.RoomInputOptions.__init__))
+          print(room_io.RoomInputOptions.__doc__)
+          print("--- RoomOutputOptions ---")
+          print(inspect.signature(room_io.RoomOutputOptions.__init__))
+          print(room_io.RoomOutputOptions.__doc__)
+          '@
+          Get-Content probe_roomio.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
