@@ -175,8 +175,8 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     [attachVideoTrack],
   );
 
-  /** Запрос микрофона — только по явному клику, не при монтировании. Камера
-   * запрашивается отдельно следом; её отказ не переводит экран в denied. */
+  /** Запрос микрофона — только по явному клику. Камера не запрашивается
+   * следом: её включает отдельная кнопка «Включить камеру». */
   const acquireMic = useCallback(async () => {
     setStatus("checking");
     setErrorReason(null);
@@ -193,14 +193,13 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       startMicLevelLoop(stream);
       setMicrophoneId(stream.getAudioTracks()[0]?.getSettings().deviceId ?? "");
       setCameraOn(false);
-      await tryEnableCamera(stream, false);
       setStatus("granted");
       await refreshDeviceList();
     } catch (cause) {
       setErrorReason(micErrorMessage(cause));
       setStatus("denied");
     }
-  }, [refreshDeviceList, startMicLevelLoop, tryEnableCamera]);
+  }, [refreshDeviceList, startMicLevelLoop]);
 
   const acquireCamera = useCallback(async () => {
     const stream = streamRef.current;

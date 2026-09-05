@@ -299,7 +299,7 @@ const sections = [
       {
         id: "request",
         path: "/i/lida/request",
-        name: "Заметка рекрутеру",
+        name: "Черновик заметки",
         anon: true,
         state: "submitted",
         caption: "«Черновик заметки». Текст только в этом браузере — рекрутер его не получит.",

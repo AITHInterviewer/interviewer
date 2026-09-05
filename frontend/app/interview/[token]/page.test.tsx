@@ -83,7 +83,7 @@ describe("InterviewPage", () => {
     expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("requests microphone first, then optional camera, and shows a live preview once both are granted", async () => {
+  it("requests only the microphone until the candidate turns the camera on", async () => {
     mockFetchOnce(CONSENT_INFO);
     getUserMediaMock().mockImplementation((constraints: MediaStreamConstraints) => {
       if (constraints.audio) {
@@ -100,15 +100,18 @@ describe("InterviewPage", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /разрешить микрофон/i }));
 
-    await waitFor(() => expect(getUserMediaMock()).toHaveBeenCalledTimes(2));
-    expect(getUserMediaMock()).toHaveBeenNthCalledWith(1, { audio: MIC_AUDIO });
-    expect(getUserMediaMock()).toHaveBeenNthCalledWith(2, { video: true });
-    expect(getUserMediaMock()).not.toHaveBeenCalledWith({
-      video: true,
-      audio: MIC_AUDIO,
-    });
-    expect(await screen.findByText(/микрофон и камера готовы/i)).toBeInTheDocument();
+    await waitFor(() => expect(getUserMediaMock()).toHaveBeenCalledTimes(1));
+    expect(getUserMediaMock()).toHaveBeenCalledWith({ audio: MIC_AUDIO });
+    expect(getUserMediaMock()).not.toHaveBeenCalledWith({ video: true });
+    expect(await screen.findByText(/микрофон готов/i)).toBeInTheDocument();
+    expect(screen.getByText(/камера выключена — это нормально/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /начать интервью/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /включить камеру/i }));
+
+    await waitFor(() => expect(getUserMediaMock()).toHaveBeenCalledTimes(2));
+    expect(getUserMediaMock()).toHaveBeenNthCalledWith(2, { video: true });
+    expect(await screen.findByText(/микрофон и камера готовы/i)).toBeInTheDocument();
   });
 
   it("lets the candidate proceed when the camera is denied but the microphone works", async () => {
@@ -125,11 +128,15 @@ describe("InterviewPage", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: /разрешить микрофон/i }));
 
-    await waitFor(() => expect(getUserMediaMock()).toHaveBeenCalledTimes(2));
-    expect(getUserMediaMock()).toHaveBeenNthCalledWith(1, { audio: MIC_AUDIO });
+    await waitFor(() => expect(getUserMediaMock()).toHaveBeenCalledTimes(1));
+    expect(getUserMediaMock()).toHaveBeenCalledWith({ audio: MIC_AUDIO });
     expect(await screen.findByText(/микрофон готов/i)).toBeInTheDocument();
-    expect(screen.getByText(/камера выключена — это нормально/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /включить камеру/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /начать интервью/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /включить камеру/i }));
+
+    await waitFor(() => expect(getUserMediaMock()).toHaveBeenCalledTimes(2));
+    expect(screen.getByText(/камеру включить не получилось|камера не включена/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /начать интервью/i })).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByText(/нет доступа к микрофону/i)).not.toBeInTheDocument();
