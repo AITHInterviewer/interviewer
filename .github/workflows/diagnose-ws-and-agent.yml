@@ -10,7 +10,35 @@ jobs:
       run:
         shell: powershell
     steps:
-      - name: dump the event log jsonl for the latest interview
+      - name: reproduce the exact claude_agent_sdk query() call that fails
         run: |
-          $containerId = docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -q live-agent
-          docker exec $containerId sh -c "ls -t /app/out/*.jsonl | head -1 | xargs cat"
+          Set-Content -Path probe_llm.py -Encoding utf8 -Value @'
+          import asyncio
+          from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
+
+          SCHEMA = {
+              "type": "object",
+              "properties": {"decision": {"type": "string", "enum": ["continue", "exhaustive"]}},
+              "required": ["decision"],
+          }
+
+          async def main():
+              options = ClaudeAgentOptions(
+                  system_prompt="You are a test.",
+                  model="claude-haiku-4-5",
+                  tools=[],
+                  max_turns=1,
+                  permission_mode="bypassPermissions",
+                  output_format={"type": "json_schema", "schema": SCHEMA},
+              )
+              try:
+                  async for message in query(prompt="Reply with decision=continue", options=options):
+                      print("MESSAGE:", type(message).__name__, message)
+              except Exception as e:
+                  print("EXCEPTION:", type(e).__name__, e)
+                  import traceback
+                  traceback.print_exc()
+
+          asyncio.run(main())
+          '@
+          Get-Content probe_llm.py | docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python3 -
