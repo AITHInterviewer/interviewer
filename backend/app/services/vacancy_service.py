@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -15,6 +16,8 @@ from app.models.vacancy import Vacancy
 from app.repositories.question_repository import QuestionRepository
 from app.repositories.vacancy_repository import VacancyRepository
 from app.services.vacancy_llm_service import VacancyLLMService
+
+logger = logging.getLogger(__name__)
 
 
 class _Unset:
@@ -308,6 +311,21 @@ class VacancyService:
         ]
         if not questions or offending:
             raise VacancyNotReadyError(offending)
+
+        # Подтверждение вопросов — момент, когда набор зафиксирован: генерим термины-подсказки
+        # ASR для каждого вопроса (см. vacancy_stt_terms.txt), их отдаст live-agent'у
+        # /live-input. Best-effort: сбой LLM не должен блокировать подтверждение — интервью
+        # и без терминов работает на словаре навыков вакансии.
+        try:
+            terms_by_id = await self.llm_service.generate_stt_terms(vacancy, list(questions))
+        except Exception:  # noqa: BLE001
+            logger.warning("stt terms generation failed; approving vacancy %s without them",
+                           vacancy_id, exc_info=True)
+        else:
+            for question in questions:
+                terms = terms_by_id.get(str(question.id))
+                if terms:
+                    question.stt_terms = terms
 
         questions_payload = [
             {"id": str(q.id), "text": q.text, "skill_tag": list(q.skill_tag), "role": q.role}
