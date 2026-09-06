@@ -64,6 +64,7 @@ describe("InterviewPage", () => {
       getAudioTracks: () => [],
     } as unknown as MediaStream;
     (navigator.mediaDevices.getUserMedia as ReturnType<typeof vi.fn>).mockResolvedValue(fakeStream);
+    const playSpy = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
 
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
@@ -74,6 +75,10 @@ describe("InterviewPage", () => {
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     }));
     expect(await screen.findByRole("button", { name: /начать интервью/i })).toBeInTheDocument();
+    const preview = document.querySelector("video");
+    expect(preview).not.toBeNull();
+    expect(preview?.srcObject).toBe(fakeStream);
+    playSpy.mockRestore();
   });
 
   it("blocks progression and offers a retry when camera/mic access is denied", async () => {

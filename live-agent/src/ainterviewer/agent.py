@@ -423,13 +423,14 @@ async def entrypoint(ctx: JobContext) -> None:
     if not tts_api_key:
         raise RuntimeError("TTS_API_KEY or OPENROUTER_API_KEY must be set (non-empty)")
     # voice обязателен у livekit-plugins-openai (дефолт конструктора — "ash").
-    # OpenRouter fish-audio/s1: без voice — 200, ash — 400, alloy — 200 (Э0/проверка
-    # 2026-09-06). Явно шлём alloy, иначе плагин подставит ash и TTS молча умрёт.
+    # Qwen TTS на OpenRouter: документированный голос loongjohn; alloy скорее всего
+    # даст 400 (как ash давал 400 на fish-audio/s1). Явно шлём loongjohn, иначе плагин
+    # подставит ash и TTS молча умрёт.
     tts_kwargs: dict[str, str] = {
         "base_url": os.environ["TTS_BASE_URL"],
         "api_key": tts_api_key,
-        "model": os.environ.get("TTS_MODEL", "fish-audio/s1"),
-        "voice": os.environ.get("TTS_VOICE") or "alloy",
+        "model": os.environ.get("TTS_MODEL", "qwen/qwen-audio-3.0-tts-flash"),
+        "voice": os.environ.get("TTS_VOICE") or "loongjohn",
     }
 
     session = AgentSession(

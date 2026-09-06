@@ -49,7 +49,7 @@
 8. **Прод: LLM, STT и TTS через OpenRouter.** Self-hosted STT/TTS из
    `docker-compose.yml` сняты (на VPS нет GPU). Деплой пишет `LLM_PROVIDER=openrouter`,
    модель `google/gemini-2.5-flash` (`OPENROUTER_MODEL`). STT — `whisper-1`
-   (`/audio/transcriptions`, `STT_LANGUAGE=ru`). TTS — `fish-audio/s1` (OpenAI-совместимый
+   (`/audio/transcriptions`, `STT_LANGUAGE=ru`). TTS — `qwen/qwen-audio-3.0-tts-flash` (OpenAI-совместимый
    `POST /audio/speech`, не протокол Fish Speech `POST /v1/tts` и не
    `openai/gpt-audio-mini`). Запас TTS (не включать по умолчанию):
    `google/gemini-3.1-flash-tts-preview`, voice Kore, только pcm.

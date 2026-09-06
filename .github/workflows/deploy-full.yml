@@ -231,8 +231,8 @@ jobs:
           STT_BASE_URL=https://openrouter.ai/api/v1
           TTS_BASE_URL=https://openrouter.ai/api/v1
           STT_MODEL=whisper-1
-          TTS_MODEL=fish-audio/s1
-          TTS_VOICE=alloy
+          TTS_MODEL=qwen/qwen-audio-3.0-tts-flash
+          TTS_VOICE=loongjohn
           STT_LANGUAGE=ru
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
           BACKEND_BASE_URL=http://backend:8000

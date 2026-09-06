@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ChevronLeft, ChevronRight, Check, Camera, Mic, Volume2, MoreVertical } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { apiFetch, resolveLiveKitWsUrl } from "@/lib/api";
 import { ControlChannel, type ChannelState, type SubtitleLine } from "@/lib/control-channel";
 import { LiveKitSession, type AgentPresence } from "@/lib/livekit-client";
@@ -226,12 +227,22 @@ export function InterviewRoom({
   if (channelState.status === "completed") {
     return (
       <section className="setup-stage">
-        <Check size={32} className="text-[var(--positive)]" />
-        <h1>Интервью завершено</h1>
-        <p>
-          Спасибо, ваши ответы записаны и сейчас обрабатываются. Итоги и обратную связь по
-          результатам передаст рекрутёр вакансии — свяжитесь с ним позже.
-        </p>
+        <h1>Поздравляем с прохождением интервью</h1>
+        <p>Спасибо, что уделили время. Мы свяжемся с вами, если появятся вопросы.</p>
+        <ul className="check-list">
+          <li>
+            <Check size={17} />
+            <span>Ваши ответы записаны и сохранены.</span>
+          </li>
+          <li>
+            <Check size={17} />
+            <span>Рекрутёр вакансии посмотрит запись и результаты.</span>
+          </li>
+          <li>
+            <Check size={17} />
+            <span>Если понадобятся уточнения — мы свяжемся с вами.</span>
+          </li>
+        </ul>
       </section>
     );
   }
@@ -254,8 +265,8 @@ export function InterviewRoom({
       {/* Ячейка вопроса — тот же .setup-stage, что и на экране "Устройства" (тот же размер
           и вид карточки). Камера кандидата и плашка интервьюера здесь не участвуют в этой
           ширине вовсе — на десктопе они прижаты прямо к правому краю страницы. */}
-      <section className="setup-stage flex flex-col items-center justify-center gap-4 text-center">
-        <p className="text-2xl font-medium leading-snug">
+      <section className="setup-stage mt-8 flex flex-col items-center justify-center gap-4 text-center">
+        <p className="interview-question">
           {baseQuestionText ?? "Подключаемся к интервью…"}
         </p>
         {followUpText ? <p className="question-followup">{followUpText}</p> : null}
@@ -264,19 +275,19 @@ export function InterviewRoom({
 
       {/* Субтитры (зеркало произнесённого — выключаются кнопкой снизу слева) и под ними
           таймер отведённого на вопрос времени — единой колонкой над нижними кнопками. */}
-      <div className="pointer-events-none fixed inset-x-0 bottom-16 z-20 mx-auto flex max-w-2xl flex-col items-center gap-1 px-4 text-center">
+      <div className="pointer-events-none fixed inset-x-0 bottom-12 z-20 mx-auto flex max-w-2xl flex-col items-center gap-1 px-4 text-center">
         {subtitlesOn && subtitles.agent ? (
-          <p className="rounded-md bg-[color-mix(in_srgb,var(--surface-raised)_92%,transparent)] px-3 py-1 text-sm text-[var(--ink-secondary)] shadow-sm">
+          <p className="interview-meta rounded-md bg-[color-mix(in_srgb,var(--surface-raised)_92%,transparent)] px-3 py-1 text-[var(--ink-secondary)] shadow-sm">
             Интервьюер: {subtitles.agent}
           </p>
         ) : null}
         {subtitlesOn && subtitles.candidate ? (
-          <p className="rounded-md bg-[color-mix(in_srgb,var(--surface-raised)_92%,transparent)] px-3 py-1 text-sm shadow-sm">
+          <p className="interview-meta rounded-md bg-[color-mix(in_srgb,var(--surface-raised)_92%,transparent)] px-3 py-1 shadow-sm">
             Вы: {subtitles.candidate}
           </p>
         ) : null}
         {remainingMs != null ? (
-          <p className="text-sm tabular-nums text-[var(--ink-tertiary)]">
+          <p className="interview-meta tabular-nums text-[var(--ink-tertiary)]">
             {remainingMs > 0 ? `Осталось времени на вопрос: ${formatDuration(remainingMs)}` : "Время на вопрос вышло"}
           </p>
         ) : null}
@@ -286,28 +297,29 @@ export function InterviewRoom({
         type="button"
         onClick={toggleSubtitles}
         aria-pressed={subtitlesOn}
-        className="fixed bottom-6 left-6 z-30 rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2 text-sm text-[var(--ink-secondary)] hover:bg-[var(--surface)]"
+        className="interview-meta fixed bottom-6 left-6 z-30 rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2 text-[var(--ink-secondary)] hover:bg-[var(--surface)]"
       >
         Субтитры: {subtitlesOn ? "вкл" : "выкл"}
       </button>
 
       {channelState.status === "question_active" ? (
-        <button
+        <Button
           type="button"
+          variant="primary"
+          className="interview-next"
           onClick={() => {
             channelRef.current?.sendNextQuestion();
             setNextSent(true);
           }}
           disabled={nextSent}
-          className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
         >
           {nextSent ? "Переходим…" : "Дальше"}
           <ChevronRight className="h-4 w-4" />
-        </button>
+        </Button>
       ) : null}
 
       {roadmap && (
-        <ol className="hidden sm:fixed sm:left-6 sm:top-1/2 sm:block sm:w-[180px] sm:-translate-y-1/2 sm:space-y-2.5 sm:text-sm">
+        <ol className="interview-meta hidden sm:fixed sm:left-6 sm:top-1/2 sm:block sm:w-[180px] sm:-translate-y-1/2 sm:space-y-2.5">
           {Array.from({ length: roadmap.total }, (_, i) => {
             const done = i < roadmap.index;
             const active = i === roadmap.index;
@@ -356,7 +368,7 @@ export function InterviewRoom({
               </div>
             ) : null}
             <div
-              className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-medium text-[var(--accent-ink)] transition-opacity ${
+              className={`interview-meta absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-2.5 py-1 font-medium text-[var(--accent-ink)] transition-opacity ${
                 candidateSpeaking ? "opacity-100" : "opacity-0"
               }`}
             >
@@ -392,16 +404,16 @@ function formatDuration(ms: number): string {
 function StatusLine({ channelState }: { channelState: ChannelState }) {
   switch (channelState.status) {
     case "connecting":
-      return <p className="text-sm text-[var(--ink-secondary)]">Подключаемся…</p>;
+      return <p className="interview-meta text-[var(--ink-secondary)]">Подключаемся…</p>;
     case "reconnecting":
-      return <p className="text-sm text-[var(--danger)]">Потеряна связь — переподключаемся…</p>;
+      return <p className="interview-meta text-[var(--danger)]">Потеряна связь — переподключаемся…</p>;
     case "completed":
       // Недостижимо: InterviewRoom рендерит экран завершения раньше StatusLine (см. выше).
       return null;
     case "closed":
-      return <p className="text-sm text-[var(--ink-secondary)]">Соединение закрыто.</p>;
+      return <p className="interview-meta text-[var(--ink-secondary)]">Соединение закрыто.</p>;
     case "question_active":
-      return <p className="text-sm text-[var(--ink-secondary)]">Слушаем вас — говорите свободно.</p>;
+      return <p className="interview-meta text-[var(--ink-secondary)]">Слушаем вас — говорите свободно.</p>;
   }
 }
 

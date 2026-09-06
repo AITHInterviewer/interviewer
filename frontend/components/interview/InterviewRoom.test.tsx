@@ -135,6 +135,6 @@ describe("InterviewRoom", () => {
       event: { type: "completed", question_id: null, text: "Спасибо!", input_format: null, ts: "" },
     });
 
-    expect(await screen.findByText(/интервью завершено/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /поздравляем с прохождением интервью/i })).toBeInTheDocument();
   });
 });

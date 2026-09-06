@@ -114,8 +114,8 @@ jobs:
               tts = lk_openai.TTS(
                   base_url=os.environ["TTS_BASE_URL"],
                   api_key=os.environ["TTS_API_KEY"],
-                  model=os.environ.get("TTS_MODEL", "fish-audio/s1"),
-                  voice=os.environ.get("TTS_VOICE") or "alloy",
+                  model=os.environ.get("TTS_MODEL", "qwen/qwen-audio-3.0-tts-flash"),
+                  voice=os.environ.get("TTS_VOICE") or "loongjohn",
               )
               return [ev.frame async for ev in tts.synthesize(PHRASE)]
 

@@ -51,6 +51,17 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number | null>(null);
 
+  /** Поток вешаем в момент монтирования `<video>`: `acquire()` отрабатывает ещё на
+   * экране `checking`, элемента в DOM нет, `videoRef.current` = null — превью
+   * оставалось серым квадратом. */
+  const attachPreviewStream = useCallback((video: HTMLVideoElement | null) => {
+    videoRef.current = video;
+    const stream = streamRef.current;
+    if (!video || !stream) return;
+    video.srcObject = stream;
+    void video.play()?.catch(() => {});
+  }, []);
+
   const stopMicLevelLoop = useCallback(() => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
@@ -123,9 +134,6 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
       startMicLevelLoop(stream);
       setCameraId(stream.getVideoTracks()[0]?.getSettings().deviceId ?? "");
       setMicrophoneId(stream.getAudioTracks()[0]?.getSettings().deviceId ?? "");
@@ -184,6 +192,7 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
         // Переприсваиваем srcObject — иначе некоторые браузеры не подхватывают
         // добавленный/удалённый трек в уже отрендеренном <video>.
         videoRef.current.srcObject = stream;
+        void videoRef.current.play()?.catch(() => {});
       }
       if (kind === "audio") {
         startMicLevelLoop(stream);
@@ -247,18 +256,14 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
           поэтому верх и низ обеих колонок совпадают по уровню. */}
       <div className="aspect-video w-full overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface-muted)] sm:col-start-1 sm:row-start-1">
         {/* Превью собственной камеры кандидата — без субтитров: контент не несёт информации для восприятия. */}
-        <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+        <video ref={attachPreviewStream} autoPlay muted playsInline className="h-full w-full object-cover" />
       </div>
 
       {status === "granted" && (
         <div className="space-y-2 sm:col-start-2 sm:row-start-1">
-          <div className="grid gap-1">
-            <span className="text-[12px] text-[var(--ink-secondary)]">Камера</span>
-            <select
-              className="min-h-[38px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-[13px] text-[var(--ink)]"
-              value={cameraId}
-              onChange={(event) => void switchDevice("video", event.target.value)}
-            >
+          <div className="device-check-field">
+            <span>Камера</span>
+            <select value={cameraId} onChange={(event) => void switchDevice("video", event.target.value)}>
               {cameras.map((camera) => (
                 <option key={camera.deviceId} value={camera.deviceId}>
                   {camera.label || "Камера"}
@@ -266,13 +271,9 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
               ))}
             </select>
           </div>
-          <div className="grid gap-1">
-            <span className="text-[12px] text-[var(--ink-secondary)]">Микрофон</span>
-            <select
-              className="min-h-[38px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-[13px] text-[var(--ink)]"
-              value={microphoneId}
-              onChange={(event) => void switchDevice("audio", event.target.value)}
-            >
+          <div className="device-check-field">
+            <span>Микрофон</span>
+            <select value={microphoneId} onChange={(event) => void switchDevice("audio", event.target.value)}>
               {microphones.map((mic) => (
                 <option key={mic.deviceId} value={mic.deviceId}>
                   {mic.label || "Микрофон"}
@@ -281,13 +282,9 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
             </select>
           </div>
           {CAN_SELECT_OUTPUT_DEVICE && (
-            <div className="grid gap-1">
-              <span className="text-[12px] text-[var(--ink-secondary)]">Динамики</span>
-              <select
-                className="min-h-[38px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-[13px] text-[var(--ink)]"
-                value={speakerId}
-                onChange={(event) => setSpeakerId(event.target.value)}
-              >
+            <div className="device-check-field">
+              <span>Динамики</span>
+              <select value={speakerId} onChange={(event) => setSpeakerId(event.target.value)}>
                 {speakers.map((speaker) => (
                   <option key={speaker.deviceId} value={speaker.deviceId}>
                     {speaker.label || "Динамики"}
