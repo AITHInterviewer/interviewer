@@ -641,6 +641,20 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 
 .skill-chips { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 10px 0 0; }
 .skill-chips__group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.transcript-section { margin-top: 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); }
+.transcript-section summary { display: flex; align-items: baseline; gap: 10px; padding: 16px 20px; cursor: pointer; list-style: none; }
+.transcript-section summary::-webkit-details-marker { display: none; }
+.transcript-section summary h2 { margin: 0; font-size: var(--text-h2); }
+.transcript-tools { display: flex; align-items: center; gap: 12px; padding: 0 20px 12px; }
+.transcript-tools input { flex: 1; max-width: 420px; }
+.transcript-lines { display: grid; gap: 8px; max-height: 480px; overflow-y: auto; padding: 4px 20px 16px; }
+.transcript-line { display: grid; grid-template-columns: 130px 1fr; gap: 12px; margin: 0; padding: 2px 6px; font-size: var(--text-meta); }
+.transcript-lines[data-filtered="true"] .transcript-line { cursor: pointer; }
+.transcript-lines[data-filtered="true"] .transcript-line:hover { background: var(--surface); }
+.transcript-line[data-focused="true"] { background: var(--surface-selected); border-radius: var(--radius-panel); transition: background 0.4s ease; }
+.transcript-line strong { color: var(--ink-secondary); font-weight: 600; }
+.transcript-line[data-speaker="question"] strong { color: var(--accent); }
+.transcript-line[data-speaker="candidate"] strong { color: var(--ink-primary, var(--ink-secondary)); }
 .report-narrative { display: grid; gap: 10px; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--surface-muted); }
 .report-narrative dt { font-size: var(--text-meta); color: var(--ink-secondary); margin-bottom: 2px; }
 .report-narrative dd { margin: 0; }

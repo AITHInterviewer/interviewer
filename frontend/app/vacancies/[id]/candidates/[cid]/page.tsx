@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/overlay";
 import type {
   Interview,
+  InterviewEventRecord,
   InterviewEventsResponse,
   SkillClass,
   StaffManager,
@@ -109,6 +110,29 @@ const SECURITY_SIGNAL_LABEL: Record<string, string> = {
   "security:camera_unmuted": "Камера снова активна",
 };
 
+/** Полезная нагрузка события: API отдаёт конверт {ts, type, payload}, текст — во вложенном payload. */
+function eventPayload(row: InterviewEventRecord): Record<string, unknown> {
+  const inner = row.payload["payload"];
+  return (inner && typeof inner === "object" ? inner : row.payload) as Record<string, unknown>;
+}
+
+type ProtocolSpeaker = "question" | "agent" | "candidate";
+
+const PROTOCOL_SPEAKER_LABEL: Record<ProtocolSpeaker, string> = {
+  question: "Вопрос",
+  agent: "Интервьюер (ИИ)",
+  candidate: "Кандидат",
+};
+
+function pluralReplicas(count: number): string {
+  const mod100 = count % 100;
+  if (mod100 >= 11 && mod100 <= 14) return "реплик";
+  const mod10 = count % 10;
+  if (mod10 === 1) return "реплика";
+  if (mod10 >= 2 && mod10 <= 4) return "реплики";
+  return "реплик";
+}
+
 function securitySignalLabel(eventType: string): string {
   return SECURITY_SIGNAL_LABEL[eventType] ?? eventType.replace("security:", "");
 }
@@ -128,6 +152,8 @@ export default function VacancyCandidatePage() {
   const [status, setStatus] = useState<string | null>(null);
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+  const [transcriptQuery, setTranscriptQuery] = useState("");
+  const [focusedLineKey, setFocusedLineKey] = useState<string | null>(null);
   const [finalInviteOpen, setFinalInviteOpen] = useState(false);
   const [finalInviteCopied, setFinalInviteCopied] = useState(false);
 
@@ -148,6 +174,45 @@ export default function VacancyCandidatePage() {
     () => (events?.events ?? []).filter((row) => row.event_type.startsWith("security:")),
     [events],
   );
+
+  // Протокол встречи: вопросы по question_started (agent_utterance дублирует их),
+  // реплики агента — только вне вопросов (адаптивные вставки, завершение).
+  const protocolLines = useMemo(() => {
+    const lines: Array<{ key: string; speaker: ProtocolSpeaker; text: string }> = [];
+    for (const row of events?.events ?? []) {
+      const text = eventPayload(row)["text"];
+      if (typeof text !== "string" || !text.trim()) continue;
+      if (row.event_type === "question_started") {
+        lines.push({ key: row.id, speaker: "question", text: text.trim() });
+      } else if (row.event_type === "candidate_utterance") {
+        lines.push({ key: row.id, speaker: "candidate", text: text.trim() });
+      } else if (row.event_type === "agent_utterance" && eventPayload(row)["kind"] !== "question") {
+        lines.push({ key: row.id, speaker: "agent", text: text.trim() });
+      }
+    }
+    return lines;
+  }, [events]);
+
+  const transcriptNeedle = transcriptQuery.trim().toLowerCase();
+  const visibleProtocolLines = transcriptNeedle
+    ? protocolLines.filter((line) => line.text.toLowerCase().includes(transcriptNeedle))
+    : protocolLines;
+
+  // Клик по найденной реплике: сбрасываем фильтр и прыгаем к ней в полном протоколе.
+  function focusProtocolLine(key: string) {
+    if (!transcriptNeedle) return;
+    setTranscriptQuery("");
+    setFocusedLineKey(key);
+  }
+
+  useEffect(() => {
+    if (!focusedLineKey) return;
+    const element = document.getElementById(`protocol-line-${focusedLineKey}`);
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = setTimeout(() => setFocusedLineKey(null), 3000);
+    return () => clearTimeout(timer);
+  }, [focusedLineKey]);
 
   useEffect(() => {
     if (!landing) {
@@ -617,6 +682,50 @@ export default function VacancyCandidatePage() {
                 )}
               </aside>
             </section>
+
+            {protocolLines.length > 0 ? (
+              <details className="transcript-section">
+                <summary>
+                  <h2>Протокол встречи</h2>
+                  <span className="muted-copy">
+                    {protocolLines.length} {pluralReplicas(protocolLines.length)} · полная расшифровка
+                  </span>
+                </summary>
+                <div className="transcript-tools">
+                  <input
+                    type="search"
+                    value={transcriptQuery}
+                    onChange={(event) => setTranscriptQuery(event.target.value)}
+                    placeholder="Поиск по протоколу — например, «event loop»"
+                  />
+                  {transcriptQuery.trim() ? (
+                    <span className="muted-copy">
+                      {visibleProtocolLines.length === 0
+                        ? "Ничего не найдено"
+                        : `${visibleProtocolLines.length} из ${protocolLines.length} · клик по реплике — перейти к контексту`}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="transcript-lines" data-filtered={transcriptNeedle ? "true" : "false"}>
+                  {visibleProtocolLines.map((line) => (
+                    <p
+                      key={line.key}
+                      id={`protocol-line-${line.key}`}
+                      className="transcript-line"
+                      data-speaker={line.speaker}
+                      data-focused={focusedLineKey === line.key ? "true" : "false"}
+                      onClick={transcriptNeedle ? () => focusProtocolLine(line.key) : undefined}
+                    >
+                      <strong>{PROTOCOL_SPEAKER_LABEL[line.speaker]}</strong>
+                      <span>{line.text}</span>
+                    </p>
+                  ))}
+                  {visibleProtocolLines.length === 0 ? (
+                    <p className="muted-copy">По запросу «{transcriptQuery.trim()}» ничего не найдено.</p>
+                  ) : null}
+                </div>
+              </details>
+            ) : null}
 
             {canManage ? (
               <section className="plain-section">
