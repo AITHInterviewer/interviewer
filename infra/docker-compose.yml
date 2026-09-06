@@ -138,15 +138,18 @@ services:
 
   livekit-egress:
     image: livekit/egress:latest
-    # EGRESS_CONFIG_BODY нарочно не задаём (даже пустой строкой) — egress-бинарник
-    # обнаружил его как "переменная задана" и требовал контент оттуда, игнорируя
-    # --config/файл, и падал с "missing config" (найдено на деплое 2026-09-06).
+    # entrypoint.sh этого образа читает конфиг ТОЛЬКО из EGRESS_CONFIG_BODY (инлайн-YAML в
+    # переменной) или EGRESS_CONFIG_FILE (путь к файлу) — `--config <file>` CLI-флагом,
+    # который тут стоял раньше, не поддерживается вовсе, поэтому entrypoint не находил ни
+    # то ни другое и падал с "missing config", даже когда файл был смонтирован верно
+    # (найдено на деплое 2026-09-06 — `cat` внутри контейнера показывал корректный YAML).
+    environment:
+      - EGRESS_CONFIG_FILE=/etc/egress.yaml
     # ./infra/livekit-egress-config.yaml, не ./livekit-egress-config.yaml — та же причина,
     # что у livekit.yaml чуть выше в этом файле: относительные пути в volumes резолвятся от
     # --project-directory (корень репо), не от папки этого compose-файла.
     volumes:
       - ./infra/livekit-egress-config.yaml:/etc/egress.yaml:ro
-    command: ["--config", "/etc/egress.yaml"]
     depends_on:
       - redis
       - livekit-server
