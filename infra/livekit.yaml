@@ -16,6 +16,13 @@ keys:
   devkey: secret
 room:
   auto_create: true
+# Обязательно для Egress: livekit-server раздаёт start/stop room-composite запросы
+# зарегистрированным egress-воркерам через Redis, не напрямую — без этого блока запрос
+# на запись уходит в никуда (сам livekit-server отвечает 200 на /twirp, но egress его
+# никогда не получает), egress-контейнер при этом тоже требует свой redis: в
+# livekit-egress-config.yaml (тот же адрес).
+redis:
+  address: redis:6379
 
 # Встроенный TURN/TLS (обходной путь для медиа, когда candidate без Radmin VPN идёт через
 # внешний туннель) добавляется ТОЛЬКО в версии, которую пишет deploy-full.yml — там есть

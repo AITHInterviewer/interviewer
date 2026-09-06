@@ -216,6 +216,8 @@ jobs:
             devkey: secret
           room:
             auto_create: true
+          redis:
+            address: redis:6379
           turn:
             enabled: true
             tls_port: 5349

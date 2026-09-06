@@ -9,6 +9,13 @@ api_key: devkey
 api_secret: secret
 ws_url: ws://livekit-server:7880
 
+# Обязательно: egress получает start/stop-запросы не напрямую (backend зовёт только
+# livekit-server API), а через тот же Redis, что и livekit-server — без этого блока
+# сервис не может зарегистрироваться и падает сразу при старте с "missing config"
+# (найдено на деплое 2026-09-06). Тот же Redis-сервис, что в этом же compose-проекте.
+redis:
+  address: redis:6379
+
 # Куда пишутся записи комнат — S3-совместимое хранилище (MinIO из этого же compose).
 # Egress конфигурируется на уровне рум-composite/track-запросов через API при создании
 # комнаты (см. раздел "Как реально пишется запись" в docs/Архитектура и дизайн MVP.md) —
