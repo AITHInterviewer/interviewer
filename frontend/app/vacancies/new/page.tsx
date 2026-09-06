@@ -11,17 +11,10 @@ import { ScreenState } from "@/components/chrome/ScreenState";
 import { SkillTagInput } from "@/components/chrome/SkillTagInput";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shadcn/popover";
 import { AvatarGroup, type AvatarPerson } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import type { InternalUser, VacancyDetail } from "@/lib/api";
-import {
-  createManagedVacancy,
-  generateVacancyQuestions,
-  getSession,
-  loadInternalUsers,
-  sendManagedVacancyToExpert,
-} from "@/lib/auth";
+import type { InternalUser } from "@/lib/api";
+import { createManagedVacancy, generateVacancyQuestions, getSession, loadInternalUsers } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, GRADE_OPTIONS, gradeLabel } from "@/lib/nav";
+import { buildNav, GRADE_OPTIONS } from "@/lib/nav";
 import { useToast } from "@/lib/toast";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
@@ -49,9 +42,6 @@ export default function NewVacancyPage() {
   );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [preview, setPreview] = useState<VacancyDetail | null>(null);
-  const [sending, setSending] = useState(false);
-  const [sentStatus, setSentStatus] = useState<string | null>(null);
 
   useEffect(() => {
     if (!landing) {
@@ -110,9 +100,8 @@ export default function NewVacancyPage() {
     }
 
     try {
-      const generated = await generateVacancyQuestions(vacancy.id);
-      setPreview(generated);
-      setSubmitting(false);
+      await generateVacancyQuestions(vacancy.id);
+      pushToast("success", `Вакансия «${vacancy.title}» создана, вопросы собраны.`);
     } catch {
       // Вакансия уже создана — сборку вопросов можно повторить со страницы
       // самой вакансии, второй раз создавать её не нужно.
@@ -120,26 +109,8 @@ export default function NewVacancyPage() {
         "warning",
         `Вакансия «${vacancy.title}» создана, но вопросы не собрались. Соберите их на странице вакансии.`,
       );
-      router.push(`/vacancies/${vacancy.id}`);
     }
-  }
-
-  async function handleSendToExpert() {
-    if (!preview) {
-      return;
-    }
-    setSending(true);
-    setError(null);
-    setSentStatus(null);
-    try {
-      await sendManagedVacancyToExpert(preview.id);
-      setSentStatus("Версия ушла эксперту на калибровку. Письмо мы не отправляем.");
-      router.push(`/vacancies/${preview.id}`);
-    } catch (caughtError) {
-      setError(normalizeError(caughtError, "Не удалось отправить эксперту."));
-    } finally {
-      setSending(false);
-    }
+    router.push(`/vacancies/${vacancy.id}`);
   }
 
   return (
@@ -211,60 +182,32 @@ export default function NewVacancyPage() {
           }
         />
 
-        {!preview ? (
-          <form className="form-surface form-panel" onSubmit={handleSubmit}>
-            <label>
-              Описание
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
-            </label>
-            <div className="skills-columns">
-              <SkillTagInput
-                label={`Обязательные навыки (минимум ${MIN_REQUIRED_SKILLS})`}
-                skills={requiredSkills}
-                onChange={setRequiredSkills}
-                placeholder="python, sql, docker…"
-              />
-              <SkillTagInput
-                label="Желательные навыки"
-                skills={niceToHaveSkills}
-                onChange={setNiceToHaveSkills}
-                placeholder="docker, kubernetes…"
-              />
-            </div>
-            {error ? <p className="form-error">{error}</p> : null}
-            <div className="form-actions">
-              <button className="button button--primary" type="submit" disabled={submitting}>
-                {submitting ? "Собираем вопросы…" : "Создать вакансию"}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <section className="form-surface form-panel">
-            <p className="path">{preview.title}</p>
-            <h2>Требования и вопросы</h2>
-            <p>
-              Обязательные навыки: {preview.required_skills.join(", ") || "не указаны"}. Грейд:{" "}
-              {gradeLabel(preview.grade)}.
-            </p>
-            {preview.questions.length > 0 ? (
-              <ol>
-                {preview.questions.map((question) => (
-                  <li key={question.id}>{question.text}</li>
-                ))}
-              </ol>
-            ) : (
-              <p>Вопросы не пришли. Открыть вакансию и проверить можно после отправки или с доски.</p>
-            )}
-            {error ? <p className="form-error">{error}</p> : null}
-            {sentStatus ? <p className="success-message">{sentStatus}</p> : null}
-            <div className="form-actions">
-              <Button type="button" disabled={sending} onClick={() => void handleSendToExpert()}>
-                {sending ? "Отправляем…" : "Отправить эксперту"}
-              </Button>
-            </div>
-            <p className="disabled-hint">Эксперт увидит эту версию в очереди калибровки. Мы не шлём письмо за вас.</p>
-          </section>
-        )}
+        <form className="form-surface form-panel" onSubmit={handleSubmit}>
+          <label>
+            Описание
+            <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
+          </label>
+          <div className="skills-columns">
+            <SkillTagInput
+              label={`Обязательные навыки (минимум ${MIN_REQUIRED_SKILLS})`}
+              skills={requiredSkills}
+              onChange={setRequiredSkills}
+              placeholder="python, sql, docker…"
+            />
+            <SkillTagInput
+              label="Желательные навыки"
+              skills={niceToHaveSkills}
+              onChange={setNiceToHaveSkills}
+              placeholder="docker, kubernetes…"
+            />
+          </div>
+          {error ? <p className="form-error">{error}</p> : null}
+          <div className="form-actions">
+            <button className="button button--primary" type="submit" disabled={submitting}>
+              {submitting ? "Собираем вопросы…" : "Создать вакансию"}
+            </button>
+          </div>
+        </form>
       </div>
     </AppShell>
   );

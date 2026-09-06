@@ -16,7 +16,6 @@ vi.mock("@/lib/auth", async () => {
     loadLanding: vi.fn(),
     createManagedVacancy: vi.fn(),
     generateVacancyQuestions: vi.fn(),
-    sendManagedVacancyToExpert: vi.fn(),
   };
 });
 
@@ -98,7 +97,7 @@ describe("NewVacancyPage", () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/vacancies"));
   });
 
-  it("creates a vacancy, generates questions and shows send-to-expert", async () => {
+  it("creates a vacancy, generates questions and redirects to the vacancy page", async () => {
     vi.mocked(createManagedVacancy).mockResolvedValue(created);
     vi.mocked(generateVacancyQuestions).mockResolvedValue(created);
 
@@ -124,8 +123,8 @@ describe("NewVacancyPage", () => {
       }),
     );
     await waitFor(() => expect(generateVacancyQuestions).toHaveBeenCalledWith("v1"));
-    expect(await screen.findByText(/explain gil/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /отправить эксперту/i })).toBeInTheDocument();
+    expect(await screen.findByText(/backend developer.*создана, вопросы собраны/i)).toBeInTheDocument();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/vacancies/v1"));
   });
 
   it("sends the recruiter to the vacancy page with a toast when question generation fails", async () => {
