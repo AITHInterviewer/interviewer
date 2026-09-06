@@ -417,6 +417,8 @@ jobs:
           docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml ps -a
           Write-Output "--- livekit-egress logs (tail) ---"
           docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs --tail=80 livekit-egress
+          Write-Output "--- livekit-egress mounted config (debug) ---"
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml run --rm --entrypoint cat livekit-egress /etc/egress.yaml
           Write-Output "--- live-agent ---"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps
           Write-Output "--- evaluation-agent (stt-accurate only) ---"
