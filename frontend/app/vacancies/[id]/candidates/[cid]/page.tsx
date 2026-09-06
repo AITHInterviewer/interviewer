@@ -16,6 +16,7 @@ import type {
   Interview,
   InterviewEventRecord,
   InterviewEventsResponse,
+  PerQuestionReport,
   SkillClass,
   StaffManager,
   VacancyDetail,
@@ -32,14 +33,13 @@ import { normalizeError } from "@/lib/errors";
 import { interviewStageLabel } from "@/lib/pipeline";
 import {
   buildRequirementMap,
-  CONCLUSION_LABEL,
   COVERAGE_LABEL,
   DIFFICULTY_LABEL,
   isReportProcessing,
-  requirementConclusion,
-  requiredSkillTally,
   scoreTone,
   skillVerdictFor,
+  uncoveredRequirements,
+  vacancyScoreRange,
   type RequirementCoverage,
 } from "@/lib/report";
 import { buildNav, vacancyBreadcrumbs } from "@/lib/nav";
@@ -103,6 +103,12 @@ function hasSkillMatrix(report: Interview["report_json"]): boolean {
   return Boolean(report?.skill_levels?.length);
 }
 
+/** Средний уровень по навыкам вопроса — то, что уходит в question_score. */
+function questionAverageScore(row: PerQuestionReport): number | null {
+  if (row.skill_scores.length === 0) return null;
+  return row.skill_scores.reduce((sum, entry) => sum + entry.score, 0) / row.skill_scores.length;
+}
+
 const SECURITY_SIGNAL_LABEL: Record<string, string> = {
   "security:tab_hidden": "Свернул вкладку/окно",
   "security:tab_visible": "Вернулся во вкладку",
@@ -151,9 +157,10 @@ export default function VacancyCandidatePage() {
   const [managerId, setManagerId] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
-  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [transcriptQuery, setTranscriptQuery] = useState("");
   const [focusedLineKey, setFocusedLineKey] = useState<string | null>(null);
+  const [openSkillsOverride, setOpenSkillsOverride] = useState<string[] | null>(null);
+  const [openQuestions, setOpenQuestions] = useState<string[]>([]);
   const [finalInviteOpen, setFinalInviteOpen] = useState(false);
   const [finalInviteCopied, setFinalInviteCopied] = useState(false);
 
@@ -167,9 +174,69 @@ export default function VacancyCandidatePage() {
     () => (vacancy?.questions ?? []).filter((question) => question.role === "assessment").length,
     [vacancy],
   );
-  const selected =
-    requirements.find((row) => row.skill === selectedSkill) ?? requirements[0] ?? null;
+  const assessedQuestions = useMemo(
+    () =>
+      (vacancy?.questions ?? [])
+        .filter((question) => question.role === "assessment")
+        .sort((a, b) => a.order - b.order),
+    [vacancy],
+  );
+  const questionReports = useMemo(
+    () => new Map((interview?.report_json?.per_question ?? []).map((row) => [row.question_id, row])),
+    [interview],
+  );
+  const uncovered = useMemo(() => uncoveredRequirements(requirements), [requirements]);
+  // Раскладка шкалы на сегменты метра: вопросы / обязательные / желательные навыки.
+  const scoreBreakdown = useMemo(() => {
+    const report = interview?.report_json;
+    if (!report || !report.max_score) return null;
+    const qMax = assessedQuestionCount * 3;
+    let reqMax = 0;
+    let reqPts = 0;
+    let niceMax = 0;
+    let nicePts = 0;
+    for (const row of requirements) {
+      const level = skillLevel(report, row.skill);
+      if (level == null) continue;
+      if (row.mandatory) {
+        reqMax += 2;
+        reqPts += (level / 3) * 2;
+      } else {
+        niceMax += 0.5;
+        nicePts += (level / 3) * 0.5;
+      }
+    }
+    return {
+      qMax,
+      qPts: report.question_score ?? 0,
+      reqMax,
+      reqPts,
+      niceMax,
+      nicePts,
+      total: qMax + reqMax + niceMax,
+    };
+  }, [interview, requirements, assessedQuestionCount]);
+  const vacancyScale = vacancy ? vacancyScoreRange(vacancy, assessedQuestionCount) : null;
   const processing = interview ? isReportProcessing(interview) : false;
+  // По умолчанию раскрыто первое требование — деталь видна сразу, как в старой панели.
+  const defaultOpenSkills = useMemo(() => (requirements[0] ? [requirements[0].skill] : []), [requirements]);
+  const openSkills = openSkillsOverride ?? defaultOpenSkills;
+
+  function toggleSkillRow(skill: string) {
+    setOpenSkillsOverride(
+      openSkills.includes(skill)
+        ? openSkills.filter((item) => item !== skill)
+        : [...openSkills, skill],
+    );
+  }
+
+  function toggleQuestionRow(questionId: string) {
+    setOpenQuestions((current) =>
+      current.includes(questionId)
+        ? current.filter((item) => item !== questionId)
+        : [...current, questionId],
+    );
+  }
   const securitySignals = useMemo(
     () => (events?.events ?? []).filter((row) => row.event_type.startsWith("security:")),
     [events],
@@ -317,7 +384,7 @@ export default function VacancyCandidatePage() {
 
   return (
     <AppShell nav={buildNav(landing)} title="Кандидат">
-      <div className="workspace">
+      <div className={canManage ? "workspace workspace--with-deck" : "workspace"}>
         {pageLoading ? <SkeletonText lines={4} label="Открываю карточку" /> : null}
         {error && !interview ? <ScreenState kind="error" title="Нет карточки" text={error} /> : null}
         {interview ? (
@@ -345,343 +412,494 @@ export default function VacancyCandidatePage() {
               </section>
             ) : null}
 
-            <section className="report-summary">
-              <div>
-                <h2>
-                  Что видно из ответов
-                  {interview.report_json ? (
-                    <StatusPill tone={verdictTone(interview.report_json.verdict)}>
-                      {VERDICT_LABEL[interview.report_json.verdict]}
-                    </StatusPill>
-                  ) : null}
-                  {interview.report_json?.overall_score != null ? (
-                    <span className="score-chip" data-tone={scoreTone(interview.report_json.overall_score)}>
-                      {interview.report_json.overall_score}/100
-                    </span>
-                  ) : null}
-                </h2>
-                <p className="muted-copy">
-                  {processing
-                    ? "Интервью завершено, отчёт собирается"
-                    : `Это разбор ответов системой, а не решение о найме. ${reportLabel(interview)}`}
-                </p>
-                {processing && canManage ? (
-                  <div className="form-actions">
-                    <Button type="button" variant="secondary" disabled={busy} onClick={() => void handleReevaluate()}>
-                      Пересобрать отчёт
-                    </Button>
-                    <span className="muted-copy">
-                      Если отчёт долго не готов — разбор мог не пройти. Кнопка запускает его заново.
-                    </span>
+            <section className="report-hero">
+              <div className="report-hero__top">
+                <div className="report-hero__main">
+                  <div className="report-hero__title">
+                    {interview.report_json ? (
+                      <>
+                        <span className="report-hero__eyebrow">Результат скрининга</span>
+                        <span
+                          className="report-hero__verdict"
+                          data-tone={verdictTone(interview.report_json.verdict)}
+                        >
+                          <i />
+                          {VERDICT_LABEL[interview.report_json.verdict]}
+                        </span>
+                      </>
+                    ) : (
+                      <h2>Что видно из ответов</h2>
+                    )}
                   </div>
-                ) : null}
-                {!processing && interview.report_json ? (
-                  (() => {
-                    const tally = requiredSkillTally(
-                      interview.report_json,
-                      requirements.filter((row) => row.mandatory).map((row) => row.skill),
-                    );
-                    if (tally.total === 0) return null;
-                    return (
-                      <ul className="score-tally">
-                        <li data-tone="positive">
-                          <strong>{tally.pass}</strong> подтверждено
-                        </li>
-                        <li data-tone="warning">
-                          <strong>{tally.ambiguous}</strong> требует проверки
-                        </li>
-                        <li data-tone="danger">
-                          <strong>{tally.fail}</strong> не подтверждено
-                        </li>
-                        {tally.untested > 0 ? (
-                          <li data-tone="neutral">
-                            <strong>{tally.untested}</strong> не проверено
-                          </li>
-                        ) : null}
-                      </ul>
-                    );
-                  })()
-                ) : null}
-                {!processing && interview.report_json ? (
-                  (() => {
-                    const report = interview.report_json;
-                    const normalize = (value: string) => value.trim().toLowerCase();
-                    const confirmed = report.confirmed_skills;
-                    const unconfirmed = report.unconfirmed_skills;
-                    // Оценён, но не классифицирован (между подтверждено/не подтверждено) —
-                    // по агентской шкале это «требует проверки».
-                    const seen = new Set([...confirmed.map(normalize), ...unconfirmed.map(normalize)]);
-                    const ambiguous: string[] = [];
-                    for (const tag of report.per_question.flatMap((row) =>
-                      row.skill_scores.map((entry) => entry.skill_tag),
-                    )) {
-                      const key = normalize(tag);
-                      if (!seen.has(key)) {
-                        seen.add(key);
-                        ambiguous.push(tag);
-                      }
-                    }
-                    const groups = [
-                      { label: "Подтверждено", tone: "positive" as const, skills: confirmed },
-                      { label: "Требует проверки", tone: "warning" as const, skills: ambiguous },
-                      { label: "Не подтверждено", tone: "danger" as const, skills: unconfirmed },
-                    ];
-                    if (groups.every((group) => group.skills.length === 0)) return null;
-                    return (
-                      <div className="skill-chips">
-                        {groups.map((group) =>
-                          group.skills.length > 0 ? (
-                            <div key={group.label} className="skill-chips__group">
-                              <span className="muted-copy">{group.label}</span>
-                              {group.skills.map((skill) => (
-                                <span key={skill} className="score-chip" data-tone={group.tone}>
-                                  {skill}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null,
-                        )}
-                      </div>
-                    );
-                  })()
-                ) : null}
-                {!processing &&
-                interview.report_json &&
-                (interview.report_json.summary_intro || interview.report_json.summary_conclusion) ? (
-                  <dl className="report-narrative">
-                    {interview.report_json.summary_intro ? (
-                      <div>
-                        <dt>Итог</dt>
-                        <dd>{interview.report_json.summary_intro}</dd>
-                      </div>
-                    ) : null}
-                    {interview.report_json.summary_conclusion ? (
-                      <div>
-                        <dt>Вывод</dt>
-                        <dd>{interview.report_json.summary_conclusion}</dd>
-                      </div>
-                    ) : null}
-                  </dl>
-                ) : null}
-              </div>
-              {processing ? null : (
-                <dl className="report-figures">
-                  <div>
-                    <dt>Баллы за вопросы</dt>
-                    <dd>{formatPoints(interview.report_json?.question_score) ?? "—"} из {assessedQuestionCount * 3}</dd>
-                  </div>
-                  <div>
-                    <dt>Баллы за навыки</dt>
-                    <dd>
-                      {formatPoints(interview.report_json?.skill_score) ?? "—"} из{" "}
-                      {interview.report_json?.max_score != null && interview.report_json?.question_score != null
-                        ? formatPoints(interview.report_json.max_score - assessedQuestionCount * 3)
-                        : "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Совместимость с вакансией</dt>
-                    <dd>{interview.report_json?.score_percent ?? interview.report_json?.overall_score ?? "—"}%</dd>
-                  </div>
-                  {interview.report_json ? (
-                    <div>
-                      <dt>Отчёт сформирован</dt>
-                      <dd>
-                        {interview.report_json.generated_at
-                          ? new Date(interview.report_json.generated_at).toLocaleString("ru-RU")
-                          : "время не указано"}
-                        <span className="muted-copy"> · модель {interview.report_json.model_version ?? "—"}</span>
-                      </dd>
+                  <p className="report-hero__note">
+                    Это разбор ответов системой, а не решение о найме.{" "}
+                    {processing ? "Интервью завершено, отчёт собирается." : reportLabel(interview)}
+                  </p>
+                  {processing && canManage ? (
+                    <div className="form-actions">
+                      <Button type="button" variant="secondary" disabled={busy} onClick={() => void handleReevaluate()}>
+                        Пересобрать отчёт
+                      </Button>
+                      <span className="muted-copy">
+                        Если отчёт долго не готов — разбор мог не пройти. Кнопка запускает его заново.
+                      </span>
                     </div>
                   ) : null}
-                </dl>
+                  {!processing && interview.report_json ? (
+                    (() => {
+                      const report = interview.report_json;
+                      const normalize = (value: string) => value.trim().toLowerCase();
+                      const confirmed = report.confirmed_skills;
+                      const unconfirmed = report.unconfirmed_skills;
+                      // Оценён, но не классифицирован (между подтверждено/не подтверждено) —
+                      // по агентской шкале это «требует проверки».
+                      const seen = new Set([...confirmed.map(normalize), ...unconfirmed.map(normalize)]);
+                      const ambiguous: string[] = [];
+                      for (const tag of report.per_question.flatMap((row) =>
+                        row.skill_scores.map((entry) => entry.skill_tag),
+                      )) {
+                        const key = normalize(tag);
+                        if (!seen.has(key)) {
+                          seen.add(key);
+                          ambiguous.push(tag);
+                        }
+                      }
+                      const groups = [
+                        { label: "Подтверждено", tone: "positive" as const, skills: confirmed },
+                        { label: "Требует проверки", tone: "warning" as const, skills: ambiguous },
+                        { label: "Не подтверждено", tone: "danger" as const, skills: unconfirmed },
+                        {
+                          label: "Не проверен",
+                          tone: "unchecked" as const,
+                          // Обязательные требования без вердикта в отчёте — бывший пункт «не проверено».
+                          skills: requirements
+                            .filter(
+                              (row) =>
+                                row.mandatory && !skillVerdictFor(interview.report_json, row.skill),
+                            )
+                            .map((row) => row.skill),
+                        },
+                      ];
+                      if (groups.every((group) => group.skills.length === 0)) return null;
+                      return (
+                        <div className="skill-chips">
+                          {groups.map((group) =>
+                            group.skills.length > 0 ? (
+                              <div key={group.label} className="skill-chips__group">
+                                <span className="skill-chips__label">
+                                  {group.label} · {group.skills.length}
+                                </span>
+                                {group.skills.map((skill) => (
+                                  <span key={skill} className="score-chip" data-tone={group.tone}>
+                                    {skill}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null,
+                          )}
+                        </div>
+                      );
+                    })()
+                  ) : null}
+                  {!processing &&
+                  interview.report_json &&
+                  (interview.report_json.summary_intro || interview.report_json.summary_conclusion) ? (
+                    <dl className="report-narrative">
+                      {interview.report_json.summary_intro ? (
+                        <div>
+                          <dt>Итог</dt>
+                          <dd>{interview.report_json.summary_intro}</dd>
+                        </div>
+                      ) : null}
+                      {interview.report_json.summary_conclusion ? (
+                        <div>
+                          <dt>Вывод</dt>
+                          <dd>{interview.report_json.summary_conclusion}</dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                  ) : null}
+                </div>
+                {!processing && interview.report_json ? (
+                  <div className="report-hero__score">
+                    <span className="report-hero__percent">
+                      {interview.report_json.score_percent ?? interview.report_json.overall_score ?? "—"}
+                      <small>%</small>
+                    </span>
+                    <span className="report-hero__points">
+                      {formatPoints(
+                        (interview.report_json.question_score ?? 0) + (interview.report_json.skill_score ?? 0),
+                      )}{" "}
+                      из {formatPoints(interview.report_json.max_score) ?? "—"}
+                    </span>
+                    <span className="muted-copy">совместимость с вакансией</span>
+                    {interview.report_json.generated_at ? (
+                      <span className="report-hero__meta">
+                        {new Date(interview.report_json.generated_at).toLocaleString("ru-RU")}
+                        {interview.report_json.model_version
+                          ? ` · ${interview.report_json.model_version}`
+                          : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+              {!processing && interview.report_json && scoreBreakdown ? (
+                <div className="score-meter">
+                  <div className="score-meter__bar">
+                    <div
+                      className="score-meter__fill"
+                      style={{
+                        width: `${Math.min(100, interview.report_json.score_percent ?? interview.report_json.overall_score ?? 0)}%`,
+                      }}
+                    />
+                    <span className="score-meter__threshold" />
+                  </div>
+                  <div className="score-meter__legend">
+                    <div>
+                      <small>Вопросы</small>
+                      <b>
+                        {formatPoints(scoreBreakdown.qPts)} / {formatPoints(scoreBreakdown.qMax)}
+                      </b>
+                    </div>
+                    {scoreBreakdown.reqMax > 0 ? (
+                      <div>
+                        <small>Обязательные навыки</small>
+                        <b>
+                          {formatPoints(scoreBreakdown.reqPts)} / {formatPoints(scoreBreakdown.reqMax)}
+                        </b>
+                      </div>
+                    ) : null}
+                    {scoreBreakdown.niceMax > 0 ? (
+                      <div>
+                        <small>Желательные навыки</small>
+                        <b>
+                          {formatPoints(scoreBreakdown.nicePts)} / {formatPoints(scoreBreakdown.niceMax)}
+                        </b>
+                      </div>
+                    ) : null}
+                  </div>
+                  {vacancy && vacancyScale ? (
+                    <details className="score-meter__formula">
+                      <summary>Как считается совместимость</summary>
+                      <div className="score-meter__formula-body">
+                        <div>
+                          <code>{assessedQuestionCount} вопросов × 3 = {formatPoints(scoreBreakdown.qMax)}</code> ·{" "}
+                          <code>
+                            {vacancy.required_skills.length} обязательных × 2 ={" "}
+                            {formatPoints(vacancy.required_skills.length * 2)}
+                          </code>{" "}
+                          ·{" "}
+                          <code>
+                            {vacancy.nice_to_have_skills.length} желательных × 0.5 ={" "}
+                            {formatPoints(vacancy.nice_to_have_skills.length * 0.5)}
+                          </code>{" "}
+                          → максимум <code>{formatPoints(vacancyScale.maximum)}</code>
+                        </div>
+                        <div>
+                          Навык оценивается уровнем 0–3 и переводится в баллы как{" "}
+                          <code>уровень ÷ 3 × вес</code>: обязательный навык даёт до 2.00, желательный — до
+                          0.50. Вопрос даёт средний уровень по своим навыкам (максимум 3).
+                        </div>
+                        <div>
+                          Порог найма — 60% от максимума: <code>{formatPoints(scoreBreakdown.total * 0.6)}</code>{" "}
+                          балла из {formatPoints(scoreBreakdown.total)}.
+                        </div>
+                        {scoreBreakdown.total < vacancyScale.maximum ? (
+                          <div>
+                            Максимум пересчитан с {formatPoints(vacancyScale.maximum)} на{" "}
+                            {formatPoints(scoreBreakdown.total)}:{" "}
+                            {uncovered.length > 0
+                              ? `«${uncovered.map((row) => row.skill).join("», «")}» не ${
+                                  uncovered.length === 1 ? "закрыто" : "закрыты"
+                                } вопросами и исключено из шкалы — иначе кандидат терял бы баллы за дыру в калибровке.`
+                              : "часть требований осталась без оценок и исключена из шкалы."}
+                          </div>
+                        ) : null}
+                      </div>
+                    </details>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+
+            <section className="skill-matrix">
+              <div className="skill-matrix__head">
+                <h2>Матрица компетенций</h2>
+                <span className="muted-copy">
+                  {processing
+                    ? "Расшифровки ещё могут появиться — это не итоговый пробел"
+                    : "Нажмите на строку, чтобы раскрыть ответ и обоснование"}
+                </span>
+              </div>
+              {requirements.length === 0 ? (
+                <p className="muted-copy" style={{ padding: "16px 20px" }}>
+                  У вакансии не заполнены требования, сопоставлять нечего.
+                </p>
+              ) : (
+                <div className="skill-matrix__rows">
+                  {requirements.map((row) => {
+                    const sv = processing ? null : skillVerdictFor(interview.report_json, row.skill, row.questions);
+                    const level = processing
+                      ? null
+                      : (skillLevel(interview.report_json, row.skill) ?? sv?.best_score ?? null);
+                    const weight = row.mandatory ? 2 : 0.5;
+                    const points = level != null ? (level / 3) * weight : null;
+                    const open = openSkills.includes(row.skill);
+                    return (
+                      <div
+                        className="sm-row"
+                        key={row.skill}
+                        data-open={open ? "true" : "false"}
+                        data-gap={row.coverage === "not-covered" ? "true" : "false"}
+                      >
+                        <button type="button" className="sm-row__btn" onClick={() => toggleSkillRow(row.skill)}>
+                          <span className="sm-row__name">
+                            <strong>{row.skill}</strong>
+                            <span className="muted-copy">
+                              {row.mandatory ? "Обязательное" : "Желательное"}
+                              {row.questions.length > 0
+                                ? ` · вес ×${weight} · вопрос ${row.questions.map((question) => question.order).join(", ")}`
+                                : " · вопрос не задан"}
+                            </span>
+                          </span>
+                          <span className="sm-row__lvl">
+                            <span className="lvl" data-tone={level != null ? skillLevelTone(level) : "none"}>
+                              {[0, 1, 2].map((index) => (
+                                <i key={index} data-on={level != null && index < level ? "true" : "false"} />
+                              ))}
+                            </span>
+                            <span className="lvl-cap">
+                              {level != null
+                                ? `Уровень ${level}/3`
+                                : row.coverage === "not-covered"
+                                  ? "Не проверен"
+                                  : COVERAGE_LABEL[row.coverage]}
+                            </span>
+                          </span>
+                          <span className="sm-row__pts">
+                            {points != null ? formatPoints(points) : "—"}
+                            <small>{points != null ? `из ${formatPoints(weight)}` : "вне шкалы"}</small>
+                          </span>
+                          <span className="sm-row__caret">▾</span>
+                        </button>
+                        {open ? (
+                          <div className="sm-row__detail">
+                            {(() => {
+                              if (processing) {
+                                return <p className="muted-copy">Отчёт ещё собирается — это не итог по навыку.</p>;
+                              }
+                              if (sv) {
+                                return (
+                                  <div className="skill-verdict">
+                                    <StatusPill tone={skillClassTone(sv.skill_class)}>
+                                      {SKILL_CLASS_LABEL[sv.skill_class]}
+                                    </StatusPill>
+                                    {sv.best_score != null ? (
+                                      <p className="muted-copy">
+                                        {hasSkillMatrix(interview.report_json)
+                                          ? `Лучший уровень по ответу: ${sv.best_score}/3.`
+                                          : `Лучший балл по навыку: ${sv.best_score}/100.`}
+                                      </p>
+                                    ) : null}
+                                    {sv.reasoning_lines.length > 0 ? (
+                                      <ul className="sm-row__reasoning">
+                                        {sv.reasoning_lines.map((line, index) => (
+                                          <li key={index} className="muted-copy">
+                                            {line}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    ) : null}
+                                  </div>
+                                );
+                              }
+                              return (
+                                <p className="muted-copy">
+                                  <StatusPill tone={coverageTone(row.coverage)}>
+                                    {COVERAGE_LABEL[row.coverage]}
+                                  </StatusPill>
+                                </p>
+                              );
+                            })()}
+                            {row.answers.length > 0 ? (
+                              row.answers.map(({ question, answer }) => (
+                                <div className="answer-record" key={answer.id}>
+                                  <strong>
+                                    Вопрос {question.order}. {question.text}
+                                  </strong>
+                                  <blockquote>{answer.transcript_text}</blockquote>
+                                  {question.reference_answer ? (
+                                    <p className="muted-copy">
+                                      Эксперт ждал: {question.reference_answer}
+                                    </p>
+                                  ) : null}
+                                  {(() => {
+                                    const scored = interview.report_json?.per_question.find(
+                                      (item) => item.question_id === question.id,
+                                    );
+                                    if (!scored || scored.skill_scores.length === 0) return null;
+                                    return (
+                                      <div className="question-score">
+                                        {scored.skill_scores.map((skillScore) => (
+                                          <span
+                                            key={skillScore.skill_tag}
+                                            className="score-chip"
+                                            data-tone={
+                                              hasSkillMatrix(interview.report_json)
+                                                ? skillLevelTone(skillScore.score)
+                                                : scoreTone(skillScore.score)
+                                            }
+                                          >
+                                            {skillScore.skill_tag}: {skillScore.score}/
+                                            {hasSkillMatrix(interview.report_json) ? "3" : "100"}
+                                          </span>
+                                        ))}
+                                        <span className="muted-copy">
+                                          {DIFFICULTY_LABEL[question.difficulty]}
+                                          {scored.answered_with_hint ? " · отвечал с подсказкой" : ""}
+                                          {" · уверенность оценки "}
+                                          {Math.round(scored.confidence * 100)}%
+                                        </span>
+                                        {scored.report ? <p className="muted-copy">{scored.report}</p> : null}
+                                        {scored.quotes.length > 0
+                                          ? scored.quotes.map((quote, index) => (
+                                              <blockquote key={index}>«{quote.text}»</blockquote>
+                                            ))
+                                          : null}
+                                        {/* Обоснования баллов не дублируем здесь: блок навыка выше
+                                            уже показывает те же строки агрегированно (с номером вопроса). */}
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              ))
+                            ) : row.coverage === "asked" ? (
+                              <p className="muted-copy">
+                                {processing
+                                  ? "Расшифровка ещё может появиться — отчёт собирается."
+                                  : `Вопрос ${row.questions.map((question) => question.order).join(", ")} задавали, но расшифровки ответа нет. Это пробел в данных, а не минус кандидату.`}
+                              </p>
+                            ) : (
+                              <p className="muted-copy">
+                                Ни один вопрос комплекта не закрывает это требование. Дыра в калибровке: её
+                                стоит закрыть эксперту, а не считать ответом кандидата.
+                              </p>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                  {uncovered.length > 0 && !processing ? (
+                    <div className="skill-matrix__note">
+                      <span>⚠</span>
+                      <span>
+                        Максимум пересчитан: {uncovered.map((row) => `«${row.skill}»`).join(", ")} не{" "}
+                        {uncovered.length === 1 ? "закрыто" : "закрыты"} вопросами и исключено из шкалы —
+                        иначе кандидат терял бы баллы за дыру в калибровке.
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
               )}
             </section>
 
-            {securitySignals.length > 0 ? (
-              <details className="security-block">
-                <summary>Безопасность: {securitySignals.length} технических сигнала</summary>
-                <p className="muted-copy">
-                  Что мы можем выяснить технически — не признак нарушения, просто сырые сигналы:
-                  переключал ли вкладку, пропадала ли картинка с камеры.
-                </p>
-                <ul className="security-block__list">
-                  {securitySignals.map((row) => (
-                    <li key={row.id}>
-                      <span>{securitySignalLabel(row.event_type)}</span>
-                      <time dateTime={row.created_at}>{new Date(row.created_at).toLocaleString("ru-RU")}</time>
-                    </li>
-                  ))}
-                </ul>
-              </details>
+            {assessedQuestions.length > 0 ? (
+              <section className="question-list">
+                <div className="skill-matrix__head">
+                  <h2>Ответы на вопросы</h2>
+                  <span className="muted-copy">
+                    {interview.report_json?.question_score != null
+                      ? `${formatPoints(interview.report_json.question_score)} из ${formatPoints(assessedQuestionCount * 3)} · `
+                      : ""}
+                    каждый вопрос оценивается от 0 до 3
+                  </span>
+                </div>
+                <div className="question-list__rows">
+                  {assessedQuestions.map((question) => {
+                    const scored = questionReports.get(question.id);
+                    const score = scored ? questionAverageScore(scored) : null;
+                    const open = openQuestions.includes(question.id);
+                    return (
+                      <div className="q-row" key={question.id} data-open={open ? "true" : "false"}>
+                        <button type="button" className="q-row__btn" onClick={() => toggleQuestionRow(question.id)}>
+                          <span className="q-row__num">{String(question.order).padStart(2, "0")}</span>
+                          <span className="q-row__title">{question.text}</span>
+                          <span className="q-row__score">
+                            {score != null
+                              ? [0, 1, 2].map((index) => (
+                                  <i key={index} data-on={index < Math.round(score) ? "true" : "false"} />
+                                ))
+                              : null}
+                            {score != null ? <b>{formatPoints(score)}</b> : <span className="muted-copy">—</span>}
+                          </span>
+                          <span className="sm-row__caret">▾</span>
+                        </button>
+                        {open ? (
+                          <div className="q-row__detail">
+                            <p>
+                              {scored?.report ??
+                                (processing
+                                  ? "Разбор появится, когда отчёт соберётся."
+                                  : "Разбор по этому вопросу не попал в отчёт.")}
+                            </p>
+                            {scored && scored.quotes.length > 0
+                              ? scored.quotes.map((quote, index) => (
+                                  <blockquote key={index}>«{quote.text}»</blockquote>
+                                ))
+                              : null}
+                            <span className="muted-copy">
+                              {DIFFICULTY_LABEL[question.difficulty]}
+                              {scored?.answered_with_hint ? " · отвечал с подсказкой" : ""}
+                              {scored ? ` · уверенность оценки ${Math.round(scored.confidence * 100)}%` : ""}
+                            </span>
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             ) : null}
 
-            <section className="requirement-map">
-              <div className="requirement-map__list">
-                <header>
-                  <h2>Карта требований</h2>
-                  <span className="muted-copy">
-                    {processing
-                      ? "Расшифровки ещё могут появиться — это не итоговый пробел"
-                      : "Выберите строку, чтобы увидеть ответ целиком"}
+            <details className="calib-block">
+              <summary>
+                <StatusPill tone={securitySignals.length > 0 ? "warning" : "positive"}>
+                  {securitySignals.length > 0 ? `${securitySignals.length} техн. сигналов` : "Проверка чистая"}
+                </StatusPill>
+                Калибровка и достоверность
+                <span className="calib-block__caret">▾</span>
+              </summary>
+              <div className="calib-block__body">
+                <p className="calib-block__line">
+                  <span className="cmark" data-tone={securitySignals.length > 0 ? "warning" : "positive"}>
+                    {securitySignals.length > 0 ? "◑" : "●"}
                   </span>
-                </header>
-                {requirements.length === 0 ? (
-                  <p className="muted-copy" style={{ padding: "16px 20px" }}>
-                    У вакансии не заполнены требования, сопоставлять нечего.
+                  <span>
+                    <b>
+                      {securitySignals.length > 0
+                        ? "Есть технические сигналы."
+                        : "Попыток обойти проверку не зафиксировано."}
+                    </b>{" "}
+                    {securitySignals.length > 0
+                      ? "Что мы можем выяснить технически — не признак нарушения, просто сырые сигналы: переключал ли вкладку, пропадала ли картинка с камеры."
+                      : "Подозрительных переключений вкладок и пропаданий камеры в записи нет."}
+                  </span>
+                </p>
+                {securitySignals.map((row) => (
+                  <p className="calib-block__line" key={row.id}>
+                    <span className="cmark" data-tone="muted">○</span>
+                    <span>
+                      {securitySignalLabel(row.event_type)}{" "}
+                      <time className="muted-copy" dateTime={row.created_at}>
+                        {new Date(row.created_at).toLocaleString("ru-RU")}
+                      </time>
+                    </span>
                   </p>
-                ) : (
-                  requirements.map((row) => (
-                    <button
-                      className="requirement-row"
-                      type="button"
-                      key={row.skill}
-                      data-selected={row.skill === selectedSkill}
-                      onClick={() => setSelectedSkill(row.skill)}
-                    >
-                      <span>
-                        <strong>{row.skill}</strong>
-                        <span className="muted-copy">
-                          {row.mandatory ? "Обязательное" : "Желательное"}
-                          {row.questions.length > 0
-                            ? ` · вопрос ${row.questions.map((question) => question.order).join(", ")}`
-                            : " · вопроса нет"}
-                        </span>
-                      </span>
-                      {(() => {
-                        const sv = processing ? null : skillVerdictFor(interview.report_json, row.skill);
-                        if (!sv) {
-                          return (
-                            <StatusPill tone={coverageTone(row.coverage)}>
-                              {COVERAGE_LABEL[row.coverage]}
-                            </StatusPill>
-                          );
-                        }
-                        return (
-                          <span className="requirement-row__verdict">
-                            {skillLevel(interview.report_json, row.skill) != null ? (
-                              <span className="score-chip" data-tone={skillLevelTone(skillLevel(interview.report_json, row.skill)!)}>
-                                Уровень {skillLevel(interview.report_json, row.skill)}/3
-                              </span>
-                            ) : null}
-                            <StatusPill tone={skillClassTone(sv.skill_class)}>
-                              {SKILL_CLASS_LABEL[sv.skill_class]}
-                            </StatusPill>
-                          </span>
-                        );
-                      })()}
-                    </button>
-                  ))
-                )}
+                ))}
               </div>
-
-              <aside className="requirement-detail">
-                {selected ? (
-                  <>
-                    <div>
-                      <h2>{selected.skill}</h2>
-                      <span className="muted-copy">
-                        {selected.mandatory ? "Обязательное требование" : "Желательное требование"}
-                      </span>
-                      <p className="muted-copy">
-                        {processing
-                          ? "Отчёт ещё собирается — это не итог по навыку."
-                          : CONCLUSION_LABEL[requirementConclusion(selected)]}
-                      </p>
-                      {(() => {
-                        if (processing) return null;
-                        const sv = skillVerdictFor(interview.report_json, selected.skill, selected.questions);
-                        if (!sv) return null;
-                        return (
-                          <div className="skill-verdict">
-                            <StatusPill tone={skillClassTone(sv.skill_class)}>
-                              {SKILL_CLASS_LABEL[sv.skill_class]}
-                            </StatusPill>
-                            {sv.best_score != null ? (
-                              <p className="muted-copy">
-                                {hasSkillMatrix(interview.report_json)
-                                  ? `Лучший уровень по ответу: ${sv.best_score}/3.`
-                                  : `Лучший балл по навыку: ${sv.best_score}/100.`}
-                              </p>
-                            ) : null}
-                            {sv.reasoning_lines.length > 0 ? (
-                              <ul>
-                                {sv.reasoning_lines.map((line, index) => (
-                                  <li key={index} className="muted-copy">
-                                    {line}
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : null}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                    {selected.answers.length > 0 ? (
-                      selected.answers.map(({ question, answer }) => (
-                        <div className="answer-record" key={answer.id}>
-                          <strong>
-                            Вопрос {question.order}. {question.text}
-                          </strong>
-                          <blockquote>{answer.transcript_text}</blockquote>
-                          {question.reference_answer ? (
-                            <p className="muted-copy">
-                              Эксперт ждал: {question.reference_answer}
-                            </p>
-                          ) : null}
-                          {(() => {
-                            const scored = interview.report_json?.per_question.find(
-                              (row) => row.question_id === question.id,
-                            );
-                            if (!scored || scored.skill_scores.length === 0) return null;
-                            return (
-                              <div className="question-score">
-                                {scored.skill_scores.map((skillScore) => (
-                                  <span
-                                    key={skillScore.skill_tag}
-                                    className="score-chip"
-                                    data-tone={hasSkillMatrix(interview.report_json) ? skillLevelTone(skillScore.score) : scoreTone(skillScore.score)}
-                                  >
-                                    {skillScore.skill_tag}: {skillScore.score}/{hasSkillMatrix(interview.report_json) ? "3" : "100"}
-                                  </span>
-                                ))}
-                                <span className="muted-copy">
-                                  {DIFFICULTY_LABEL[question.difficulty]}
-                                  {scored.answered_with_hint ? " · отвечал с подсказкой" : ""}
-                                  {" · уверенность оценки "}
-                                  {Math.round(scored.confidence * 100)}%
-                                </span>
-                                {scored.report ? <p className="muted-copy">{scored.report}</p> : null}
-                                {scored.quotes.length > 0
-                                  ? scored.quotes.map((quote, index) => (
-                                      <blockquote key={index}>«{quote.text}»</blockquote>
-                                    ))
-                                  : null}
-                                {/* Обоснования баллов не дублируем здесь: панель навыка выше
-                                    уже показывает те же строки агрегированно (с номером вопроса). */}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      ))
-                    ) : selected.coverage === "asked" ? (
-                      <p className="muted-copy">
-                        {processing
-                          ? "Расшифровка ещё может появиться — отчёт собирается."
-                          : `Вопрос ${selected.questions.map((question) => question.order).join(", ")} задавали, но расшифровки ответа нет. Это пробел в данных, а не минус кандидату.`}
-                      </p>
-                    ) : (
-                      <p className="muted-copy">
-                        Ни один вопрос комплекта не закрывает это требование. Дыра в калибровке: её
-                        стоит закрыть эксперту, а не считать ответом кандидата.
-                      </p>
-                    )}
-                  </>
-                ) : (
-                  <p className="muted-copy">Выберите требование слева.</p>
-                )}
-              </aside>
-            </section>
+            </details>
 
             {protocolLines.length > 0 ? (
               <details className="transcript-section">
@@ -728,15 +946,14 @@ export default function VacancyCandidatePage() {
             ) : null}
 
             {canManage ? (
-              <section className="plain-section">
-                <h2>Решение</h2>
-                <p className="muted-copy">
-                  Решение основывается на пороге 60% от максимального балла вакансии.
-                </p>
-                <div className="form-surface">
-                <label>
-                  Менеджер
-                  <select value={managerId} onChange={(event) => setManagerId(event.target.value)}>
+              <div className="decision-deck">
+                <div className="decision-deck__in">
+                  <span className="decision-deck__label">Решение по кандидату</span>
+                  <select
+                    value={managerId}
+                    onChange={(event) => setManagerId(event.target.value)}
+                    aria-label="Менеджер"
+                  >
                     <option value="">Выберите менеджера</option>
                     {managers.map((manager) => (
                       <option key={manager.id} value={manager.id}>
@@ -744,17 +961,20 @@ export default function VacancyCandidatePage() {
                       </option>
                     ))}
                   </select>
-                </label>
-                </div>
-                <div className="form-actions">
-                  <Button type="button" disabled={busy} onClick={() => void handleHandoff()}>
+                  <span className="decision-deck__spacer" />
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={interview.recruiter_decision !== "awaiting"}
+                    onClick={() => setFinalInviteOpen(true)}
+                  >
+                    Пригласить на финал
+                  </Button>
+                  <Button type="button" disabled={busy || !managerId.trim()} onClick={() => void handleHandoff()}>
                     Передать менеджеру
                   </Button>
-                  <Button type="button" variant="secondary" disabled={interview.recruiter_decision !== "awaiting"} onClick={() => setFinalInviteOpen(true)}>
-                    Пригласить на финальное интервью
-                  </Button>
                 </div>
-              </section>
+              </div>
             ) : null}
             <Modal open={finalInviteOpen} title="Приглашение на финальное интервью" onClose={() => setFinalInviteOpen(false)}>
               <div className="form-surface">
