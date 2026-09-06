@@ -61,6 +61,30 @@ jobs:
           echo "--- container status (live-agent stack) ---"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -a
 
+      # Read-only: применена ли миграция контура оценки на боевой БД и не застряли ли
+      # интервью в in_progress (симптом — column interview_event.source_event_id does not
+      # exist → каждый record_event падает → статус не доходит до completed).
+      - name: DB state (alembic head, interview_event schema, stuck interviews)
+        if: ${{ github.event.inputs.probe != 'false' }}
+        run: |
+          set +e
+          main=(--project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml -f docker-compose.vps.yml)
+          runq() {
+            echo "--- $1 ---"
+            docker compose "${main[@]}" exec -T postgres \
+              psql -U ainterviewer -d ainterviewer -X -A -F' | ' -c "$2" 2>&1
+          }
+          runq "alembic_version (ждём голову цепочки — 20260907_000001)" \
+            "select version_num from alembic_version;"
+          runq "interview_event columns (ждём source_event_id)" \
+            "select column_name from information_schema.columns where table_name='interview_event' order by 1;"
+          runq "interview — статусы за сутки" \
+            "select id, status, product_state, created_at, completed_at from interview where created_at > now() - interval '24 hours' order by created_at desc;"
+          runq "evaluation_job" \
+            "select interview_id, status, attempts, last_error from evaluation_job order by created_at desc limit 10;"
+          echo "--- backend: последние строки alembic при старте ---"
+          docker compose "${main[@]}" logs --no-color backend 2>&1 | grep -iE "alembic|revision|running upgrade|target database|FAILED|ERROR" | tail -30
+
       # Голос и распознавание переехали в OpenRouter (docs/infra/vps-openrouter-migration.md),
       # и «агент молчит» отличается от «агент не слышит» только тем, какая из двух облачных
       # ручек отдала ошибку — в логах воркера этого не видно, пока не начнётся живая сессия.
