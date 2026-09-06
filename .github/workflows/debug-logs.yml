@@ -14,6 +14,10 @@ on:
         description: "How many lines to tail per service before filtering"
         required: false
         default: "500"
+      probe:
+        description: "Also call OpenRouter TTS from inside the agent container ('false' to skip)"
+        required: false
+        default: "true"
 
 jobs:
   logs:
@@ -56,3 +60,49 @@ jobs:
 
           echo "--- container status (live-agent stack) ---"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -a
+
+      # Голос и распознавание переехали в OpenRouter (docs/infra/vps-openrouter-migration.md),
+      # и «агент молчит» отличается от «агент не слышит» только тем, какая из двух облачных
+      # ручек отдала ошибку — в логах воркера этого не видно, пока не начнётся живая сессия.
+      # Проба идёт ИЗ КОНТЕЙНЕРА агента и тем же клиентом (lk_openai.TTS/STT), что и боевой
+      # путь: те же base_url/ключ/модель/голос и те же параметры запроса, которые добавляет
+      # плагин (stream_format, speed) и которых не было в ручных curl-проверках при переезде.
+      - name: Probe OpenRouter TTS/STT the way the agent calls them
+        if: ${{ github.event.inputs.probe != 'false' }}
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml \
+            exec -T live-agent python - <<'PY'
+          import asyncio, os
+
+          from livekit.plugins import openai as lk_openai
+
+          PHRASE = "Здравствуйте! Это проверка синтеза речи."
+
+
+          async def probe_tts() -> bytes:
+              tts = lk_openai.TTS(
+                  base_url=os.environ["TTS_BASE_URL"],
+                  api_key=os.environ["TTS_API_KEY"],
+                  model=os.environ.get("TTS_MODEL", "fish-audio/s1"),
+                  voice=os.environ.get("TTS_VOICE") or "alloy",
+              )
+              pcm = bytearray()
+              async for ev in tts.synthesize(PHRASE):
+                  pcm += bytes(ev.frame.data)
+              return bytes(pcm)
+
+
+          async def main() -> None:
+              print("TTS_BASE_URL =", os.environ.get("TTS_BASE_URL"))
+              print("TTS_MODEL    =", os.environ.get("TTS_MODEL"))
+              print("TTS_VOICE    =", os.environ.get("TTS_VOICE"))
+              print("STT_BASE_URL =", os.environ.get("STT_BASE_URL"))
+              print("STT_MODEL    =", os.environ.get("STT_MODEL"))
+              try:
+                  pcm = await probe_tts()
+              except Exception as exc:
+                  print(f"TTS FAILED: {type(exc).__name__}: {exc}")
+                  return
+              print(f"TTS OK: {len(pcm)} pcm bytes")
+          asyncio.run(main())
+          PY
