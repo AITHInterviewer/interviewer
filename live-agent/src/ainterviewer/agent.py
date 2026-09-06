@@ -43,9 +43,13 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
+from livekit import rtc
 from livekit.agents import Agent, AgentSession, JobContext, ModelSettings, WorkerOptions, cli
+from livekit.agents import stt as lk_stt
 from livekit.agents import tts as lk_tts
 from livekit.agents.llm import ChatContext
+from livekit.agents.types import NOT_GIVEN
+from livekit.agents.utils import is_given
 from livekit.agents.voice.room_io import RoomInputOptions
 from livekit.agents.voice.turn import InterruptionOptions, TurnHandlingOptions
 from livekit.plugins import openai as lk_openai
@@ -208,6 +212,47 @@ def _build_stt_prompt(vacancy: Vacancy, question: Question | None) -> str:
     return ", ".join(ordered)[:_STT_PROMPT_MAX_CHARS]
 
 
+class _OpenRouterSTT(lk_openai.STT):
+    """`lk_openai.STT._recognize_impl` для модели с id ровно "whisper-1" жёстко ставит
+    `response_format="verbose_json"` (см. `livekit/plugins/openai/stt.py`). OpenRouter этот
+    формат для whisper не принимает — отвечает `400`, `retryable=False`, и `AgentSession`
+    закрывается после первой же реплики кандидата (симптом снаружи — «агент замолчал»).
+    Настройкой это не лечится: у STT-плагина нет параметра `response_format`. Здесь —
+    тот же одиночный REST-вызов транскрипции, но с `response_format="json"`, который
+    OpenRouter принимает. STT в этом деплое не realtime (whisper), поэтому единственный
+    задействованный путь — `_recognize_impl`; realtime-ветку не трогаем."""
+
+    async def _recognize_impl(self, buffer, *, language=NOT_GIVEN, conn_options):  # noqa: ANN001
+        lang = (
+            _as_languages_first(language)
+            or (self._opts.languages[0] if self._opts.languages else None)
+        )
+        request: dict = {
+            "file": ("file.wav", rtc.combine_audio_frames(buffer).to_wav_bytes(), "audio/wav"),
+            "model": self._opts.model,
+            "response_format": "json",
+            "timeout": httpx.Timeout(30, connect=conn_options.timeout),
+        }
+        if lang:
+            request["language"] = lang
+        if is_given(self._opts.prompt):
+            request["prompt"] = self._opts.prompt
+        resp = await self._client.audio.transcriptions.create(**request)
+        return lk_stt.SpeechEvent(
+            type=lk_stt.SpeechEventType.FINAL_TRANSCRIPT,
+            alternatives=[lk_stt.SpeechData(text=resp.text, language=lang or "")],
+        )
+
+
+def _as_languages_first(language) -> str | None:  # noqa: ANN001
+    """Первый язык из per-call `language` (str или list), либо None если не задан."""
+    if not is_given(language):
+        return None
+    if isinstance(language, str):
+        return language or None
+    return language[0] if language else None
+
+
 def _build_event_sinks(interview_id: str) -> list[EventSink]:
     """REDIS_URL — опциональна: без неё живой опрос кандидата работает как раньше
     (файловый EventLog, ни один существующий тест/скрипт не меняет поведение). С ней —
@@ -360,7 +405,7 @@ async def entrypoint(ctx: JobContext) -> None:
         llm = ClaudeAgentSDKLiveControlLLM()
     engine = LiveContourEngine(interview, llm, events)
 
-    stt = lk_openai.STT(
+    stt = _OpenRouterSTT(
         base_url=os.environ["STT_BASE_URL"],  # напр. https://openrouter.ai/api/v1
         api_key=os.environ.get("STT_API_KEY", "not-needed"),
         model=os.environ.get("STT_MODEL", "whisper-1"),

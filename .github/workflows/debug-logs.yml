@@ -76,68 +76,49 @@ jobs:
 
           from livekit.plugins import openai as lk_openai
 
-          PHRASE = "Здравствуйте! Это проверка синтеза речи."
+          from ainterviewer.agent import _OpenRouterSTT
+
+          PHRASE = "Здравствуйте! Расскажите про свой опыт работы с очередями сообщений."
 
 
-          async def probe_tts() -> bytes:
-              """Синтезируем фразу и отдаём её же как WAV — вход для проверки STT."""
-              from livekit import rtc
-
+          async def probe_tts() -> list:
+              """Синтезируем фразу и отдаём аудио-фреймы — вход для проверки STT."""
               tts = lk_openai.TTS(
                   base_url=os.environ["TTS_BASE_URL"],
                   api_key=os.environ["TTS_API_KEY"],
                   model=os.environ.get("TTS_MODEL", "fish-audio/s1"),
                   voice=os.environ.get("TTS_VOICE") or "alloy",
               )
-              frames = [ev.frame async for ev in tts.synthesize(PHRASE)]
-              return rtc.combine_audio_frames(frames).to_wav_bytes()
+              return [ev.frame async for ev in tts.synthesize(PHRASE)]
 
 
-          # Плагин сам выбирает response_format и для модели, названной ровно "whisper-1",
-          # жёстко ставит verbose_json (stt.py, _recognize_impl) — а OpenRouter его не
-          # принимает. Ручку не настроить, поэтому подбираем id модели, который OpenRouter
-          # берёт И не включает эту ветку плагина.
-          STT_MODEL_CANDIDATES = [
-              "whisper-1",
-              "openai/whisper-1",
-              "openai/gpt-4o-transcribe",
-              "openai/gpt-4o-mini-transcribe",
-          ]
-
-
-          async def probe_stt(wav: bytes, model: str) -> None:
-              import openai
-
-              client = openai.AsyncClient(
-                  api_key=os.environ["STT_API_KEY"], base_url=os.environ["STT_BASE_URL"]
+          async def probe_stt(frames: list) -> None:
+              """Тот же класс и параметры, что боевой путь — _OpenRouterSTT шлёт
+              response_format=json вместо verbose_json, который OpenRouter отбивает 400."""
+              stt = _OpenRouterSTT(
+                  base_url=os.environ["STT_BASE_URL"],
+                  api_key=os.environ["STT_API_KEY"],
+                  model=os.environ.get("STT_MODEL", "whisper-1"),
+                  language=os.environ.get("STT_LANGUAGE", "ru"),
               )
-              fmt = "verbose_json" if model == "whisper-1" else "json"
               try:
-                  resp = await client.audio.transcriptions.create(
-                      file=("file.wav", wav, "audio/wav"),
-                      model=model,
-                      language="ru",
-                      response_format=fmt,
-                  )
+                  ev = await stt.recognize(frames)
               except Exception as exc:
-                  print(f"  STT {model!r} (response_format={fmt}) FAILED: {exc}")
+                  print(f"STT FAILED: {type(exc).__name__}: {exc}")
               else:
-                  print(f"  STT {model!r} (response_format={fmt}) OK: {resp.text!r}")
-              finally:
-                  await client.close()
+                  print(f"STT OK: {ev.alternatives[0].text!r}")
 
 
           async def main() -> None:
               for name in ("TTS_BASE_URL", "TTS_MODEL", "TTS_VOICE", "STT_BASE_URL", "STT_MODEL"):
                   print(f"{name:13}=", os.environ.get(name))
               try:
-                  wav = await probe_tts()
+                  frames = await probe_tts()
               except Exception as exc:
                   print(f"TTS FAILED: {type(exc).__name__}: {exc}")
                   return
-              print(f"TTS OK: {len(wav)} wav bytes")
-              print("--- STT candidates (same audio for each) ---")
-              for model in STT_MODEL_CANDIDATES:
-                  await probe_stt(wav, model)
+              total = sum(f.samples_per_channel for f in frames)
+              print(f"TTS OK: {len(frames)} frames, {total} samples")
+              await probe_stt(frames)
           asyncio.run(main())
           PY
