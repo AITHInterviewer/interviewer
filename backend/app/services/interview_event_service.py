@@ -16,16 +16,22 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.answer import Answer
+from app.models.interview import Interview
 from app.models.interview_event import InterviewEvent
 from app.models.question import Question
+from app.models.vacancy import Vacancy
+from app.services.evaluation_service import EvaluationError, EvaluationService
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_question_id(raw: Any) -> uuid.UUID | None:
@@ -64,6 +70,8 @@ class InterviewEventService:
         )
         await self._apply_aggregation(interview_id, raw_event)
         await self.session.commit()
+        if raw_event.get("type") == "interview_completed":
+            await self._complete_interview(interview_id)
 
     async def record_candidate_input(self, interview_id: uuid.UUID | str, message: dict[str, Any]) -> None:
         interview_id = uuid.UUID(str(interview_id))
@@ -106,6 +114,53 @@ class InterviewEventService:
             answer.transcript_text = (answer.transcript_text or "") + text
         elif event_type == "question_completed":
             answer.completed_at = ts
+
+    async def _complete_interview(self, interview_id: uuid.UUID | str) -> None:
+        """`interview_completed` — единственное место, где технический `status` и
+        продуктовая ось (`product_state`) реально доходят до конца (раньше не доходили
+        нигде, см. обсуждение в чате). Оценка запускается синхронно тут же, без очереди —
+        один LLM-вызов на ответ, не тяжёлый ASR-проход, см. `evaluation_service.py`."""
+        interview_id = uuid.UUID(str(interview_id))
+        interview = await self.session.get(Interview, interview_id)
+        if interview is None or interview.status == "completed":
+            return
+
+        interview.status = "completed"
+        interview.product_state = "report_processing"
+        await self.session.commit()
+
+        vacancy = await self.session.get(Vacancy, interview.vacancy_id)
+        if vacancy is None:
+            return
+        questions = (
+            (
+                await self.session.execute(
+                    select(Question).where(
+                        or_(
+                            Question.vacancy_id == interview.vacancy_id,
+                            Question.interview_id == interview_id,
+                        )
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        answers = (
+            (await self.session.execute(select(Answer).where(Answer.interview_id == interview_id)))
+            .scalars()
+            .all()
+        )
+
+        try:
+            report = await EvaluationService().evaluate_interview(vacancy, list(questions), list(answers))
+        except EvaluationError:
+            logger.exception("evaluation_service: не удалось оценить интервью %s", interview_id)
+            return
+
+        interview.report_json = report
+        interview.product_state = "report_ready"
+        await self.session.commit()
 
     async def _get_or_create_answer(
         self, interview_id: uuid.UUID | str, question_id: uuid.UUID, started_at: datetime

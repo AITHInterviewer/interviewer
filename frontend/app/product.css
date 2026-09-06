@@ -629,7 +629,7 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 
 /* Отчёт: сводка наблюдений и карта требований */
 .report-summary { display: grid; gap: 18px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); }
-.report-summary h2 { margin: 0 0 4px; }
+.report-summary h2 { margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
 .report-figures { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin: 0; padding-top: 16px; border-top: 1px solid var(--surface-muted); }
 .report-figures div { display: flex; flex-direction: column; gap: 4px; }
 .report-figures dt { color: var(--ink-tertiary); font-size: var(--text-meta); }

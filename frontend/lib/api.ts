@@ -260,6 +260,34 @@ export type InterviewProductState =
 
 export type RecruiterDecision = "awaiting" | "handed_off" | "rejected" | "closed_by_candidate";
 
+export type SkillClass = "fail" | "ambiguous" | "pass" | "untested";
+
+export type SkillVerdict = {
+  skill_tag: string;
+  required: boolean;
+  skill_class: SkillClass;
+  effective_score: number | null;
+  stretch_bonus: boolean;
+};
+
+export type PerQuestionScore = {
+  question_id: string;
+  order: number;
+  skill_tag: string[];
+  difficulty: QuestionDifficulty;
+  score: number;
+  answered_with_hint: boolean;
+  rationale: string;
+};
+
+export type InterviewReport = {
+  generated_at: string;
+  model: string;
+  verdict: "fits" | "not_fits" | "needs_review";
+  skill_verdicts: SkillVerdict[];
+  per_question: PerQuestionScore[];
+};
+
 export type Interview = {
   id: string;
   vacancy_id: string;
@@ -269,6 +297,7 @@ export type Interview = {
   status: string;
   created_at: string;
   product_state?: InterviewProductState;
+  report_json?: InterviewReport | null;
   recruiter_decision?: RecruiterDecision;
   rubric_version_id?: string | null;
 };

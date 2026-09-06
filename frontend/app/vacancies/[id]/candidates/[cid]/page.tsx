@@ -66,6 +66,18 @@ function coverageTone(coverage: RequirementCoverage): StatusTone {
   return "unchecked";
 }
 
+const VERDICT_LABEL: Record<"fits" | "not_fits" | "needs_review", string> = {
+  fits: "Подходит по обязательным навыкам",
+  not_fits: "Не подходит по обязательным навыкам",
+  needs_review: "Нужна доп. проверка",
+};
+
+function verdictTone(verdict: "fits" | "not_fits" | "needs_review"): StatusTone {
+  if (verdict === "fits") return "neutral";
+  if (verdict === "not_fits") return "insufficient";
+  return "unchecked";
+}
+
 /** Статус уточнения словами: коды open/closed в интерфейс не выносим. */
 function clarificationStatusLabel(status: string): string {
   if (status === "open") return "ждёт ответа";
@@ -280,7 +292,14 @@ export default function VacancyCandidatePage() {
 
             <section className="report-summary">
               <div>
-                <h2>Что видно из ответов</h2>
+                <h2>
+                  Что видно из ответов
+                  {interview.report_json ? (
+                    <StatusPill tone={verdictTone(interview.report_json.verdict)}>
+                      {VERDICT_LABEL[interview.report_json.verdict]}
+                    </StatusPill>
+                  ) : null}
+                </h2>
                 <p className="muted-copy">
                   {processing
                     ? "Интервью завершено, отчёт собирается"
@@ -382,6 +401,19 @@ export default function VacancyCandidatePage() {
                               Эксперт ждал: {question.reference_answer}
                             </p>
                           ) : null}
+                          {(() => {
+                            const scored = interview.report_json?.per_question.find(
+                              (row) => row.question_id === question.id,
+                            );
+                            if (!scored) return null;
+                            return (
+                              <p className="muted-copy">
+                                Оценка модели: {scored.score}/100
+                                {scored.answered_with_hint ? " (с подсказкой)" : ""}
+                                {scored.rationale ? ` — ${scored.rationale}` : ""}
+                              </p>
+                            );
+                          })()}
                         </div>
                       ))
                     ) : selected.coverage === "asked" ? (

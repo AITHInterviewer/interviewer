@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.answer import Answer
 from app.models.interview_event import InterviewEvent
 from app.models.question import Question
+from app.services import interview_event_service as interview_event_service_module
 from app.services.interview_event_service import InterviewEventService
 from tests.conftest import seed_demo_interview
 
@@ -158,3 +159,60 @@ async def test_record_candidate_input_non_code_only_records_event(db_session: As
 
     answers = (await db_session.execute(select(Answer))).scalars().all()
     assert answers == []
+
+
+class _FakeEvaluationService:
+    """Подменяет реальный OpenRouter-вызов детерминированным отчётом."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    async def evaluate_interview(self, vacancy, questions, answers) -> dict:  # noqa: ANN001
+        return {"generated_at": "2026-09-06T00:00:00+00:00", "model": "fake", "verdict": "fits",
+                "skill_verdicts": [], "per_question": []}
+
+
+@pytest.mark.anyio
+async def test_interview_completed_marks_status_and_runs_evaluation(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(interview_event_service_module, "EvaluationService", _FakeEvaluationService)
+
+    interview = await seed_demo_interview(db_session, question_count=1)
+    service = InterviewEventService(db_session)
+
+    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
+
+    await db_session.refresh(interview)
+    assert interview.status == "completed"
+    assert interview.product_state == "report_ready"
+    assert interview.report_json == {
+        "generated_at": "2026-09-06T00:00:00+00:00",
+        "model": "fake",
+        "verdict": "fits",
+        "skill_verdicts": [],
+        "per_question": [],
+    }
+
+
+@pytest.mark.anyio
+async def test_interview_completed_twice_does_not_rerun_evaluation(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = 0
+
+    class _CountingEvaluationService(_FakeEvaluationService):
+        async def evaluate_interview(self, vacancy, questions, answers):  # noqa: ANN001
+            nonlocal calls
+            calls += 1
+            return await super().evaluate_interview(vacancy, questions, answers)
+
+    monkeypatch.setattr(interview_event_service_module, "EvaluationService", _CountingEvaluationService)
+
+    interview = await seed_demo_interview(db_session, question_count=1)
+    service = InterviewEventService(db_session)
+
+    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
+    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
+
+    assert calls == 1
