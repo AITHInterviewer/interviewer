@@ -34,7 +34,7 @@ from app.services.evaluation_verdict import (
     compute_verdict,
 )
 
-DEFAULT_MODEL = "minimax/minimax-m3:free"
+DEFAULT_MODEL = "google/gemini-2.5-flash"
 BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 _SKILL_CLASS_LABEL = {

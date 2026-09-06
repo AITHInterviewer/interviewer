@@ -216,15 +216,14 @@ class MistralLiveControlLLM(_OpenAICompatibleLiveControlLLM):
 
 
 class OpenRouterLiveControlLLM(_OpenAICompatibleLiveControlLLM):
-    """Для рутинного тестирования (2026-09-06, явный запрос пользователя) — платный
-    Anthropic-ключ (`AnthropicAPILiveControlLLM`) бережём под демо, а не тратим на каждый
-    тестовый прогон интервью. Дефолтная модель — бесплатный тир OpenRouter."""
+    """Прод-клиент live-контура через OpenRouter (не бесплатный тир для тестов).
+    Модель по умолчанию — google/gemini-2.5-flash, OVERRIDE через OPENROUTER_MODEL."""
 
     BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
     def __init__(self, model: str | None = None, api_key: str | None = None):
         super().__init__(
-            model=model or os.environ.get("OPENROUTER_MODEL", "minimax/minimax-m3:free"),
+            model=model or os.environ.get("OPENROUTER_MODEL", "google/gemini-2.5-flash"),
             api_key=api_key or os.environ["OPENROUTER_API_KEY"],
         )
 

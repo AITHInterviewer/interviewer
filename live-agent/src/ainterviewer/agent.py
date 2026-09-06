@@ -44,7 +44,6 @@ from livekit.agents import tts as lk_tts
 from livekit.agents.llm import ChatContext
 from livekit.agents.voice.room_io import RoomInputOptions
 from livekit.agents.voice.turn import InterruptionOptions, TurnHandlingOptions
-from livekit.plugins import fishaudio
 from livekit.plugins import openai as lk_openai
 from livekit.plugins import silero
 
@@ -264,24 +263,18 @@ async def entrypoint(ctx: JobContext) -> None:
         llm = MistralLiveControlLLM()
     elif llm_provider == "anthropic_api":
         # Прямой Anthropic Messages API (сам api.anthropic.com или совместимый прокси,
-        # см. ANTHROPIC_BASE_URL) вместо Claude Agent SDK CLI — та же цель, что у
-        # MistralLiveControlLLM, но остаётся на модели Claude. Дефолт деплоя с 2026-09-06 —
-        # см. LLM_PROVIDER=openrouter ниже, почему ушли от бесплатного тира.
+        # см. ANTHROPIC_BASE_URL) вместо Claude Agent SDK CLI. Локальная опция, не прод.
         llm = AnthropicAPILiveControlLLM()
     elif llm_provider == "openrouter":
-        # Бесплатная модель через OpenRouter — БЫЛА дефолтом для рутинного тестирования,
-        # откачено 2026-09-06: бесплатный тир отдал 429 посреди живого интервью (квота
-        # исчерпалась в процессе разговора, не сразу), агент замолчал на все следующие
-        # ходы — кандидат решил, что сервис завис, и вышел (см. llm_client.py, retry/
-        # backoff смягчает короткие всплески, но не исчерпание квоты целиком). Оставлен
-        # как явная опция для тестирования без расхода платных токенов, не как дефолт.
+        # Прод-деплой: OpenRouter, модель OPENROUTER_MODEL / google/gemini-2.5-flash.
+        # Не бесплатный тир — см. llm_client.py.
         llm = OpenRouterLiveControlLLM()
     else:
         llm = ClaudeAgentSDKLiveControlLLM()
     engine = LiveContourEngine(interview, llm, events)
 
     stt = lk_openai.STT(
-        base_url=os.environ["STT_BASE_URL"],  # напр. http://localhost:8001/v1 (см. docker-compose.yml)
+        base_url=os.environ["STT_BASE_URL"],  # напр. https://openrouter.ai/api/v1
         api_key=os.environ.get("STT_API_KEY", "not-needed"),
         model=os.environ.get("STT_MODEL", "whisper-1"),
         # Реальный найденный баг: у плагина language по умолчанию "en" — без явного
@@ -294,36 +287,26 @@ async def entrypoint(ctx: JobContext) -> None:
         prompt=_build_stt_prompt(interview.vacancy, interview.questions[0] if interview.questions else None),
     )
 
+    tts_api_key = os.environ.get("TTS_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
+    if not tts_api_key:
+        raise RuntimeError("TTS_API_KEY or OPENROUTER_API_KEY must be set (non-empty)")
+    # voice обязателен у livekit-plugins-openai (дефолт конструктора — "ash").
+    # OpenRouter fish-audio/s1: без voice — 200, ash — 400, alloy — 200 (Э0/проверка
+    # 2026-09-06). Явно шлём alloy, иначе плагин подставит ash и TTS молча умрёт.
+    tts_kwargs: dict[str, str] = {
+        "base_url": os.environ["TTS_BASE_URL"],
+        "api_key": tts_api_key,
+        "model": os.environ.get("TTS_MODEL", "fish-audio/s1"),
+        "voice": os.environ.get("TTS_VOICE") or "alloy",
+    }
+
     session = AgentSession(
         vad=silero.VAD.load(),
         stt=stt,
-        # fishaudio, не lk_openai.TTS — см. docker-compose.yml, сервис tts: Piper не мог
-        # прилично произносить английские термины вперемешку с русским (транслитерация
-        # через espeak-ng), Fish Speech — настоящая мультиязычная акустическая модель,
-        # код-свитчинг звучит естественно. Свой self-hosted сервер (не облако Fish Audio),
-        # но протокол/эндпоинты (POST {base_url}/v1/tts) у OSS-сервера те же, что и у
-        # облака — тот же клиентский плагин работает на оба.
-        #
-        # StreamAdapter — обязателен: плагин всегда объявляет capabilities.streaming=True
-        # (жёстко, не отключается параметром) и поэтому framework вызывает tts.stream(),
-        # который у fishaudio означает WS-эндпоинт /v1/tts/live — тот существует только в
-        # облаке Fish Audio, self-hosted v1.5.1-сервер отдаёт на него голый 404 (реальный
-        # найденный баг, 2026-09-06: "AgentSession is closing due to unrecoverable error").
-        # StreamAdapter извне навязывает синхронный путь — бьёт по HTTP /v1/tts (тот самый,
-        # что действительно есть у сервера) отдельно на каждое предложение.
+        # StreamAdapter оставляем на случай capabilities.streaming=True у openai-плагина
+        # (у 1.8 сейчас streaming=False, но framework может звать tts.stream()).
         tts=lk_tts.StreamAdapter(
-            tts=fishaudio.TTS(
-                base_url=os.environ["TTS_BASE_URL"],  # напр. http://tts:8080 (без /v1 — плагин сам добавляет)
-                # Self-hosted сервер не проверяет ключ — плагин всё равно требует непустую
-                # строку (иначе ValueError), реальный ключ Fish Audio тут не нужен.
-                api_key=os.environ.get("TTS_API_KEY", "not-needed"),
-                # "pushkin" — не UUID из облака Fish Audio (которого на self-hosted сервере
-                # нет), а id референсной папки references/pushkin/ (см. Dockerfile,
-                # ReferenceLoader.load_by_id) — клонирует голос из короткого сэмпла
-                # Russian LibriSpeech (public domain, LibriVox), а не дефолтный спикер
-                # чекпоинта.
-                voice_id=os.environ.get("TTS_VOICE_ID", "pushkin"),
-            ),
+            tts=lk_openai.TTS(**tts_kwargs),
         ),
         # Пауза детектится по VAD (Silero), не через LLM — раздел 3 архитектурного
         # документа: "живая пауза" не должна ждать ещё один сетевой запрос сверху.

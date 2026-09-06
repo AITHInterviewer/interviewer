@@ -28,7 +28,7 @@ from app.models.question import Question
 from app.models.vacancy import Vacancy
 from app.prompts import load_prompt
 
-DEFAULT_MODEL = "minimax/minimax-m3:free"
+DEFAULT_MODEL = "google/gemini-2.5-flash"
 BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 

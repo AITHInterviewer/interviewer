@@ -1,128 +1,23 @@
-# STT/TTS как self-hosted OpenAI-совместимые сервисы для ЖИВОГО контура — LiveKit-плагин
-# `livekit-plugins-openai` умеет ходить на любой OpenAI-совместимый base_url. LLM сюда
-# не входит — он через Claude Agent SDK на подписке (см. src/ainterviewer/llm_client.py).
-#
-# Проверено вживую (история чата): STT отвечает и держит русский. TTS прошёл через два
-# отказа: openedai-speech — нестабилен (падал на XTTS, UnboundLocalError) и без русских
-# голосов по умолчанию; Silero (dexogen/silero-tts-api) — сервис рабочий, но веса качаются
-# с models.silero.ai, а этот хост ненадёжен независимо у автора и у пользователя (разные
-# сети, одна и та же ConnectionRefused/timeout). Остановились на speaches.ai (Piper) —
-# голоса лежат на HuggingFace (speaches-ai/piper-ru_RU-*), тот же хост, что уже
-# подтверждённо работает для STT. Сравнение альтернатив — README.md, раздел «TTS».
-#
-# ВАЖНО про модель STT здесь: это ЖИВОЙ контур с бюджетом в единицы секунд — измерили
-# вживую, что `large-v3-turbo` на CPU даёт 20–30+ сек/реплику даже прогретым (float16→
-# float32 фолбэк без GPU), это и стало причиной "агент перестал отвечать". Большая точная
-# модель была законным местом только evaluation-agent (см. ../evaluation-agent/docker-compose.yml),
-# не сюда — ЭТО БЫЛО ВЕРНО ДО GPU. С 2026-09-05 раннер имеет рабочую NVIDIA GPU (RTX 5070 Ti,
-# 16GB, `docker run --gpus all` подтверждён вживую), поэтому `large-v3` (не turbo — файл уже
-# скачан) теперь запускается явно на `cuda`/`float16` (см. `stt.environment` ниже), а не на CPU.
-# WHISPER__INFERENCE_DEVICE/WHISPER__COMPUTE_TYPE заданы ЯВНО (не `auto`) намеренно: именно
-# молчаливый фолбэк float16->float32-CPU (описанный абзацем выше) и был причиной зависания —
-# явные значения означают громкий отказ, если GPU в контейнере вдруг недоступна, вместо
-# повторения того же "агент перестал отвечать" без единой ошибки в логах.
+# Live-контур: LLM, STT и TTS через OpenRouter (OpenAI-совместимый API).
+# Self-hosted GPU STT/TTS сняты — на VPS нет GPU, веса Fish Speech на Windows-пути
+# туда не переезжают. URL и ключи — в .env (см. .env.example), не в environment:
+# этот блок имеет приоритет над env_file и уже был причиной ConnectionRefusedError
+# (2026-09-06), когда деплой переписывал только .env.
 
 services:
   live-agent:
     build: .
+    restart: unless-stopped
     env_file:
       - path: .env
         required: false
-    environment:
-      # Внутри docker-сети — по имени сервиса, не localhost (тот действует только при
-      # локальном запуске .venv-процессом на хосте, см. .env.example). ВАЖНО: этот блок
-      # имеет приоритет над env_file — реальный найденный баг (2026-09-06), значение TTS_BASE_URL
-      # здесь оставалось на старом Piper-порту 8000 ещё три деплоя после смены live-agent/.env
-      # на Fish Speech (8080), потому что deploy-full.yml переписывает только .env, не этот
-      # файл — агент продолжал ловить ConnectionRefusedError на каждую реплику молча.
-      - STT_BASE_URL=http://stt:8000/v1
-      - TTS_BASE_URL=http://tts:8080
-    volumes:
-      # Claude Agent SDK запускает `claude` CLI подпроцессом (см. Dockerfile) — креды
-      # подписки (`claude login`, разово на хосте, НЕ в образе) читает отсюда.
-      # CLAUDE_CONFIG_DIR — путь к `~/.claude` того пользователя, под которым логинились;
-      # без переопределения — обычный домашний `~/.claude` (типично для локальной
-      # разработки на Linux/Mac).
-      - ${CLAUDE_CONFIG_DIR:-~/.claude}:/root/.claude:ro
-    depends_on:
-      - stt
-      - tts
-    # ainterviewer-shared — общая сеть с infra/docker-compose.yml (livekit-server, redis),
-    # отдельный compose-проект по умолчанию сидит в своей сети. Позволяет обращаться к
-    # ним по имени сервиса (livekit-server:7880, redis:6379) напрямую, без похода через
-    # опубликованные хостовые порты — раньше это было причиной "wait_pc_connection timed
-    # out" (см. infra/livekit.yaml). default — иначе теряется связь с stt/tts.
+    # ainterviewer-shared — общая сеть с infra/docker-compose.yml (livekit-server, redis,
+    # backend). Отдельный compose-проект по умолчанию сидит в своей сети.
     networks:
       default:
       ainterviewer-shared:
     # Реальный деплой — LiveKit-воркер, слушает job'ы по сети (см. Dockerfile, CMD
-    # "start"), не привязан к портам. Не проверено вживую (нужен реальный livekit-server).
-
-  stt:
-    image: fedirz/faster-whisper-server:latest-cuda
-    ports:
-      - "3905:8000"
-    environment:
-      # large-v3 на GPU (см. докстринг в шапке файла) — модель уже скачана на раннере,
-      # calling session положит файл в кэш тем же способом, что и irina/ruslan для TTS.
-      - WHISPER__MODEL=Systran/faster-whisper-large-v3
-      # Явно cuda/float16 (не auto) — см. докстринг в шапке файла: молчаливый фолбэк на
-      # CPU float32 был реальным зафиксированным инцидентом ("агент перестал отвечать").
-      - WHISPER__INFERENCE_DEVICE=cuda
-      - WHISPER__COMPUTE_TYPE=float16
-      # Тот же CDN-баг, что и у TTS ниже (xet-транспорт huggingface_hub падает с TLS
-      # handshake eof на этой сети) — large-v3 тоже реально качается с HF, не только
-      # Piper-голоса.
-      - HF_HUB_DISABLE_XET=1
-      - HF_HUB_DOWNLOAD_TIMEOUT=60
-      # HF_HUB_OFFLINE=1 намеренно НЕ включаем: реальный найденный баг (2026-09-05) —
-      # stt-cache на этом раннере ещё пустой (новый volume), а офлайн-режим блокирует
-      # ЛЮБОЙ сетевой вызов huggingface_hub, включая /v1/models (просто список моделей,
-      # без скачивания) — сервер падал 500 на каждый запрос с
-      # `huggingface_hub.errors.OfflineModeIsEnabled`, модель вообще не могла ни разу
-      # скачаться. Включать обратно можно только после того, как model.onnx/бинарник
-      # уже реально лежит в кэше (см. irina/ruslan-прецедент для TTS).
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    volumes:
-      - stt-cache:/root/.cache/huggingface
-
-  tts:
-    # Piper/speaches (и -cpu, и -cuda) откинули: правильно произносит русский, но грубо
-    # коверкает вставки английских терминов (транслитерация через espeak-ng-фонемизацию,
-    # не настоящая мультиязычная акустическая модель) — реальная жалоба на качество для
-    # технического интервью (2026-09-05/06). Fish Speech v1.5.1 — мультиязычная модель,
-    # код-свитчинг RU+EN в одном предложении звучит естественно, без транслитерации.
-    # Свой образ (не готовый с ghcr/docker hub — upstream не публикует его сам), собран из
-    # официального репо fish-speech с минимальным патчем (см. docker/fish-speech/) —
-    # опциональный импорт funasr (нужен только для ASR-режима, который мы не используем) и
-    # torch.compile mode="default" вместо "reduce-overhead" (CUDA Graph capture ловил
-    # "accessing tensor output of CUDAGraphs that has been overwritten" на этом GPU).
-    build:
-      context: .
-      dockerfile: docker/fish-speech/Dockerfile
-    ports:
-      - "3906:8080"
-    volumes:
-      # Чекпойнты (веса модели, ~1.4GB) — общий с другим проектом путь на этом раннере,
-      # не наш deploy их не качает и не хранит. checkpoints/fish-speech-1.5/... — путь,
-      # который ждёт CMD в Dockerfile (--llama-checkpoint-path/--decoder-checkpoint-path).
-      - C:\ai-interviewer-assets\fish-speech-1.5:/opt/fish-speech/checkpoints/fish-speech-1.5:ro
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-
-volumes:
-  stt-cache:
+    # "start"), не привязан к портам.
 
 networks:
   # Создаётся один раз (`docker network create ainterviewer-net`) до `up` обоих
