@@ -52,10 +52,18 @@
    приняты явно, см. историю в README.
    Исключение (2026-09-06, явный запрос пользователя): CLI-харнесс Claude Agent SDK даёт
    5-19с на ход даже с переиспользуемым `ClaudeSDKClient` — неприемлемо при требовании
-   2-3с. Добавлен опциональный `MistralLiveControlLLM` (`llm_client.py`), прямой REST к
-   Mistral API — включается `LLM_PROVIDER=mistral` в `live-agent/.env`
-   (`MISTRAL_API_KEY`/`MISTRAL_MODEL` тоже оттуда). Дефолт при отсутствии `LLM_PROVIDER`
-   остаётся Claude Agent SDK — это проба, не отмена решения из этого пункта.
+   2-3с. Добавлены опциональные альтернативы в `llm_client.py`, переключаются
+   `LLM_PROVIDER` в `live-agent/.env`:
+     - `mistral` — `MistralLiveControlLLM`, прямой REST к Mistral API. Пробовали и
+       откатили: бесплатный ключ отдавал 429 на каждый вызов (нулевая квота).
+     - `openrouter` — `OpenRouterLiveControlLLM`, бесплатная модель через OpenRouter
+       (дефолт `google/gemini-2.0-flash-exp:free`) — для рутинного тестирования интервью,
+       не тратит платные токены.
+     - `anthropic_api` — `AnthropicAPILiveControlLLM`, прямой Anthropic Messages API
+       (сам api.anthropic.com или купленный прокси через `ANTHROPIC_BASE_URL`) — для
+       демо, платный, поэтому не включается по умолчанию в деплое.
+   Дефолт при отсутствии `LLM_PROVIDER` остаётся Claude Agent SDK — это проба, не отмена
+   решения из этого пункта.
 
 9. **Любое изменение `state_machine.py` — с тестом.** `tests/test_state_machine.py`
    называет тесты по конкретной ветке из раздела 2.3.1 архитектурного документа. Новая

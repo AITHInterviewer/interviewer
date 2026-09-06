@@ -1,11 +1,13 @@
-"""MistralLiveControlLLM — без сети, httpx.MockTransport вместо реального API."""
+"""LLM-клиенты (Mistral/OpenRouter/Anthropic API) — без сети и без реальных ключей,
+httpx.MockTransport вместо настоящего API. Намеренно НЕ используем купленные ключи из
+секретов даже в CI — только фейковые "test-key"."""
 
 import json
 
 import httpx
 import pytest
 
-from ainterviewer.llm_client import MistralLiveControlLLM
+from ainterviewer.llm_client import AnthropicAPILiveControlLLM, MistralLiveControlLLM, OpenRouterLiveControlLLM
 from ainterviewer.schema import Decision, GapType
 
 
@@ -58,3 +60,50 @@ async def test_decide_raises_on_invalid_json():
 
     with pytest.raises(Exception):
         await llm.decide("система", "вопрос")
+
+
+async def test_openrouter_decide_parses_response():
+    """OpenRouterLiveControlLLM использует тот же протокол, что и Mistral (общая база
+    _OpenAICompatibleLiveControlLLM) — проверяем, что подстановка сработала."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = {"decision": "ambiguous", "gap_type": None, "utterance": "Что-то добавите?", "reasoning": "коротко"}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(payload)}}]})
+
+    llm = OpenRouterLiveControlLLM(model="google/gemini-2.0-flash-exp:free", api_key="test-key")
+    llm._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    result = await llm.decide("система", "вопрос")
+
+    assert result.decision == Decision.AMBIGUOUS
+    assert result.utterance == "Что-то добавите?"
+
+
+async def test_anthropic_api_decide_parses_tool_use_response():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "decide",
+                        "input": {
+                            "decision": "gap",
+                            "gap_type": "leading_hint",
+                            "utterance": "Подскажу один момент.",
+                            "reasoning": "кандидат не знает",
+                        },
+                    }
+                ]
+            },
+        )
+
+    llm = AnthropicAPILiveControlLLM(model="claude-haiku-4-5", api_key="test-key", base_url="https://example.invalid")
+    llm._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    result = await llm.decide("система", "вопрос")
+
+    assert result.decision == Decision.GAP
+    assert result.gap_type == GapType.LEADING_HINT
+    assert result.utterance == "Подскажу один момент."

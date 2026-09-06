@@ -127,17 +127,18 @@ class ClaudeAgentSDKLiveControlLLM(LiveControlLLM):
         return LiveControlDecision.model_validate(json.loads(raw))
 
 
-class MistralLiveControlLLM(LiveControlLLM):
-    """Прямой REST-вызов Mistral Chat Completions вместо Claude Agent SDK CLI — убирает
-    накладные расходы харнесса (см. докстринг модуля): один `httpx`-запрос без
-    подпроцесса. `response_format: json_object` у Mistral не принимает JSON-схему (в
-    отличие от `output_format` Claude Agent SDK) — схема ответа добавляется текстом в
-    system prompt, а `LiveControlDecision.model_validate()` сам проверяет результат.
+class _OpenAICompatibleLiveControlLLM(LiveControlLLM):
+    """База для любого OpenAI-совместимого `/chat/completions` (Mistral, OpenRouter, ...)
+    вместо Claude Agent SDK CLI — убирает накладные расходы харнесса (см. докстринг
+    модуля): один `httpx`-запрос без подпроцесса. `response_format: json_object` не
+    принимает JSON-схему (в отличие от `output_format` Claude Agent SDK или tool-use
+    Anthropic) — схема ответа добавляется текстом в system prompt, а
+    `LiveControlDecision.model_validate()` сам проверяет результат.
 
     Без сессии/подпроцесса между ходами — `reset()` не держит состояния, каждый вызов
     независим (обычный stateless HTTP-клиент)."""
 
-    BASE_URL = "https://api.mistral.ai/v1/chat/completions"
+    BASE_URL: str
 
     _SCHEMA_HINT = """\
 
@@ -151,9 +152,9 @@ JSON, ровно с такими полями:
 }
 gap_type обязателен (не null), только если decision="gap"."""
 
-    def __init__(self, model: str | None = None, api_key: str | None = None):
-        self.model = model or os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
-        self.api_key = api_key or os.environ["MISTRAL_API_KEY"]
+    def __init__(self, model: str, api_key: str):
+        self.model = model
+        self.api_key = api_key
         self._client = httpx.AsyncClient(timeout=20.0)
 
     async def decide(self, system_prompt: str, turn_prompt: str) -> LiveControlDecision:
@@ -173,6 +174,81 @@ gap_type обязателен (не null), только если decision="gap".
         response.raise_for_status()
         raw = response.json()["choices"][0]["message"]["content"]
         return LiveControlDecision.model_validate(json.loads(raw))
+
+
+class MistralLiveControlLLM(_OpenAICompatibleLiveControlLLM):
+    BASE_URL = "https://api.mistral.ai/v1/chat/completions"
+
+    def __init__(self, model: str | None = None, api_key: str | None = None):
+        super().__init__(
+            model=model or os.environ.get("MISTRAL_MODEL", "mistral-small-latest"),
+            api_key=api_key or os.environ["MISTRAL_API_KEY"],
+        )
+
+
+class OpenRouterLiveControlLLM(_OpenAICompatibleLiveControlLLM):
+    """Для рутинного тестирования (2026-09-06, явный запрос пользователя) — платный
+    Anthropic-ключ (`AnthropicAPILiveControlLLM`) бережём под демо, а не тратим на каждый
+    тестовый прогон интервью. Дефолтная модель — бесплатный тир OpenRouter."""
+
+    BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+    def __init__(self, model: str | None = None, api_key: str | None = None):
+        super().__init__(
+            model=model or os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free"),
+            api_key=api_key or os.environ["OPENROUTER_API_KEY"],
+        )
+
+
+class AnthropicAPILiveControlLLM(LiveControlLLM):
+    """Прямой вызов Anthropic Messages API (`/v1/messages`) вместо Claude Agent SDK CLI —
+    убирает тот же харнесс-оверхед, что и `MistralLiveControlLLM`, но остаётся на модели
+    Claude и получает structured output нативно через принудительный tool-use (`tool_choice`
+    с единственным тулом `decide`, `input_schema` = JSON-схема `LiveControlDecision`) —
+    надёжнее, чем просить JSON текстом в промпте (см. `MistralLiveControlLLM`): Anthropic
+    сам гарантирует, что `tool_use.input` соответствует схеме, не нужно парсить/чинить текст.
+
+    `base_url`/`api_key` берутся из `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` — это может
+    быть не сам api.anthropic.com, а Anthropic-совместимый прокси (см. `ANTHROPIC_BASE_URL`
+    в `~/.claude/settings.json` Claude Code — тот же механизм). Как и Mistral-клиент, без
+    сессии между ходами — `reset()` no-op."""
+
+    DEFAULT_BASE_URL = "https://api.anthropic.com"
+    ANTHROPIC_VERSION = "2023-06-01"
+    TOOL_NAME = "decide"
+
+    def __init__(self, model: str | None = None, api_key: str | None = None, base_url: str | None = None):
+        self.model = model or os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
+        self.api_key = api_key or os.environ["ANTHROPIC_API_KEY"]
+        self.base_url = (base_url or os.environ.get("ANTHROPIC_BASE_URL", self.DEFAULT_BASE_URL)).rstrip("/")
+        self._client = httpx.AsyncClient(timeout=20.0)
+
+    async def decide(self, system_prompt: str, turn_prompt: str) -> LiveControlDecision:
+        response = await self._client.post(
+            f"{self.base_url}/v1/messages",
+            headers={
+                "x-api-key": self.api_key,
+                "anthropic-version": self.ANTHROPIC_VERSION,
+            },
+            json={
+                "model": self.model,
+                "max_tokens": 512,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": turn_prompt}],
+                "tools": [
+                    {
+                        "name": self.TOOL_NAME,
+                        "description": "Зафиксировать решение по текущему ходу интервью.",
+                        "input_schema": LiveControlDecision.model_json_schema(),
+                    }
+                ],
+                "tool_choice": {"type": "tool", "name": self.TOOL_NAME},
+            },
+        )
+        response.raise_for_status()
+        content = response.json()["content"]
+        tool_use = next(block for block in content if block["type"] == "tool_use")
+        return LiveControlDecision.model_validate(tool_use["input"])
 
 
 class FakeLLM(LiveControlLLM):

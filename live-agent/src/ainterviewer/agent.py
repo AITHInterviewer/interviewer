@@ -51,7 +51,13 @@ from livekit.plugins import silero
 from .control_bridge import RedisEventSink
 from .echo_filter import is_likely_echo
 from .events import EventLog, EventSink
-from .llm_client import ClaudeAgentSDKLiveControlLLM, LiveControlLLM, MistralLiveControlLLM
+from .llm_client import (
+    AnthropicAPILiveControlLLM,
+    ClaudeAgentSDKLiveControlLLM,
+    LiveControlLLM,
+    MistralLiveControlLLM,
+    OpenRouterLiveControlLLM,
+)
 from .prompts import INTRO_PHRASE
 from .schema import InterviewInput
 from .state_machine import LiveContourEngine
@@ -216,10 +222,21 @@ async def entrypoint(ctx: JobContext) -> None:
         sinks=_build_event_sinks(interview.interview_id),
     )
     llm: LiveControlLLM
-    if os.environ.get("LLM_PROVIDER", "claude_sdk") == "mistral":
+    llm_provider = os.environ.get("LLM_PROVIDER", "claude_sdk")
+    if llm_provider == "mistral":
         # Прямой REST к Mistral вместо Claude Agent SDK CLI — обходит харнесс-накладные
         # расходы, см. llm_client.py. Опционально, включается явно (LLM_PROVIDER=mistral).
         llm = MistralLiveControlLLM()
+    elif llm_provider == "anthropic_api":
+        # Прямой Anthropic Messages API (сам api.anthropic.com или совместимый прокси,
+        # см. ANTHROPIC_BASE_URL) вместо Claude Agent SDK CLI — та же цель, что у
+        # MistralLiveControlLLM, но остаётся на модели Claude. Платный ключ — бережём под
+        # демо, для рутинного тестирования см. LLM_PROVIDER=openrouter.
+        llm = AnthropicAPILiveControlLLM()
+    elif llm_provider == "openrouter":
+        # Бесплатная модель через OpenRouter — для рутинного тестирования интервью, не
+        # тратит платные Anthropic-токены, отложенные под демо.
+        llm = OpenRouterLiveControlLLM()
     else:
         llm = ClaudeAgentSDKLiveControlLLM()
     engine = LiveContourEngine(interview, llm, events)

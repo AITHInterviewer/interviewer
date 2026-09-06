@@ -216,16 +216,27 @@ jobs:
 
       - name: Write live-agent/.env
         # LLM_PROVIDER=mistral пробовали 2026-09-06 (см. llm_client.py, CLAUDE.md п.8) —
-        # откачено обратно: бесплатный ключ Mistral вернул 429 Too Many Requests на КАЖДЫЙ
-        # вызов с первой же попытки (нулевая квота/неактивированный аккаунт, не всплеск
-        # нагрузки) — бот всю сессию молчал. MISTRAL_API_KEY — секрет репозитория, не
-        # хардкодим значение в workflow; оставлен закомментированным до следующей попытки.
+        # откачено: бесплатный ключ Mistral вернул 429 на КАЖДЫЙ вызов с первой попытки
+        # (нулевая квота, не всплеск нагрузки) — бот всю сессию молчал.
+        # LLM_PROVIDER=anthropic_api — прямой Anthropic Messages API через купленный
+        # прокси-ключ (ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY, секреты репозитория), убирает
+        # харнесс-накладные расходы Claude Agent SDK CLI (5-19с/ход). Платный — держим
+        # закомментированным и включаем вручную только на время демо, чтобы не жечь
+        # купленные токены на рутинных тестовых прогонах.
+        # LLM_PROVIDER=openrouter (по умолчанию для деплоя) — бесплатная модель через
+        # OpenRouter для обычного тестирования интервью.
         env:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
           LLM_MODEL=claude-haiku-4-5
+          LLM_PROVIDER=openrouter
+          ANTHROPIC_MODEL=claude-haiku-4-5
           MISTRAL_MODEL=mistral-small-latest
+          OPENROUTER_MODEL=google/gemini-2.0-flash-exp:free
           STT_BASE_URL=http://stt:8000/v1
           TTS_BASE_URL=http://tts:8080
           STT_API_KEY=not-needed
@@ -240,6 +251,9 @@ jobs:
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret
           '@
+          Add-Content -Path live-agent/.env -Encoding utf8 -Value "ANTHROPIC_API_KEY=$env:ANTHROPIC_API_KEY"
+          Add-Content -Path live-agent/.env -Encoding utf8 -Value "OPENROUTER_API_KEY=$env:OPENROUTER_API_KEY"
+          Add-Content -Path live-agent/.env -Encoding utf8 -Value "ANTHROPIC_BASE_URL=$env:ANTHROPIC_BASE_URL"
           Add-Content -Path live-agent/.env -Encoding utf8 -Value "MISTRAL_API_KEY=$env:MISTRAL_API_KEY"
 
       - name: Obtain/renew TLS certificate (Let's Encrypt via DuckDNS DNS-01)
