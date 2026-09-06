@@ -67,18 +67,23 @@ jobs:
       - name: DB state (alembic head, interview_event schema, stuck interviews)
         if: ${{ github.event.inputs.probe != 'false' }}
         run: |
+          set +e
           main=(--project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml -f docker-compose.vps.yml)
-          psql() { docker compose "${main[@]}" exec -T -e PGPASSWORD=ainterviewer postgres \
-            psql -U ainterviewer -d ainterviewer -X -A -F' | ' "$@"; }
-
-          echo "--- alembic_version (ожидаем >= 20260906_000006) ---"
-          psql -c "select version_num from alembic_version;" || true
-          echo "--- interview_event: есть ли source_event_id ---"
-          psql -c "select column_name from information_schema.columns where table_name='interview_event' order by 1;" || true
-          echo "--- interview: статусы за сутки ---"
-          psql -c "select id, status, product_state, created_at, completed_at from interview where created_at > now() - interval '24 hours' order by created_at desc;" || true
-          echo "--- evaluation_job ---"
-          psql -c "select interview_id, status, attempts, last_error from evaluation_job order by created_at desc limit 10;" || true
+          runq() {
+            echo "--- $1 ---"
+            docker compose "${main[@]}" exec -T postgres \
+              psql -U ainterviewer -d ainterviewer -X -A -F' | ' -c "$2" 2>&1
+          }
+          runq "alembic_version (ждём голову цепочки — 20260907_000001)" \
+            "select version_num from alembic_version;"
+          runq "interview_event columns (ждём source_event_id)" \
+            "select column_name from information_schema.columns where table_name='interview_event' order by 1;"
+          runq "interview — статусы за сутки" \
+            "select id, status, product_state, created_at, completed_at from interview where created_at > now() - interval '24 hours' order by created_at desc;"
+          runq "evaluation_job" \
+            "select interview_id, status, attempts, last_error from evaluation_job order by created_at desc limit 10;"
+          echo "--- backend: последние строки alembic при старте ---"
+          docker compose "${main[@]}" logs --no-color backend 2>&1 | grep -iE "alembic|revision|running upgrade|target database|FAILED|ERROR" | tail -30
 
       # Голос и распознавание переехали в OpenRouter (docs/infra/vps-openrouter-migration.md),
       # и «агент молчит» отличается от «агент не слышит» только тем, какая из двух облачных
