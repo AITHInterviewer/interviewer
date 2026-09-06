@@ -12,12 +12,6 @@ export type DeviceCheckStatus = "idle" | "checking" | "granted" | "denied";
  * декоративно. */
 const BAR_COUNT = 12;
 
-const MIC_AUDIO_CONSTRAINTS = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-} as const;
-
 type DeviceCheckProps = {
   /** Вызывается один раз, когда кандидат явно подтвердил выбор устройств кнопкой
    * «Начать интервью» — сигнал наверх, что можно переходить к интервью
@@ -31,45 +25,19 @@ type DeviceCheckProps = {
 const CAN_SELECT_OUTPUT_DEVICE =
   typeof window !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
 
-function micErrorMessage(cause: unknown): string | null {
-  const name = cause instanceof DOMException ? cause.name : "";
-  if (name === "NotFoundError") {
-    return "Микрофон не найден на этом устройстве.";
-  }
-  if (name === "NotReadableError") {
-    return "Микрофон уже используется другим приложением.";
-  }
-  if (name === "NotAllowedError") {
-    return null;
-  }
-  return cause instanceof Error ? cause.message : "Неизвестная ошибка.";
-}
-
-function cameraHint(cause: unknown): string {
-  const name = cause instanceof DOMException ? cause.name : "";
-  if (name === "NotFoundError") {
-    return "Камера не найдена. Интервью можно пройти без неё.";
-  }
-  if (name === "NotReadableError") {
-    return "Камера занята другим приложением. Интервью можно пройти без неё.";
-  }
-  if (name === "NotAllowedError") {
-    return "Камера не включена. Интервью можно пройти без неё.";
-  }
-  return "Камеру включить не получилось. Интервью можно пройти без неё.";
-}
-
 /**
- * Проверка микрофона (обязательно) и камеры (по желанию). На экране setup в
- * `InterviewFlow.tsx`: после согласия сразу запрашивается только микрофон
- * (`getUserMedia({ audio })`), камера — отдельной кнопкой «Включить камеру»;
- * отказ камеры не блокирует интервью.
+ * Проверка камеры/микрофона (FR-002/FR-013) — на том же экране, что и согласие
+ * (см. `InterviewFlow.tsx`), не отдельный шаг: запрашивает доступ только по явному
+ * клику «Разрешить доступ» (FR-001 — camera/mic не запрашиваются до подтверждения
+ * согласия), показывает превью видео + индикатор уровня микрофона через Web Audio
+ * AnalyserNode + выбор конкретного устройства (если их несколько). При отказе — вместо
+ * повторного авто-запроса (браузер после явного Block больше не показывает системный
+ * диалог из JS вообще) объясняет, что доступ нужно вернуть в настройках сайта в самом
+ * браузере — «Запросить снова» пробует, но чаще всего сработает только после этого.
  */
 export function DeviceCheck({ onGranted }: DeviceCheckProps) {
   const [status, setStatus] = useState<DeviceCheckStatus>("idle");
   const [errorReason, setErrorReason] = useState<string | null>(null);
-  const [cameraOn, setCameraOn] = useState(false);
-  const [cameraNote, setCameraNote] = useState<string | null>(null);
   const [micLevel, setMicLevel] = useState(0);
   const [barLevels, setBarLevels] = useState<number[]>(() => Array(BAR_COUNT).fill(0));
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
@@ -107,6 +75,8 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       source.connect(analyser);
 
       const data = new Uint8Array(analyser.frequencyBinCount);
+      // Отдельный буфер для реального спектра — рисует `.wave-bars` тем же анализатором,
+      // что и RMS-уровень выше, вместо декоративной фейковой анимации.
       const freqData = new Uint8Array(analyser.frequencyBinCount);
       const tick = () => {
         analyser.getByteTimeDomainData(data);
@@ -128,6 +98,8 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     [stopMicLevelLoop],
   );
 
+  /** Список устройств доступен (с человекочитаемыми названиями) только после выдачи
+   * разрешения — до этого label у всех пустой. Вызывается после успешного acquire(). */
   const refreshDeviceList = useCallback(async () => {
     const devices = await navigator.mediaDevices.enumerateDevices();
     setCameras(devices.filter((d) => d.kind === "videoinput"));
@@ -139,71 +111,58 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     }
   }, []);
 
-  const attachVideoTrack = useCallback((stream: MediaStream, videoTrack: MediaStreamTrack) => {
-    for (const oldTrack of stream.getVideoTracks()) {
-      stream.removeTrack(oldTrack);
-      oldTrack.stop();
-    }
-    stream.addTrack(videoTrack);
-    setCameraId(videoTrack.getSettings().deviceId ?? "");
-    setCameraOn(true);
-    setCameraNote(null);
-  }, []);
-
-  const tryEnableCamera = useCallback(
-    async (stream: MediaStream, announceFailure: boolean) => {
-      try {
-        const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
-        const videoTrack = videoStream.getVideoTracks()[0];
-        if (videoTrack) {
-          attachVideoTrack(stream, videoTrack);
-        }
-        for (const extra of videoStream.getAudioTracks()) {
-          extra.stop();
-        }
-      } catch (cause) {
-        setCameraOn(stream.getVideoTracks().length > 0);
-        if (announceFailure) {
-          setCameraNote(cameraHint(cause));
-        }
-      }
-    },
-    [attachVideoTrack],
-  );
-
-  /** Запрос только микрофона — камера не запрашивается следом. */
-  const acquireMic = useCallback(async () => {
+  /** Запрос доступа к камере/микрофону. Согласие на запись кандидат уже дал на
+   * предыдущем экране (ConsentStage в InterviewFlow.tsx), поэтому здесь системный
+   * диалог браузера запрашивается сразу при переходе на этот экран, без
+   * промежуточного экрана-заглушки с кнопкой. */
+  const acquire = useCallback(async () => {
     setStatus("checking");
-    setErrorReason(null);
-    setCameraNote(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: MIC_AUDIO_CONSTRAINTS,
+        video: true,
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
-      const previous = streamRef.current;
-      if (previous && previous !== stream) {
-        previous.getTracks().forEach((track) => track.stop());
-      }
       streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
       startMicLevelLoop(stream);
+      setCameraId(stream.getVideoTracks()[0]?.getSettings().deviceId ?? "");
       setMicrophoneId(stream.getAudioTracks()[0]?.getSettings().deviceId ?? "");
-      setCameraOn(false);
       setStatus("granted");
       await refreshDeviceList();
     } catch (cause) {
-      setErrorReason(micErrorMessage(cause));
+      // Разрешение на сайт в браузере может быть выдано (зелёные тумблеры в настройках
+      // сайта), а getUserMedia всё равно упадёт — например, если у устройства физически
+      // нет камеры/микрофона (NotFoundError, частый случай для RDP-сессии без проброса
+      // видео) или устройство занято другим приложением (NotReadableError). Показываем
+      // реальную причину вместо одного общего "нет доступа" на все случаи.
+      const name = cause instanceof DOMException ? cause.name : "";
+      setErrorReason(
+        name === "NotFoundError"
+          ? "Камера или микрофон не найдены на этом устройстве."
+          : name === "NotReadableError"
+            ? "Камера или микрофон уже используются другим приложением."
+            : name === "NotAllowedError"
+              ? null // штатный кейс ниже — про разрешение браузера
+              : cause instanceof Error
+                ? cause.message
+                : "Неизвестная ошибка.",
+      );
       setStatus("denied");
     }
   }, [refreshDeviceList, startMicLevelLoop]);
 
-  const acquireCamera = useCallback(async () => {
-    const stream = streamRef.current;
-    if (!stream) return;
-    setCameraNote(null);
-    await tryEnableCamera(stream, true);
-    await refreshDeviceList();
-  }, [refreshDeviceList, tryEnableCamera]);
+  useEffect(() => {
+    void acquire();
+    // Запрашиваем один раз при монтировании экрана — acquire меняется только по
+    // ссылкам на стабильные callbacks, повторный вызов эффекта не нужен.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  /** Переключение на конкретно выбранную камеру/микрофон — заменяет трек нужного вида
+   * прямо в существующем `MediaStream` (не создаёт новый объект), чтобы ссылка на поток
+   * оставалась стабильной для остального дерева компонентов. */
   const switchDevice = useCallback(
     async (kind: "video" | "audio", deviceId: string) => {
       const stream = streamRef.current;
@@ -211,10 +170,9 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       const constraints: MediaStreamConstraints =
         kind === "video"
           ? { video: { deviceId: { exact: deviceId } } }
-          : { audio: { deviceId: { exact: deviceId }, ...MIC_AUDIO_CONSTRAINTS } };
+          : { audio: { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true } };
       const replacement = await navigator.mediaDevices.getUserMedia(constraints);
       const newTrack = kind === "video" ? replacement.getVideoTracks()[0] : replacement.getAudioTracks()[0];
-      if (!newTrack) return;
       const oldTracks = kind === "video" ? stream.getVideoTracks() : stream.getAudioTracks();
       for (const oldTrack of oldTracks) {
         stream.removeTrack(oldTrack);
@@ -223,17 +181,15 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       stream.addTrack(newTrack);
 
       if (kind === "video" && videoRef.current) {
+        // Переприсваиваем srcObject — иначе некоторые браузеры не подхватывают
+        // добавленный/удалённый трек в уже отрендеренном <video>.
         videoRef.current.srcObject = stream;
       }
       if (kind === "audio") {
         startMicLevelLoop(stream);
       }
-      if (kind === "video") {
-        setCameraId(deviceId);
-        setCameraOn(true);
-      } else {
-        setMicrophoneId(deviceId);
-      }
+      if (kind === "video") setCameraId(deviceId);
+      else setMicrophoneId(deviceId);
     },
     [startMicLevelLoop],
   );
@@ -241,18 +197,14 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
   const handedOffRef = useRef(false);
 
   const confirm = useCallback(() => {
-    const stream = streamRef.current;
-    if (!stream || stream.getAudioTracks().length === 0) return;
+    if (!streamRef.current) return;
+    // Стрим уходит в интервью дальше жить — размонтирование этого компонента (которое
+    // сейчас и произойдёт) не должно останавливать его треки, иначе камера/микрофон
+    // гаснут прямо в момент перехода (индикатор записи браузера пропадает, агент не
+    // получает аудио).
     handedOffRef.current = true;
-    onGranted(stream, CAN_SELECT_OUTPUT_DEVICE ? speakerId || null : null);
+    onGranted(streamRef.current, CAN_SELECT_OUTPUT_DEVICE ? speakerId || null : null);
   }, [onGranted, speakerId]);
-
-  useEffect(() => {
-    const stream = streamRef.current;
-    const video = videoRef.current;
-    if (!video || !stream || !cameraOn) return;
-    video.srcObject = stream;
-  }, [cameraOn, status]);
 
   useEffect(
     () => () => {
@@ -264,108 +216,71 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     [stopMicLevelLoop],
   );
 
-  if (status === "idle") {
-    return (
-      <ScreenState
-        kind="empty"
-        title="Нужен микрофон"
-        text="Для голосовых ответов разрешите микрофон. Камера не обязательна — интервью можно пройти без неё."
-        action={
-          <Button type="button" onClick={() => void acquireMic()}>
-            Разрешить микрофон
-          </Button>
-        }
-      />
-    );
-  }
-
-  if (status === "checking") {
-    return (
-      <ScreenState
-        kind="loading"
-        title="Запрашиваем доступ к микрофону…"
-        text="Разрешите доступ в диалоге браузера. Камера не обязательна."
-      />
-    );
+  if (status === "idle" || status === "checking") {
+    return <ScreenState kind="loading" title="Запрашиваем доступ к камере и микрофону…" text="Разрешите доступ в диалоге браузера." />;
   }
 
   if (status === "denied") {
     return (
       <ScreenState
         kind="error"
-        title="Нет доступа к микрофону"
+        title="Нет доступа к камере или микрофону"
         text={
           errorReason ??
-          "Похоже, доступ к микрофону уже был отклонён раньше — из кода браузер больше не показывает системный " +
-            "запрос повторно. Разрешите микрофон для этого сайта в настройках браузера " +
-            "(обычно значок замка слева от адресной строки) и нажмите «Запросить микрофон снова»."
+          "Похоже, доступ уже был отклонён раньше — из кода браузер больше не показывает системный " +
+            "запрос повторно. Разрешите камеру и микрофон для этого сайта в настройках браузера " +
+            "(обычно значок замка/камеры слева от адресной строки) и нажмите «Запросить снова»."
         }
         action={
-          <Button type="button" onClick={() => void acquireMic()}>
-            Запросить микрофон снова
+          <Button type="button" onClick={() => void acquire()}>
+            Запросить доступ снова
           </Button>
         }
       />
     );
   }
 
-  const readyLabel = cameraOn
-    ? "Микрофон и камера готовы"
-    : "Микрофон готов. Камера выключена — это нормально.";
-
   return (
     <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-      <div className="sm:col-start-1 sm:row-start-1">
-        {cameraOn ? (
-          <div className="aspect-video w-full overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface-muted)]">
-            <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
-          </div>
-        ) : (
-          <div className="camera-mini aspect-video w-full justify-center">
-            <span>Камера не обязательна. Интервью можно пройти без неё.</span>
-            <Button type="button" variant="secondary" onClick={() => void acquireCamera()}>
-              Включить камеру
-            </Button>
-          </div>
-        )}
-        {cameraNote ? <p className="field__error mt-2">{cameraNote}</p> : null}
+      {/* Настоящая таблица 2×2 с общими границами строк (а не две независимые колонки):
+          видео и список устройств — верхняя строка, шкала микрофона и кнопка — нижняя,
+          поэтому верх и низ обеих колонок совпадают по уровню. */}
+      <div className="aspect-video w-full overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface-muted)] sm:col-start-1 sm:row-start-1">
+        {/* Превью собственной камеры кандидата — без субтитров: контент не несёт информации для восприятия. */}
+        <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
       </div>
 
       {status === "granted" && (
         <div className="space-y-2 sm:col-start-2 sm:row-start-1">
-          {cameraOn && cameras.length > 0 && (
-            <div className="grid gap-1">
-              <span className="text-[12px] text-[var(--ink-secondary)]">Камера</span>
-              <select
-                className="min-h-[38px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-[13px] text-[var(--ink)]"
-                value={cameraId}
-                onChange={(event) => void switchDevice("video", event.target.value)}
-              >
-                {cameras.map((camera) => (
-                  <option key={camera.deviceId} value={camera.deviceId}>
-                    {camera.label || "Камера"}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {microphones.length > 0 && (
-            <div className="grid gap-1">
-              <span className="text-[12px] text-[var(--ink-secondary)]">Микрофон</span>
-              <select
-                className="min-h-[38px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-[13px] text-[var(--ink)]"
-                value={microphoneId}
-                onChange={(event) => void switchDevice("audio", event.target.value)}
-              >
-                {microphones.map((mic) => (
-                  <option key={mic.deviceId} value={mic.deviceId}>
-                    {mic.label || "Микрофон"}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {CAN_SELECT_OUTPUT_DEVICE && speakers.length > 0 && (
+          <div className="grid gap-1">
+            <span className="text-[12px] text-[var(--ink-secondary)]">Камера</span>
+            <select
+              className="min-h-[38px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-[13px] text-[var(--ink)]"
+              value={cameraId}
+              onChange={(event) => void switchDevice("video", event.target.value)}
+            >
+              {cameras.map((camera) => (
+                <option key={camera.deviceId} value={camera.deviceId}>
+                  {camera.label || "Камера"}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-1">
+            <span className="text-[12px] text-[var(--ink-secondary)]">Микрофон</span>
+            <select
+              className="min-h-[38px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-[13px] text-[var(--ink)]"
+              value={microphoneId}
+              onChange={(event) => void switchDevice("audio", event.target.value)}
+            >
+              {microphones.map((mic) => (
+                <option key={mic.deviceId} value={mic.deviceId}>
+                  {mic.label || "Микрофон"}
+                </option>
+              ))}
+            </select>
+          </div>
+          {CAN_SELECT_OUTPUT_DEVICE && (
             <div className="grid gap-1">
               <span className="text-[12px] text-[var(--ink-secondary)]">Динамики</span>
               <select
@@ -398,8 +313,7 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       </div>
 
       {status === "granted" && (
-        <div className="flex flex-col items-end justify-end gap-2 sm:col-start-2 sm:row-start-2">
-          <span className="text-[13px] text-[var(--ink-secondary)]">{readyLabel}</span>
+        <div className="flex items-center justify-end sm:col-start-2 sm:row-start-2">
           <Button type="button" onClick={confirm}>
             Начать интервью
           </Button>
