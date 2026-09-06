@@ -28,6 +28,7 @@ from app.roles.catalog import (
 from app.schemas.interview import CreateInterviewResponse, InterviewListResponse, InterviewResponse
 from app.schemas.vacancy import (
     ChangeRequestBody,
+    ExtractRequirementsResponse,
     GenerateQuestionsResponse,
     QuestionCreate,
     QuestionResponse,
@@ -37,12 +38,22 @@ from app.schemas.vacancy import (
     VacancyResponse,
     VacancyUpdate,
 )
+from app.services.document_text import (
+    DocumentTooLargeError,
+    EmptyDocumentError,
+    UnreadableDocumentError,
+    UnsupportedDocumentError,
+    extract_pdf_text,
+)
 from app.services.interview_admin_service import InterviewAdminService, VacancyNotReadyForInterviewError
+from app.services.vacancy_llm_service import QuestionGenerationError, RequirementExtractionError
 from app.services.vacancy_service import (
     InvalidQuestionError,
     QuestionNotFoundError,
+    RequirementCoverageError,
     VacancyLockedError,
     VacancyMissingQuestionsError,
+    VacancyMissingRequirementsError,
     VacancyNotFoundError,
     VacancyNotReadyError,
     VacancyService,
@@ -87,10 +98,60 @@ async def create_vacancy(
         grade=payload.grade,
         required_skills=payload.required_skills,
         nice_to_have_skills=payload.nice_to_have_skills,
+        requirements=[item.model_dump() for item in payload.requirements],
+        description_source=payload.description_source,
+        description_file_name=payload.description_file_name,
         expert_id=payload.expert_id,
         hiring_manager_id=payload.hiring_manager_id,
     )
     return await _vacancy_response(service, vacancy)
+
+
+# Путь без `{vacancy_id}` намеренно: разбор описания идёт ДО создания вакансии, иначе
+# каждое нажатие «Извлечь требования» плодило бы черновики.
+@router.post("/extract-requirements", response_model=ExtractRequirementsResponse)
+async def extract_requirements(
+    _: Annotated[InternalUser, Depends(require_recruiter)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+    description: Annotated[str | None, Form()] = None,
+    file: Annotated[UploadFile | None, File()] = None,
+) -> ExtractRequirementsResponse:
+    file_name: str | None = None
+    if file is not None:
+        try:
+            text = extract_pdf_text(await file.read())
+        except DocumentTooLargeError as exc:
+            raise HTTPException(status_code=413, detail="file_too_large") from exc
+        except UnsupportedDocumentError as exc:
+            raise HTTPException(status_code=415, detail="not_a_pdf") from exc
+        except EmptyDocumentError as exc:
+            raise HTTPException(status_code=422, detail="pdf_no_text_layer") from exc
+        except UnreadableDocumentError as exc:
+            raise HTTPException(status_code=422, detail="pdf_unreadable") from exc
+        file_name = file.filename
+    elif description and description.strip():
+        text = description.strip()
+    else:
+        raise HTTPException(status_code=422, detail="empty_description")
+
+    try:
+        extracted = await service.llm_service.extract_requirements(text)
+    except RequirementExtractionError as exc:
+        raise HTTPException(status_code=502, detail="extraction_failed") from exc
+
+    return ExtractRequirementsResponse(
+        title=extracted.title,
+        grade=extracted.grade,
+        description=text,
+        description_file_name=file_name,
+        # id требования проставляет фронт — он же владеет списком до сохранения вакансии.
+        requirements=[
+            {**item.model_dump(), "id": f"req_{index}", "source": "llm"}
+            for index, item in enumerate(extracted.requirements)
+        ],
+        excluded=[item.model_dump() for item in extracted.excluded],
+        warnings=extracted.warnings,
+    )
 
 
 @router.get("", response_model=VacancyListResponse)
@@ -248,6 +309,15 @@ async def approve_vacancy(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Vacancy has invalid assessment questions: {[str(qid) for qid in exc.question_ids]}",
         ) from exc
+    except RequirementCoverageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"questions_missing_requirements: {', '.join(exc.missing)}",
+        ) from exc
+    except QuestionGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail="question_generation_failed"
+        ) from exc
     except VacancyTransitionError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Invalid vacancy transition."
@@ -260,6 +330,7 @@ _TRANSITION_ERRORS = (
     VacancyTransitionError,
     VacancyLockedError,
     VacancyMissingQuestionsError,
+    VacancyMissingRequirementsError,
 )
 
 
@@ -274,6 +345,11 @@ def _transition_http(exc: Exception) -> HTTPException:
         return HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Vacancy has no questions yet.",
+        )
+    if isinstance(exc, VacancyMissingRequirementsError):
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="not_enough_requirements",
         )
     raise exc
 

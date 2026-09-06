@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import ARRAY, JSON, DateTime, Enum, ForeignKey, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -20,6 +21,7 @@ from app.db import Base
 # ARRAY не компилируется, поэтому вариант для sqlite — JSON с тем же списком строк;
 # на схему Postgres это не влияет (with_variant подменяет тип только для sqlite-диалекта).
 _text_array = ARRAY(Text).with_variant(JSON(), "sqlite")
+_jsonb = JSONB().with_variant(JSON(), "sqlite")  # см. question.py — то же обоснование
 
 
 class Vacancy(Base):
@@ -37,6 +39,15 @@ class Vacancy(Base):
     grade: Mapped[str] = mapped_column(Text, nullable=False)
     required_skills: Mapped[list[str]] = mapped_column(_text_array, nullable=False, default=list)
     nice_to_have_skills: Mapped[list[str]] = mapped_column(_text_array, nullable=False, default=list)
+    # Требования, извлечённые LLM из описания (specs/010-vacancy-from-description).
+    # Список объектов {id, name, kind, level, checked, evidence, source} — плоский JSON,
+    # а не отдельная таблица: на пилоте требование живёт только внутри своей вакансии,
+    # общего справочника нет. `required_skills`/`nice_to_have_skills` держим в синхроне
+    # с этим списком — на них завязаны промпт вопросов, карточка вакансии и доска.
+    requirements: Mapped[list[dict]] = mapped_column(_jsonb, nullable=False, default=list)
+    # Откуда взялось описание — чтобы в редакторе показать имя приложенного файла.
+    description_source: Mapped[str] = mapped_column(Text, nullable=False, default="text")
+    description_file_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         Enum(
             "draft",

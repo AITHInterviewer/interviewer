@@ -36,6 +36,9 @@ dependencies = [
     # из‑за тестов; в production-образе (`uv sync --no-dev`) его не было — uvicorn
     # падал с ModuleNotFoundError: httpx.
     "httpx>=0.27",
+    # Текст из PDF с описанием вакансии (app/services/document_text.py). Файл не храним,
+    # только достаём текст для извлечения требований.
+    "pypdf>=5",
 ]
 
 [project.optional-dependencies]

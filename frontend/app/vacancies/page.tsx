@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
@@ -15,6 +16,7 @@ import type { Vacancy } from "@/lib/api";
 import { getSession, loadVacancies } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, candidateCountLabel, gradeLabel, vacancyNextStep, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { storeDraftFile } from "@/lib/vacancy-draft";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
@@ -33,6 +35,7 @@ function statusTone(status: Vacancy["status"]): StatusTone {
 
 export default function VacanciesPage() {
   const { landing, loading } = useProtectedLanding();
+  const router = useRouter();
 
   const [vacancies, setVacancies] = useState<Vacancy[]>([]);
   const [vacanciesLoading, setVacanciesLoading] = useState(true);
@@ -43,6 +46,8 @@ export default function VacanciesPage() {
   const [assignedToMeOnly, setAssignedToMeOnly] = useState(false);
 
   const currentUserId = getSession()?.user.id;
+  // Файл, брошенный на список, открывает редактор с уже разобранным описанием.
+  const [fileOver, setFileOver] = useState(false);
 
   function isAssignedToMe(vacancy: Vacancy): boolean {
     return (
@@ -120,9 +125,44 @@ export default function VacanciesPage() {
     );
   }
 
+  async function handleDrop(event: React.DragEvent) {
+    if (!canManage || !event.dataTransfer.types.includes("Files")) {
+      return;
+    }
+    event.preventDefault();
+    setFileOver(false);
+    const file = event.dataTransfer.files[0];
+    if (!file) {
+      return;
+    }
+    // Проверку формата и размера делает уже редактор — сообщение должно стоять рядом
+    // с полем, где ошибку и чинят, а не тостом на списке.
+    await storeDraftFile(file);
+    router.push("/vacancies/new");
+  }
+
   return (
     <AppShell nav={nav} title="Вакансии">
-      <div className="workspace">
+      <div
+        className="workspace"
+        onDragOver={(event) => {
+          if (canManage && event.dataTransfer.types.includes("Files")) {
+            event.preventDefault();
+            setFileOver(true);
+          }
+        }}
+        onDragLeave={(event) => {
+          if (event.currentTarget === event.target) {
+            setFileOver(false);
+          }
+        }}
+        onDrop={(event) => void handleDrop(event)}
+      >
+        {fileOver ? (
+          <div className="file-drop-overlay" role="status" onDragLeave={() => setFileOver(false)}>
+            <span>Отпустите PDF — откроем новую вакансию</span>
+          </div>
+        ) : null}
         <PageHeader
           title="Вакансии"
           actions={

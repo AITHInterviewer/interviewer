@@ -185,6 +185,31 @@ export type VacancyStatus =
   | "pending_review"
   | "ready";
 
+export type RequirementKind = "must" | "nice";
+export type RequirementLevel = "basic" | "confident" | "expert";
+
+/** Требование вакансии, вычлененное из описания (specs/010-vacancy-from-description).
+ * `id` живёт только на клиенте как ключ списка — бэкенд его не интерпретирует. */
+export type Requirement = {
+  id: string;
+  name: string;
+  kind: RequirementKind;
+  level: RequirementLevel;
+  checked: boolean;
+  evidence: string;
+  source: "llm" | "manual" | "edited";
+};
+
+export type ExtractedRequirements = {
+  title: string;
+  grade: string;
+  description: string;
+  description_file_name: string | null;
+  requirements: Requirement[];
+  excluded: { text: string; reason: string }[];
+  warnings: string[];
+};
+
 export type Vacancy = {
   id: string;
   recruiter_id: string;
@@ -195,6 +220,11 @@ export type Vacancy = {
   grade: string;
   required_skills: string[];
   nice_to_have_skills: string[];
+  // Опционально: вакансии, созданные до появления требований, приезжают с пустым списком,
+  // а фикстуры моков их не заполняют.
+  requirements?: Requirement[];
+  description_source?: "text" | "pdf";
+  description_file_name?: string | null;
   status: VacancyStatus;
   created_at: string;
   owner_next?: "recruiter" | "expert";
@@ -380,6 +410,9 @@ type VacancyWriteBody = {
   grade: string;
   required_skills: string[];
   nice_to_have_skills: string[];
+  requirements?: Requirement[];
+  description_source?: "text" | "pdf";
+  description_file_name?: string | null;
   expert_id?: string | null;
   hiring_manager_id?: string | null;
 };
@@ -402,6 +435,24 @@ async function requestMultipart<T>(
   }
 
   return (await response.json()) as T;
+}
+
+/** Разбор описания в требования ДО создания вакансии: либо приложенный PDF, либо текст.
+ * Вакансию не создаёт — иначе каждое нажатие «Извлечь требования» плодило бы черновики. */
+export function extractRequirements(
+  token: string,
+  input: { file: File } | { description: string },
+) {
+  const formData = new FormData();
+  if ("file" in input) {
+    formData.append("file", input.file);
+  } else {
+    formData.append("description", input.description);
+  }
+  return requestMultipart<ExtractedRequirements>("/api/v1/vacancies/extract-requirements", {
+    token,
+    formData,
+  });
 }
 
 export function createVacancy(token: string, body: VacancyWriteBody) {

@@ -10,6 +10,7 @@ import {
   createInterview,
   createVacancy,
   deleteQuestion,
+  extractRequirements,
   fetchAnonymizedStats,
   fetchCurrentUser,
   fetchExpertQueue,
@@ -46,6 +47,7 @@ import {
   type InternalUser,
   type LandingResponse,
   type QuestionInput,
+  type Requirement,
   type RoleRegistryEntry,
 } from "@/lib/api";
 
@@ -200,6 +202,9 @@ export type VacancyInput = {
   grade: string;
   requiredSkills: string[];
   niceToHaveSkills: string[];
+  requirements?: Requirement[];
+  descriptionSource?: "text" | "pdf";
+  descriptionFileName?: string | null;
   expertId?: string | null;
   hiringManagerId?: string | null;
 };
@@ -216,6 +221,9 @@ export async function createManagedVacancy(input: VacancyInput) {
     grade: input.grade,
     required_skills: input.requiredSkills,
     nice_to_have_skills: input.niceToHaveSkills,
+    requirements: input.requirements ?? [],
+    description_source: input.descriptionSource ?? "text",
+    description_file_name: input.descriptionFileName ?? null,
     expert_id: input.expertId ?? null,
     hiring_manager_id: input.hiringManagerId ?? null,
   });
@@ -233,6 +241,11 @@ export async function updateManagedVacancy(vacancyId: string, input: Partial<Vac
     ...(input.grade !== undefined ? { grade: input.grade } : {}),
     ...(input.requiredSkills !== undefined ? { required_skills: input.requiredSkills } : {}),
     ...(input.niceToHaveSkills !== undefined ? { nice_to_have_skills: input.niceToHaveSkills } : {}),
+    ...(input.requirements !== undefined ? { requirements: input.requirements } : {}),
+    ...(input.descriptionSource !== undefined ? { description_source: input.descriptionSource } : {}),
+    ...(input.descriptionFileName !== undefined
+      ? { description_file_name: input.descriptionFileName }
+      : {}),
     ...(input.expertId !== undefined ? { expert_id: input.expertId } : {}),
     ...(input.hiringManagerId !== undefined ? { hiring_manager_id: input.hiringManagerId } : {}),
   });
@@ -254,6 +267,15 @@ export async function loadVacancy(vacancyId: string) {
   }
 
   return getVacancy(session.token, vacancyId);
+}
+
+export async function extractVacancyRequirements(input: { file: File } | { description: string }) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return extractRequirements(session.token, input);
 }
 
 export async function generateVacancyQuestions(vacancyId: string) {

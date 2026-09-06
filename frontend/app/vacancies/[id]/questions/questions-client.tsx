@@ -20,7 +20,6 @@ import {
 import type { Question, VacancyDetail, VacancyStatus } from "@/lib/api";
 import {
   addManagedQuestion,
-  approveManagedVacancy,
   deleteManagedQuestion,
   loadVacancy,
   updateManagedQuestion,
@@ -35,7 +34,6 @@ import {
 
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
 const RECRUITER_AREA = "area.recruiter_workspace";
-const APPROVABLE_STATUSES: VacancyStatus[] = ["calibration", "pending_review"];
 
 export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
   const { landing, loading } = useProtectedLanding();
@@ -51,14 +49,10 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
   const [questionActionError, setQuestionActionError] = useState<string | null>(null);
   const [questionActionSubmitting, setQuestionActionSubmitting] = useState(false);
 
-  const [approveError, setApproveError] = useState<string | null>(null);
-  const [approveStatus, setApproveStatus] = useState<string | null>(null);
-  const [approving, setApproving] = useState(false);
 
   const hasEditAction = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
   const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
   const canEditQuestions = hasEditAction && !fromRecruiter;
-  const canApprove = vacancy ? APPROVABLE_STATUSES.includes(vacancy.status) : false;
 
   /** Теги вопроса, которых нет среди требований вакансии: вопрос ни за что не отвечает. */
   function orphanTags(question: Question): string[] {
@@ -140,25 +134,6 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
       await refreshVacancy();
     } catch (caughtError) {
       setQuestionActionError(normalizeError(caughtError, "Не удалось удалить вопрос."));
-    }
-  }
-
-  async function handleApprove() {
-    if (!vacancy) {
-      return;
-    }
-    setApproving(true);
-    setApproveError(null);
-    setApproveStatus(null);
-
-    try {
-      await approveManagedVacancy(vacancy.id);
-      setApproveStatus("Версия утверждена");
-      await refreshVacancy();
-    } catch (caughtError) {
-      setApproveError(normalizeError(caughtError, "Не удалось утвердить версию."));
-    } finally {
-      setApproving(false);
     }
   }
 
@@ -273,23 +248,6 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
                   />
                 ) : null}
 
-                {approveError ? <p className="form-error">{approveError}</p> : null}
-                {approveStatus ? <p className="success-message">{approveStatus}</p> : null}
-                <div className="form-actions">
-                  <button
-                    className="button button--primary"
-                    type="button"
-                    disabled={approving || !canApprove}
-                    onClick={() => void handleApprove()}
-                  >
-                    {approving ? "Одобряем…" : "Утвердить версию"}
-                  </button>
-                </div>
-                {!canApprove ? (
-                  <p className="disabled-hint">
-                    Одобрить можно, когда вакансия на калибровке, в черновике или после извлечения требований.
-                  </p>
-                ) : null}
               </>
             ) : null}
           </>

@@ -1,26 +1,21 @@
 "use client";
 
 import { ArrowsClockwise, Trash } from "@phosphor-icons/react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { SkillTagInput } from "@/components/chrome/SkillTagInput";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalActions } from "@/components/ui/overlay";
-import type { Question, QuestionFormat, QuestionInput, VacancyStatus } from "@/lib/api";
+import type { Question, QuestionFormat, QuestionInput } from "@/lib/api";
 import {
   addManagedQuestion,
-  approveManagedVacancy,
   deleteManagedQuestion,
   regenerateManagedQuestion,
-  sendManagedVacancyToExpert,
   updateManagedQuestion,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { QUESTION_FORMAT_LABEL } from "@/lib/pipeline";
-import { useToast } from "@/lib/toast";
-
-const SENDABLE_STATUSES = new Set<VacancyStatus>(["draft", "extracted", "changes_requested"]);
-const APPROVABLE_STATUSES = new Set<VacancyStatus>(["calibration", "pending_review"]);
 
 const BLANK_QUESTION_TEXT = "Новый вопрос — заполните текст или перегенерируйте";
 const QUESTION_FORMATS: QuestionFormat[] = ["voice", "code_review_verbal", "live_coding"];
@@ -31,28 +26,19 @@ function sortByOrder(questions: Question[]): Question[] {
 
 export function QuestionsPanel({
   vacancyId,
-  vacancyStatus,
-  requiredSkills,
   questions,
   canManage,
   canEditContent,
-  generating,
-  onGenerate,
   onQuestionsChanged,
 }: {
   vacancyId: string;
-  vacancyStatus: VacancyStatus;
-  requiredSkills: string[];
   questions: Question[];
-  /** Может генерировать/добавлять/удалять/перегенерировать вопросы (рекрутёр). */
+  /** Может добавлять/удалять/перегенерировать вопросы (рекрутёр). */
   canManage: boolean;
   /** Может редактировать содержимое вопроса — текст/ответ/навыки/время (эксперт). */
   canEditContent: boolean;
-  generating: boolean;
-  onGenerate: () => void;
   onQuestionsChanged: () => Promise<void>;
 }) {
-  const { pushToast } = useToast();
   const sorted = sortByOrder(questions);
   const [selectedId, setSelectedId] = useState<string | null>(sorted[0]?.id ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +46,6 @@ export function QuestionsPanel({
   const [adding, setAdding] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [approving, setApproving] = useState(false);
 
   const selected = sorted.find((question) => question.id === selectedId) ?? sorted[0] ?? null;
 
@@ -83,9 +68,6 @@ export function QuestionsPanel({
     setDurationDraft(selected ? String(Math.round(selected.estimated_duration_sec / 60)) : "");
   }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const showConfirm =
-    (canManage && SENDABLE_STATUSES.has(vacancyStatus)) ||
-    (canEditContent && APPROVABLE_STATUSES.has(vacancyStatus));
   // Пересчитывается на каждый рендер из вопросов — не кэшируем в state, чтобы
   // сумма всегда отражала актуальные estimated_duration_sec после правок.
   const totalDurationMinutes = Math.round(
@@ -156,55 +138,20 @@ export function QuestionsPanel({
     }
   }
 
-  function missingSkillCoverage(): string[] {
-    const covered = new Set(
-      questions.flatMap((question) => (question.skill_tag ?? []).map((skill) => skill.trim().toLowerCase())),
-    );
-    return requiredSkills.filter((skill) => !covered.has(skill.trim().toLowerCase()));
-  }
-
-  async function handleApprove() {
-    const missing = missingSkillCoverage();
-    if (missing.length > 0) {
-      pushToast("warning", `Нет ни одного вопроса на навыки: ${missing.join(", ")}.`);
-      return;
-    }
-
-    setApproving(true);
-    setError(null);
-    try {
-      let status = vacancyStatus;
-      if (canManage && SENDABLE_STATUSES.has(status)) {
-        const updated = await sendManagedVacancyToExpert(vacancyId);
-        status = updated.status;
-      }
-      if (canEditContent && APPROVABLE_STATUSES.has(status)) {
-        await approveManagedVacancy(vacancyId);
-      }
-      await onQuestionsChanged();
-    } catch (caughtError) {
-      setError(normalizeError(caughtError, "Не удалось подтвердить вакансию."));
-    } finally {
-      setApproving(false);
-    }
-  }
-
   if (questions.length === 0) {
+    // Вопросы больше не собираются вручную: их даёт одобрение требований экспертом
+    // (specs/010-vacancy-from-description).
     return (
       <section className="question-panel form-panel">
         <h2>Вопросы</h2>
-        {canManage ? (
-          <>
-            {error ? <p className="form-error">{error}</p> : null}
-            <div className="form-actions">
-              <Button type="button" disabled={generating} onClick={onGenerate}>
-                {generating ? "Собираем…" : "Сгенерировать вопросы"}
-              </Button>
-            </div>
-          </>
-        ) : (
-          <p className="disabled-hint">Рекрутёр ещё не собрал вопросы для этой вакансии.</p>
-        )}
+        <p className="disabled-hint">
+          Комплект соберётся сам, когда эксперт одобрит требования вакансии.
+        </p>
+        <div className="form-actions">
+          <Button type="button" variant="secondary" asChild>
+            <Link href={`/vacancies/${vacancyId}/rubric`}>Открыть требования</Link>
+          </Button>
+        </div>
       </section>
     );
   }
@@ -375,14 +322,9 @@ export function QuestionsPanel({
         ) : null}
       </div>
 
-      {showConfirm ? (
-        <div className="question-panel__confirm">
-          <span className="disabled-hint">≈{totalDurationMinutes} мин на прохождение</span>
-          <Button type="button" disabled={approving} onClick={() => void handleApprove()}>
-            {approving ? "Подтверждаем…" : "Подтвердить"}
-          </Button>
-        </div>
-      ) : null}
+      <div className="question-panel__confirm">
+        <span className="disabled-hint">≈{totalDurationMinutes} мин на прохождение</span>
+      </div>
 
       <Modal open={deleteOpen} title="Удалить вопрос?" onClose={() => setDeleteOpen(false)}>
         <p>Вопрос «{selected?.text}» пропадёт из комплекта без возможности восстановить.</p>

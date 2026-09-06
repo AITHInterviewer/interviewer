@@ -101,8 +101,8 @@ describe("VacancySettingsClient", () => {
         title: "Senior Backend Developer",
         description: "Build things",
         grade: "middle",
-        requiredSkills: ["python"],
-        niceToHaveSkills: [],
+        // Навыки отсюда больше не сохраняются: состав требований редактируется
+        // на своём экране (specs/010-vacancy-from-description).
         expertId: null,
         hiringManagerId: null,
       }),

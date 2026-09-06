@@ -5,7 +5,7 @@ export const USERS_MANAGE_ACTION = "action.internal_users.manage";
 // Грейд — обязательное непустое поле на бэкенде (VacancyCreate.grade), поэтому
 // "без грейда" — тоже значение, а не пустая строка.
 export const GRADE_OPTIONS = [
-  { value: "unspecified", label: " " },
+  { value: "unspecified", label: "Не указан" },
   { value: "intern", label: "Стажёр" },
   { value: "junior", label: "Junior" },
   { value: "junior_plus", label: "Junior+" },
@@ -185,8 +185,7 @@ export function expertAuditBreadcrumbs(options?: {
 
 export function calibrationSubnavItems(vacancyId: string): { href: string; label: string }[] {
   return [
-    { href: `/vacancies/${vacancyId}/rubric`, label: "Критерии" },
+    { href: `/vacancies/${vacancyId}/rubric`, label: "Требования" },
     { href: `/vacancies/${vacancyId}/questions`, label: "Вопросы" },
-    { href: `/vacancies/${vacancyId}/approve`, label: "Утверждение" },
   ];
 }

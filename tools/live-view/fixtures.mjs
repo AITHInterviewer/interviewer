@@ -21,6 +21,17 @@ const vacancies = [
       "Разбор инцидента",
     ],
     nice_to_have_skills: ["Code review", "Docker"],
+    requirements: [
+      { id: "req_0", name: "Асинхронность", kind: "must", level: "expert", checked: true, evidence: "Опыт работы с asyncio от 3 лет", source: "llm" },
+      { id: "req_1", name: "SQL и индексы", kind: "must", level: "expert", checked: true, evidence: "PostgreSQL — оптимизация запросов", source: "llm" },
+      { id: "req_2", name: "Celery и очереди", kind: "must", level: "confident", checked: true, evidence: "Фоновые задачи и очереди", source: "llm" },
+      { id: "req_3", name: "Тестирование", kind: "must", level: "confident", checked: true, evidence: "Покрытие тестами сервисов", source: "llm" },
+      { id: "req_4", name: "Разбор инцидента", kind: "must", level: "confident", checked: true, evidence: "Дежурства и разбор инцидентов", source: "llm" },
+      { id: "req_5", name: "Docker", kind: "nice", level: "basic", checked: false, evidence: "Будет плюсом: Docker", source: "llm" },
+      { id: "req_6", name: "Code review", kind: "nice", level: "basic", checked: false, evidence: "Участие в code review", source: "llm" },
+    ],
+    description_source: "pdf",
+    description_file_name: "python-middle-plus.pdf",
     status: "active",
     created_at: "2026-09-01T10:00:00Z",
     candidate_count: 3,
@@ -33,6 +44,12 @@ const vacancies = [
     grade: "Senior",
     required_skills: ["Go", "gRPC"],
     nice_to_have_skills: ["Kubernetes"],
+    requirements: [
+      { id: "req_0", name: "Go", kind: "must", level: "expert", checked: true, evidence: "Go — от 5 лет коммерческой разработки", source: "llm" },
+      { id: "req_1", name: "gRPC", kind: "must", level: "confident", checked: true, evidence: "gRPC для межсервисного взаимодействия", source: "llm" },
+      { id: "req_2", name: "Микросервисы", kind: "must", level: "confident", checked: true, evidence: "Разделение монолита на сервисы", source: "llm" },
+      { id: "req_3", name: "Kubernetes", kind: "nice", level: "basic", checked: false, evidence: "Будет плюсом: Kubernetes", source: "llm" },
+    ],
     status: "calibration",
     created_at: "2026-09-03T10:00:00Z",
     owner_next: "expert",
@@ -46,6 +63,10 @@ const vacancies = [
     grade: "Middle",
     required_skills: ["Python", "Playwright"],
     nice_to_have_skills: [],
+    requirements: [
+      { id: "req_0", name: "Python", kind: "must", level: "confident", checked: true, evidence: "Автотесты на Python", source: "llm" },
+      { id: "req_1", name: "Playwright", kind: "must", level: "confident", checked: true, evidence: "Playwright — e2e-сценарии", source: "llm" },
+    ],
     status: "draft",
     created_at: "2026-08-28T10:00:00Z",
     candidate_count: 0,
@@ -184,7 +205,8 @@ export const fixtures = {
       { id: "area.expert_questions", label: "Эксперт", path: "/expert" },
       { id: "area.hiring_manager_review", label: "Встречи", path: "/manager" },
     ],
-    available_actions: ["action.internal_users.manage"],
+    // У этого пользователя роль эксперта — значит и право править вопросы/калибровать.
+    available_actions: ["action.internal_users.manage", "action.questions.edit"],
   },
 };
 
@@ -225,6 +247,20 @@ export function respond(pathname) {
   if (/^\/api\/interview\/[^/]+\/(consent|progress)$/.test(p)) return { product_state: "consented" };
   if (/^\/api\/interview\/[^/]+\/extra\/[^/]+$/.test(p))
     return { id: "c1", status: "open", extra_token: "extra-lida" };
+  if (p.endsWith("/vacancies/extract-requirements"))
+    return {
+      title: "Python Developer",
+      grade: "middle_plus",
+      description: "Middle + Python Developer\nТребования: Python от 5 лет, Apache Kafka, PostgreSQL…",
+      description_file_name: null,
+      requirements: fixtures.vacancies[0].requirements,
+      excluded: [
+        { text: "Удалённая работа, гибкое начало дня", reason: "условия работы" },
+        { text: "Оплата участия в конференциях", reason: "условия работы" },
+        { text: "Зарплата не указана", reason: "не проверяется на интервью" },
+      ],
+      warnings: ["В заголовке Middle+, а Python требуется от 5 лет — обычно это Senior"],
+    };
   if (p.endsWith("/auth/me")) return fixtures.user;
   if (p.endsWith("/internal-users/me/landing")) return fixtures.landing;
   if (p.endsWith("/internal-users"))
@@ -290,7 +326,13 @@ export function respond(pathname) {
     };
   if (/\/vacancies\/[^/]+\/anonymized-stats$/.test(p))
     return { invited: 3, completed: 1, awaiting_decision: 1 };
-  if (/\/vacancies\/[^/]+$/.test(p)) return { ...fixtures.vacancies[0], questions: fixtures.questions };
+  if (/\/vacancies\/[^/]+$/.test(p)) {
+    // Отдаём именно ту вакансию, чей id в пути — иначе экран калибровки снимался бы
+    // на активной вакансии и всегда выглядел зафиксированным.
+    const id = p.split("/").pop();
+    const found = fixtures.vacancies.find((item) => item.id === id) ?? fixtures.vacancies[0];
+    return { ...found, questions: found.id === "v-python" ? fixtures.questions : [] };
+  }
   if (/\/interviews\/[^/]+\/events$/.test(p)) {
     const id = p.split("/").slice(-2)[0];
     const interview = fixtures.interviews.find((item) => item.id === id);

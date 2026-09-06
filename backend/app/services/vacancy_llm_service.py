@@ -28,6 +28,34 @@ class QuestionGenerationError(Exception):
     """LLM не вернул валидный набор вопросов (сетевая ошибка/невалидный ответ)."""
 
 
+class RequirementExtractionError(Exception):
+    """LLM не вернул валидный разбор описания вакансии."""
+
+
+LEVEL_DURATION_SEC = {"basic": 120, "confident": 180, "expert": 240}
+
+
+class ExtractedRequirement(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    kind: str = "must"
+    level: str = "confident"
+    checked: bool = False
+    evidence: str = ""
+
+
+class ExcludedFragment(BaseModel):
+    text: str = ""
+    reason: str = ""
+
+
+class ExtractedVacancy(BaseModel):
+    title: str = ""
+    grade: str = "unspecified"
+    requirements: list[ExtractedRequirement] = Field(default_factory=list)
+    excluded: list[ExcludedFragment] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class GeneratedQuestion(BaseModel):
     text: str = Field(min_length=1)
     role: str = "assessment"
@@ -53,8 +81,36 @@ class GeneratedSttTermsSet(BaseModel):
 
 
 _SET_SYSTEM_PROMPT = load_prompt("vacancy_question_set.txt")
+_EXTRACT_SYSTEM_PROMPT = load_prompt("vacancy_requirements_extract.txt")
 _SINGLE_SYSTEM_PROMPT = load_prompt("vacancy_question_single.txt")
 _STT_TERMS_SYSTEM_PROMPT = load_prompt("vacancy_stt_terms.txt")
+
+
+_LEVEL_LABEL = {"basic": "basic", "confident": "confident", "expert": "expert"}
+
+
+def checked_requirements(vacancy: Vacancy) -> list[dict]:
+    """Требования, отмеченные «проверяем на интервью». Единственный источник правды и для
+    промпта вопросов, и для проверки покрытия при одобрении."""
+    return [item for item in (vacancy.requirements or []) if item.get("checked")]
+
+
+def _requirements_block(vacancy: Vacancy) -> str:
+    items = checked_requirements(vacancy)
+    if not items:
+        # Вакансии, созданные до появления требований, всё ещё живут на плоских навыках.
+        return "Требования:\n" + (
+            "\n".join(f"{i}. {skill} — уровень confident" for i, skill in enumerate(vacancy.required_skills, 1))
+            or "(не указаны)"
+        )
+    lines = []
+    for index, item in enumerate(items, 1):
+        level = _LEVEL_LABEL.get(item.get("level", "confident"), "confident")
+        line = f"{index}. {item['name']} — уровень {level}"
+        if item.get("evidence"):
+            line += f" — основание: «{item['evidence']}»"
+        lines.append(line)
+    return "Требования:\n" + "\n".join(lines)
 
 
 def _vacancy_prompt(vacancy: Vacancy) -> str:
@@ -62,8 +118,7 @@ def _vacancy_prompt(vacancy: Vacancy) -> str:
         f"Вакансия: {vacancy.title}\n"
         f"Грейд: {vacancy.grade}\n"
         f"Описание: {vacancy.description}\n"
-        f"Обязательные навыки: {', '.join(vacancy.required_skills) or '(не указаны)'}\n"
-        f"Желательные навыки: {', '.join(vacancy.nice_to_have_skills) or '(не указаны)'}\n"
+        f"{_requirements_block(vacancy)}\n"
     )
 
 
@@ -95,6 +150,15 @@ class VacancyLLMService:
             )
         except LLMError as exc:
             raise QuestionGenerationError(str(exc)) from exc
+
+    async def extract_requirements(self, description: str) -> ExtractedVacancy:
+        """Разбирает сырое описание вакансии в требования (см. vacancy_requirements_extract.txt).
+        Вакансии на этом шаге ещё может не существовать — на вход идёт только текст."""
+        raw = await self._complete(_EXTRACT_SYSTEM_PROMPT, description)
+        try:
+            return ExtractedVacancy.model_validate(json.loads(_strip_code_fence(raw)))
+        except Exception as exc:  # noqa: BLE001
+            raise RequirementExtractionError(f"Не удалось разобрать описание вакансии: {exc}") from exc
 
     async def generate_questions(self, vacancy: Vacancy) -> GeneratedQuestionSet:
         raw = await self._complete(_SET_SYSTEM_PROMPT, _vacancy_prompt(vacancy))

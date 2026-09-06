@@ -1,7 +1,7 @@
 "use client";
 
-import { useParams, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
@@ -10,45 +10,70 @@ import { PageHeader } from "@/components/chrome/PageHeader";
 import { ViewModeBanner } from "@/components/chrome/ViewModeBanner";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { SkeletonText } from "@/components/ui/skeleton";
-import { StatusPill } from "@/components/ui/status-pill";
-import { Button } from "@/components/ui/button";
-import type { RubricVersion, VacancyDetail } from "@/lib/api";
-import { loadRubricVersions, loadVacancy, updateManagedVacancy } from "@/lib/auth";
+import {
+  checkedCount,
+  estimateMinutes,
+  MIN_CHECKED_REQUIREMENTS,
+  RequirementsPanel,
+  requirementsLabel,
+} from "@/components/vacancies/RequirementsPanel";
+import type { Requirement, RubricVersion, VacancyDetail } from "@/lib/api";
+import {
+  approveManagedVacancy,
+  loadRubricVersions,
+  loadVacancy,
+  sendManagedVacancyToExpert,
+  updateManagedVacancy,
+} from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, isRecruiterViewMode, vacancyBreadcrumbs } from "@/lib/nav";
-import { buildRequirementMap, uncoveredRequirements } from "@/lib/report";
+import { buildNav, isRecruiterViewMode, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { useToast } from "@/lib/toast";
 
-/** Что зафиксировано в версии рубрики. Сырой JSON пользователю не показываем. */
-function splitSkills(value: string): string[] {
-  return value
-    .split(",")
-    .map((skill) => skill.trim())
-    .filter((skill) => skill.length > 0);
+const QUESTIONS_EDIT_ACTION = "action.questions.edit";
+const RECRUITER_AREA = "area.recruiter_workspace";
+/** Статусы, на которых требования ещё можно править и вакансию — двигать. */
+const EDITABLE_STATUSES = new Set(["draft", "extracted", "calibration", "changes_requested"]);
+const APPROVABLE_STATUSES = new Set(["calibration", "pending_review"]);
+
+const APPROVE_ERRORS: Record<string, string> = {
+  question_generation_failed:
+    "Не удалось собрать вопросы. Требования сохранены — попробуйте ещё раз.",
+  not_enough_requirements: `Включите хотя бы ${MIN_CHECKED_REQUIREMENTS} требования, прежде чем отправлять эксперту.`,
+};
+
+function explainApproveError(error: unknown): string {
+  const raw = normalizeError(error, "question_generation_failed");
+  if (raw.startsWith("questions_missing_requirements:")) {
+    const missing = raw.split(":").slice(1).join(":").trim();
+    return `Модель не задала вопрос по требованиям: ${missing}. Попробуйте ещё раз или переформулируйте требование.`;
+  }
+  return APPROVE_ERRORS[raw] ?? raw;
 }
 
 function snapshotText(snapshot?: Record<string, unknown>): string {
   const skills = snapshot?.required_skills;
   if (Array.isArray(skills) && skills.every((item) => typeof item === "string")) {
-    return skills.join(", ") || "Навыки в этой версии не перечислены.";
+    return skills.join(", ") || "Требования в этой версии не перечислены.";
   }
-  return "В этой версии список навыков не сохранился.";
+  return "В этой версии список требований не сохранился.";
 }
 
 function RubricInner() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const { pushToast } = useToast();
   const vacancyId = params.id;
   const fromRecruiter = isRecruiterViewMode(searchParams.get("from"));
   const { landing, loading } = useProtectedLanding();
+
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [versions, setVersions] = useState<RubricVersion[]>([]);
+  const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [vacancyLoading, setVacancyLoading] = useState(true);
-  const [requiredSkills, setRequiredSkills] = useState("");
-  const [niceToHaveSkills, setNiceToHaveSkills] = useState("");
-  const [skillError, setSkillError] = useState<string | null>(null);
-  const [skillStatus, setSkillStatus] = useState<string | null>(null);
-  const [skillSaving, setSkillSaving] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!landing) {
@@ -62,12 +87,11 @@ function RubricInner() {
         }
         setVacancy(detail);
         setVersions(versionResponse.items);
-        setRequiredSkills(detail.required_skills.join(", "));
-        setNiceToHaveSkills(detail.nice_to_have_skills.join(", "));
+        setRequirements(detail.requirements ?? []);
       })
       .catch((caughtError: unknown) => {
         if (!cancelled) {
-          setError(normalizeError(caughtError, "Не удалось загрузить рубрику."));
+          setError(normalizeError(caughtError, "Не удалось загрузить требования."));
         }
       })
       .finally(() => {
@@ -80,29 +104,6 @@ function RubricInner() {
     };
   }, [landing, vacancyId]);
 
-  const coverage = vacancy ? buildRequirementMap(vacancy, vacancy.questions, []) : [];
-  const mandatoryGaps = uncoveredRequirements(coverage).filter((row) => row.mandatory);
-  const canEditSkills = landing?.available_areas.some((area) => area.id === "area.recruiter_workspace") ?? false;
-
-  async function handleSaveSkills(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSkillSaving(true);
-    setSkillError(null);
-    setSkillStatus(null);
-    try {
-      const updated = await updateManagedVacancy(vacancyId, {
-        requiredSkills: splitSkills(requiredSkills),
-        niceToHaveSkills: splitSkills(niceToHaveSkills),
-      });
-      setVacancy((current) => (current ? { ...current, ...updated } : current));
-      setSkillStatus("Список навыков сохранён.");
-    } catch (caughtError) {
-      setSkillError(normalizeError(caughtError, "Не удалось сохранить навыки."));
-    } finally {
-      setSkillSaving(false);
-    }
-  }
-
   if (loading || !landing) {
     return (
       <main className="workspace">
@@ -111,121 +112,157 @@ function RubricInner() {
     );
   }
 
+  const isExpert = (landing.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false) && !fromRecruiter;
+  const isRecruiter = landing.available_areas.some((area) => area.id === RECRUITER_AREA);
+  const status = vacancy?.status ?? "draft";
+  const editable = EDITABLE_STATUSES.has(status) && (isExpert || isRecruiter);
+  // Эксперт одобряет только на калибровке; до неё главное действие — отправить ему вакансию.
+  const expertTurn = isExpert && APPROVABLE_STATUSES.has(status);
+  const checked = checkedCount(requirements);
+  const minutes = estimateMinutes(requirements);
+  const notEnough = checked < MIN_CHECKED_REQUIREMENTS;
+
+  async function persistRequirements() {
+    const updated = await updateManagedVacancy(vacancyId, { requirements });
+    setVacancy((current) => (current ? { ...current, ...updated } : current));
+    setDirty(false);
+  }
+
+  async function handleApprove() {
+    setError(null);
+    setBusy(true);
+    try {
+      if (dirty) {
+        await persistRequirements();
+      }
+      const updated = await approveManagedVacancy(vacancyId);
+      setVacancy((current) => (current ? { ...current, ...updated } : current));
+      pushToast("success", "Вакансия активна — можно приглашать кандидатов.");
+      router.push(`/vacancies/${vacancyId}/questions`);
+    } catch (caughtError) {
+      setError(explainApproveError(caughtError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSendToExpert() {
+    setError(null);
+    setBusy(true);
+    try {
+      if (dirty) {
+        await persistRequirements();
+      }
+      const updated = await sendManagedVacancyToExpert(vacancyId);
+      setVacancy((current) => (current ? { ...current, ...updated } : current));
+      pushToast("success", "Требования ушли эксперту на калибровку.");
+    } catch (caughtError) {
+      setError(explainApproveError(caughtError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSave() {
+    setError(null);
+    setBusy(true);
+    try {
+      await persistRequirements();
+      pushToast("success", "Требования сохранены.");
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, "Не удалось сохранить требования."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <AppShell nav={buildNav(landing)} title="Рубрика">
+    <AppShell nav={buildNav(landing)} title="Требования">
       <div className="workspace">
         {vacancyLoading ? <SkeletonText lines={4} label="Загружаю требования" /> : null}
-        {error ? <ScreenState kind="error" title="Нет рубрики" text={error} /> : null}
         {vacancy ? (
           <>
             <PageHeader
-              breadcrumbs={vacancyBreadcrumbs(vacancyId, vacancy.title, "Критерии и требования")}
-              title="Критерии и требования"
+              breadcrumbs={vacancyBreadcrumbs(vacancyId, vacancy.title, "Требования")}
+              title="Требования"
               description={
-                canEditSkills
-                  ? "Список навыков сохраняется в вакансии, как в настройках. Вопросы и утверждение версии — у эксперта."
-                  : fromRecruiter
-                    ? "Только просмотр: версию собирает и утверждает эксперт."
-                    : "Требование закрывается вопросом комплекта. Где вопроса нет, в отчёте будет пробел."
+                expertTurn
+                  ? "Правьте формулировки, уровни и состав. Вопросы соберутся сами, когда вы одобрите список."
+                  : editable
+                    ? "Список, который проверим на интервью. Отправьте его эксперту — он калибрует и запустит вакансию."
+                    : `Вакансия уже ${(VACANCY_STATUS_LABEL[status] ?? status).toLowerCase()} — список зафиксирован.`
               }
             />
             <CalibrationSubnav vacancyId={vacancyId} />
             {fromRecruiter ? <ViewModeBanner /> : null}
-            <section className="plain-section" style={{ marginTop: 20 }}>
-              <h2>Состав требований</h2>
-              {canEditSkills ? (
-                <form className="form-surface" onSubmit={(event) => void handleSaveSkills(event)}>
-                  <label>
-                    Обязательные навыки
-                    <input
-                      value={requiredSkills}
-                      onChange={(event) => setRequiredSkills(event.target.value)}
-                      placeholder="python, sql"
-                    />
-                  </label>
-                  <label>
-                    Желательные навыки
-                    <input
-                      value={niceToHaveSkills}
-                      onChange={(event) => setNiceToHaveSkills(event.target.value)}
-                      placeholder="docker, kubernetes"
-                    />
-                  </label>
-                  {skillError ? <p className="form-error">{skillError}</p> : null}
-                  {skillStatus ? <p className="success-message">{skillStatus}</p> : null}
-                  <div className="form-actions">
-                    <Button type="submit" loading={skillSaving} loadingLabel="Сохраняем…">
-                      Сохранить навыки
-                    </Button>
-                  </div>
-                </form>
-              ) : (
-                <p className="muted-copy">
-                  Менять список может рекрутер в настройках вакансии. Сейчас обязательные:{" "}
-                  {vacancy.required_skills.join(", ") || "не указаны"}.
-                </p>
-              )}
-            </section>
-            {mandatoryGaps.length > 0 ? (
-              <p className="report-gap">
-                Ни один вопрос комплекта не закрывает обязательные требования:{" "}
-                {mandatoryGaps.map((row) => row.skill).join(", ")}. Пока это так, в отчёте по ним
-                будет стоять «вопрос не задавался».
-              </p>
-            ) : null}
 
-            <section className="requirement-map__list" style={{ marginTop: 20 }}>
-              <header>
-                <h2>Требования и покрытие</h2>
-                <span className="muted-copy">
-                  {coverage.filter((row) => row.coverage !== "not-covered").length} из {coverage.length}{" "}
-                  закрыты вопросами
-                </span>
-              </header>
-              {coverage.length === 0 ? (
-                <p className="muted-copy" style={{ padding: "16px 20px" }}>
-                  Требования вакансии не заполнены. Добавьте их в настройках, тогда появится покрытие.
-                </p>
-              ) : (
-                coverage.map((row) => (
-                  <div className="requirement-row" key={row.skill}>
-                    <span>
-                      <strong>{row.skill}</strong>
-                      <span className="muted-copy">
-                        {row.mandatory ? "Обязательное" : "Желательное"}
-                        {row.questions.length > 0
-                          ? ` · требование: вопрос ${row.questions.map((question) => question.order).join(", ")}`
-                          : " · вопроса нет"}
-                      </span>
-                    </span>
-                    <StatusPill tone={row.coverage === "not-covered" ? "unchecked" : "confirmed"}>
-                      {row.coverage === "not-covered" ? "Нет вопроса" : "Вопрос есть"}
-                    </StatusPill>
-                  </div>
-                ))
-              )}
-            </section>
-            <section className="plain-section">
-              <h2>Ранее одобренные версии</h2>
-              {versions.length > 0 ? (
+            {error ? <p className="form-error">{error}</p> : null}
+
+            {requirements.length === 0 ? (
+              <ScreenState
+                kind="empty"
+                title="Требований нет"
+                text="У этой вакансии не заполнены требования — обычно так у вакансий, созданных до разбора описания. Откройте настройки вакансии и добавьте описание заново."
+              />
+            ) : (
+              <RequirementsPanel
+                requirements={requirements}
+                onChange={(next) => {
+                  setRequirements(next);
+                  setDirty(true);
+                }}
+                readOnly={!editable}
+                busy={busy}
+                confirmLabel={expertTurn ? "Одобрить требования и запустить" : "Отправить эксперту"}
+                confirmLoadingLabel={expertTurn ? "Собираем вопросы…" : "Отправляем…"}
+                confirmHint={
+                  expertTurn
+                    ? `${requirementsLabel(checked)} · ≈${minutes} мин интервью · после одобрения соберём вопросы и вакансия станет активной`
+                    : `${requirementsLabel(checked)} · ≈${minutes} мин интервью`
+                }
+                confirmDisabledReason={
+                  !editable
+                    ? "Список зафиксирован — вакансия уже прошла калибровку"
+                    : notEnough
+                      ? `Включите хотя бы ${MIN_CHECKED_REQUIREMENTS} требования — сейчас ${checked}`
+                      : null
+                }
+                onConfirm={() => void (expertTurn ? handleApprove() : handleSendToExpert())}
+                extraAction={
+                  editable && dirty ? (
+                    <button type="button" className="text-button" onClick={() => void handleSave()}>
+                      Сохранить черновик
+                    </button>
+                  ) : null
+                }
+              />
+            )}
+
+            {versions.length > 0 ? (
+              <section className="plain-section">
+                <h2>Ранее одобренные версии</h2>
                 <ul className="stack-list">
                   {versions.map((version) => (
                     <li key={version.id}>
                       <strong>Версия {version.version_number}</strong>
                       <p>
                         {version.approved_at
-                          ? new Date(version.approved_at).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })
+                          ? new Date(version.approved_at).toLocaleDateString("ru-RU", {
+                              day: "numeric",
+                              month: "long",
+                              year: "numeric",
+                            })
                           : "Дата одобрения не указана"}
                       </p>
                       <p>{snapshotText(version.snapshot)}</p>
                     </li>
                   ))}
                 </ul>
-              ) : (
-                <p>Одобренных версий пока нет.</p>
-              )}
-            </section>
+              </section>
+            ) : null}
           </>
+        ) : error ? (
+          <ScreenState kind="error" title="Не открылось" text={error} />
         ) : null}
       </div>
     </AppShell>
@@ -234,7 +271,7 @@ function RubricInner() {
 
 export default function VacancyRubricPage() {
   return (
-    <Suspense fallback={<ScreenState kind="loading" title="Загрузка" text="Открываем рубрику…" />}>
+    <Suspense fallback={<ScreenState kind="loading" title="Загрузка" text="Открываем требования…" />}>
       <RubricInner />
     </Suspense>
   );

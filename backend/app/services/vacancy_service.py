@@ -15,7 +15,7 @@ from app.models.rubric_version import RubricVersion
 from app.models.vacancy import Vacancy
 from app.repositories.question_repository import QuestionRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.services.vacancy_llm_service import VacancyLLMService
+from app.services.vacancy_llm_service import VacancyLLMService, checked_requirements
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,23 @@ class VacancyMissingQuestionsError(Exception):
     """Нельзя отправить эксперту (и дальше по статусам) вакансию без единого вопроса."""
 
 
+class VacancyMissingRequirementsError(Exception):
+    """Нечего калибровать: меньше MIN_CHECKED_REQUIREMENTS включённых требований."""
+
+
+class RequirementCoverageError(Exception):
+    """LLM вернула комплект, не покрывающий часть требований — несёт их имена."""
+
+    def __init__(self, missing: list[str]) -> None:
+        self.missing = missing
+        super().__init__(f"Requirements without a question: {missing}")
+
+
+# Меньше трёх проверяемых требований — это не интервью, а разговор. Тот же порог, что
+# раньше стоял на «минимум 3 обязательных навыка» в форме создания вакансии.
+MIN_CHECKED_REQUIREMENTS = 3
+
+
 class InvalidQuestionError(Exception):
     """`role=assessment`, но `intent`/`reference_answer`/`skill_tag` очищены (422)."""
 
@@ -58,6 +75,17 @@ class VacancyNotReadyError(Exception):
     def __init__(self, question_ids: list[UUID]) -> None:
         self.question_ids = question_ids
         super().__init__(f"Vacancy has invalid assessment questions: {question_ids}")
+
+
+def _sync_skills_from_requirements(vacancy: Vacancy) -> None:
+    """`required_skills`/`nice_to_have_skills` — производные от требований. Держим их
+    в синхроне, а не выкидываем: на них завязаны карточка вакансии, доска и таблица
+    покрытия, и вакансии, созданные до требований, продолжают работать на них."""
+    items = vacancy.requirements or []
+    if not items:
+        return
+    vacancy.required_skills = [i["name"] for i in items if i.get("kind") != "nice"]
+    vacancy.nice_to_have_skills = [i["name"] for i in items if i.get("kind") == "nice"]
 
 
 def _assessment_fields_valid(*, role: str, intent: str | None, reference_answer: str | None,
@@ -87,6 +115,9 @@ class VacancyService:
         grade: str,
         required_skills: list[str],
         nice_to_have_skills: list[str],
+        requirements: list[dict] | None = None,
+        description_source: str = "text",
+        description_file_name: str | None = None,
         expert_id: UUID | None = None,
         hiring_manager_id: UUID | None = None,
     ) -> Vacancy:
@@ -99,7 +130,15 @@ class VacancyService:
             grade=grade,
             required_skills=list(required_skills),
             nice_to_have_skills=list(nice_to_have_skills),
+            requirements=list(requirements or []),
+            description_source=description_source,
+            description_file_name=description_file_name,
         )
+        _sync_skills_from_requirements(vacancy)
+        # Требования уже есть — вакансия не «черновик без содержимого», а разобранное
+        # описание, готовое к отправке эксперту.
+        if vacancy.requirements:
+            vacancy.status = "extracted"
         await self.vacancy_repository.create(vacancy)
         await self.vacancy_repository.commit()
         return vacancy
@@ -125,6 +164,9 @@ class VacancyService:
         grade: str | None = None,
         required_skills: list[str] | None = None,
         nice_to_have_skills: list[str] | None = None,
+        requirements: list[dict] | None = None,
+        description_source: str | None = None,
+        description_file_name: str | None = _UNSET,
         expert_id: UUID | None = _UNSET,
         hiring_manager_id: UUID | None = _UNSET,
     ) -> Vacancy:
@@ -141,6 +183,13 @@ class VacancyService:
             vacancy.required_skills = list(required_skills)
         if nice_to_have_skills is not None:
             vacancy.nice_to_have_skills = list(nice_to_have_skills)
+        if requirements is not None:
+            vacancy.requirements = list(requirements)
+            _sync_skills_from_requirements(vacancy)
+        if description_source is not None:
+            vacancy.description_source = description_source
+        if description_file_name is not _UNSET:
+            vacancy.description_file_name = description_file_name
         # `None` здесь — явное «снять назначение», а не «поле не менялось» (см.
         # VacancyUpdate/роутер: kwarg просто не передаётся, если поля не было в запросе),
         # поэтому проверяем на сентинел `_UNSET`, а не на `is not None`.
@@ -301,7 +350,11 @@ class VacancyService:
         if vacancy.status not in {"calibration", "pending_review"}:
             raise VacancyTransitionError
 
-        questions = await self.question_repository.list_for_vacancy(vacancy_id)
+        # Вопросы собираются ЗДЕСЬ, а не раньше: эксперт калибрует требования, комплект —
+        # следствие его одобрения (specs/010-vacancy-from-description). Синхронно, а не
+        # фоновой задачей: одобрение сразу активирует вакансию, и при фоновой генерации
+        # появилось бы окно, в котором вакансия активна, а вопросов ещё нет.
+        questions = await self._generate_questions_for_approval(vacancy)
         offending = [
             q.id
             for q in questions
@@ -353,13 +406,52 @@ class VacancyService:
         await self.vacancy_repository.commit()
         return vacancy
 
+    async def _generate_questions_for_approval(self, vacancy: Vacancy) -> list[Question]:
+        """Собирает комплект по включённым требованиям и проверяет, что каждое требование
+        закрыто своим вопросом. Проверка нужна: раньше покрытие не проверялось вообще,
+        и дырка в комплекте молча доезжала до интервью."""
+        generated = await self.llm_service.generate_questions(vacancy)
+
+        wanted = [item["name"] for item in checked_requirements(vacancy)]
+        if wanted:
+            covered = {
+                tag.strip().lower()
+                for item in generated.questions
+                if item.role == "assessment"
+                for tag in item.skill_tag
+            }
+            missing = [name for name in wanted if name.strip().lower() not in covered]
+            if missing:
+                raise RequirementCoverageError(missing)
+
+        await self.question_repository.delete_generated_for_vacancy(vacancy.id)
+        created: list[Question] = []
+        for order, item in enumerate(generated.questions):
+            question = Question(
+                vacancy_id=vacancy.id,
+                text=item.text,
+                order=order,
+                skill_tag=list(item.skill_tag),
+                intent=item.intent,
+                reference_answer=item.reference_answer,
+                format=item.format,
+                role=item.role,
+                difficulty=item.difficulty,
+                estimated_duration_sec=item.estimated_duration_sec,
+                source="base_generated",
+            )
+            await self.question_repository.create(question)
+            created.append(question)
+        return created
+
     async def send_to_expert(self, vacancy_id: UUID) -> Vacancy:
         vacancy = await self.get_vacancy(vacancy_id)
         if vacancy.status not in {"draft", "extracted", "changes_requested"}:
             raise VacancyTransitionError
-        questions = await self.question_repository.list_for_vacancy(vacancy_id)
-        if not questions:
-            raise VacancyMissingQuestionsError
+        # Раньше условием были готовые вопросы. Теперь эксперту уходят требования, а вопросы
+        # собираются при одобрении, поэтому проверяем именно то, что он будет калибровать.
+        if len(checked_requirements(vacancy)) < MIN_CHECKED_REQUIREMENTS:
+            raise VacancyMissingRequirementsError
         vacancy.status = "calibration"
         await self.vacancy_repository.commit()
         return vacancy
