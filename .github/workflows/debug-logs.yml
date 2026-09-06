@@ -80,29 +80,64 @@ jobs:
 
 
           async def probe_tts() -> bytes:
+              """Синтезируем фразу и отдаём её же как WAV — вход для проверки STT."""
+              from livekit import rtc
+
               tts = lk_openai.TTS(
                   base_url=os.environ["TTS_BASE_URL"],
                   api_key=os.environ["TTS_API_KEY"],
                   model=os.environ.get("TTS_MODEL", "fish-audio/s1"),
                   voice=os.environ.get("TTS_VOICE") or "alloy",
               )
-              pcm = bytearray()
-              async for ev in tts.synthesize(PHRASE):
-                  pcm += bytes(ev.frame.data)
-              return bytes(pcm)
+              frames = [ev.frame async for ev in tts.synthesize(PHRASE)]
+              return rtc.combine_audio_frames(frames).to_wav_bytes()
+
+
+          # Плагин сам выбирает response_format и для модели, названной ровно "whisper-1",
+          # жёстко ставит verbose_json (stt.py, _recognize_impl) — а OpenRouter его не
+          # принимает. Ручку не настроить, поэтому подбираем id модели, который OpenRouter
+          # берёт И не включает эту ветку плагина.
+          STT_MODEL_CANDIDATES = [
+              "whisper-1",
+              "openai/whisper-1",
+              "openai/gpt-4o-transcribe",
+              "openai/gpt-4o-mini-transcribe",
+          ]
+
+
+          async def probe_stt(wav: bytes, model: str) -> None:
+              import openai
+
+              client = openai.AsyncClient(
+                  api_key=os.environ["STT_API_KEY"], base_url=os.environ["STT_BASE_URL"]
+              )
+              fmt = "verbose_json" if model == "whisper-1" else "json"
+              try:
+                  resp = await client.audio.transcriptions.create(
+                      file=("file.wav", wav, "audio/wav"),
+                      model=model,
+                      language="ru",
+                      response_format=fmt,
+                  )
+              except Exception as exc:
+                  print(f"  STT {model!r} (response_format={fmt}) FAILED: {exc}")
+              else:
+                  print(f"  STT {model!r} (response_format={fmt}) OK: {resp.text!r}")
+              finally:
+                  await client.close()
 
 
           async def main() -> None:
-              print("TTS_BASE_URL =", os.environ.get("TTS_BASE_URL"))
-              print("TTS_MODEL    =", os.environ.get("TTS_MODEL"))
-              print("TTS_VOICE    =", os.environ.get("TTS_VOICE"))
-              print("STT_BASE_URL =", os.environ.get("STT_BASE_URL"))
-              print("STT_MODEL    =", os.environ.get("STT_MODEL"))
+              for name in ("TTS_BASE_URL", "TTS_MODEL", "TTS_VOICE", "STT_BASE_URL", "STT_MODEL"):
+                  print(f"{name:13}=", os.environ.get(name))
               try:
-                  pcm = await probe_tts()
+                  wav = await probe_tts()
               except Exception as exc:
                   print(f"TTS FAILED: {type(exc).__name__}: {exc}")
                   return
-              print(f"TTS OK: {len(pcm)} pcm bytes")
+              print(f"TTS OK: {len(wav)} wav bytes")
+              print("--- STT candidates (same audio for each) ---")
+              for model in STT_MODEL_CANDIDATES:
+                  await probe_stt(wav, model)
           asyncio.run(main())
           PY
