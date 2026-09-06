@@ -18,10 +18,12 @@ from app.services.vacancy_llm_service import GeneratedQuestion, GeneratedQuestio
 from app.services.vacancy_service import (
     InvalidQuestionError,
     RequirementCoverageError,
+    RequirementsNotYoursError,
     VacancyLockedError,
     VacancyMissingRequirementsError,
     VacancyNotReadyError,
     VacancyService,
+    VacancyTransitionError,
 )
 
 
@@ -179,7 +181,7 @@ async def test_send_to_expert_requires_enough_requirements(db_session: AsyncSess
     with pytest.raises(VacancyMissingRequirementsError):
         await service.send_to_expert(vacancy.id)
 
-    await service.update_vacancy(vacancy.id, requirements=_THREE)
+    await service.set_requirements(vacancy.id, _THREE, is_recruiter=True, is_expert=False)
     sent = await service.send_to_expert(vacancy.id)
     assert sent.status == "calibration"
 
@@ -445,3 +447,52 @@ async def test_update_question_flips_generated_to_edited(db_session: AsyncSessio
 
     assert updated.source == "base_edited"
     assert updated.text == "Edited text"
+
+
+@pytest.mark.anyio
+async def test_requirements_have_one_owner_at_a_time(db_session: AsyncSession) -> None:
+    """Пока вакансия у эксперта, рекрутёр её требования не трогает — и наоборот.
+    Без этого оба экрана предлагали править один список, а сохранение молча выигрывал
+    тот, кто нажал последним."""
+    recruiter = await _make_recruiter(db_session)
+    service = _make_service(db_session, llm_service=FakeVacancyLLMService())
+
+    vacancy = await service.create_vacancy(
+        recruiter_id=recruiter.id, title="Backend", description="...", grade="middle",
+        required_skills=[], nice_to_have_skills=[], requirements=_THREE,
+    )
+
+    # extracted — ход рекрутёра
+    with pytest.raises(RequirementsNotYoursError):
+        await service.set_requirements(vacancy.id, _THREE, is_recruiter=False, is_expert=True)
+    await service.set_requirements(vacancy.id, _THREE, is_recruiter=True, is_expert=False)
+
+    await service.send_to_expert(vacancy.id)
+
+    # calibration — ход эксперта
+    with pytest.raises(RequirementsNotYoursError):
+        await service.set_requirements(vacancy.id, _THREE, is_recruiter=True, is_expert=False)
+    await service.set_requirements(vacancy.id, _THREE, is_recruiter=False, is_expert=True)
+
+    await service.approve_vacancy(vacancy.id)
+
+    # active — список зафиксирован для всех
+    with pytest.raises(VacancyLockedError):
+        await service.set_requirements(vacancy.id, _THREE, is_recruiter=False, is_expert=True)
+
+
+@pytest.mark.anyio
+async def test_send_to_expert_twice_is_rejected(db_session: AsyncSession) -> None:
+    """Повторная отправка уже отправленной вакансии — 409, а не второй переход.
+    Ровно на это налетал рекрутёр, которого после отправки уносило на экран эксперта."""
+    recruiter = await _make_recruiter(db_session)
+    service = _make_service(db_session)
+
+    vacancy = await service.create_vacancy(
+        recruiter_id=recruiter.id, title="Backend", description="...", grade="middle",
+        required_skills=[], nice_to_have_skills=[], requirements=_THREE,
+    )
+    await service.send_to_expert(vacancy.id)
+
+    with pytest.raises(VacancyTransitionError):
+        await service.send_to_expert(vacancy.id)

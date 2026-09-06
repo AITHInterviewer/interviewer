@@ -52,6 +52,11 @@ class VacancyMissingRequirementsError(Exception):
     """Нечего калибровать: меньше MIN_REQUIREMENTS требований."""
 
 
+class RequirementsNotYoursError(Exception):
+    """Требования сейчас у другой роли: до калибровки их правит рекрутёр, на калибровке —
+    эксперт. Двух владельцев одновременно быть не должно."""
+
+
 class RequirementCoverageError(Exception):
     """LLM вернула комплект, не покрывающий часть требований — несёт их имена."""
 
@@ -66,6 +71,11 @@ MIN_REQUIREMENTS = 3
 # Потолок: на каждое требование генерится свой вопрос, а интервью рассчитано на 15–25 минут.
 # Дублирует правило в промпте — модель на него не всегда смотрит.
 MAX_REQUIREMENTS = 10
+
+# Кто владеет списком требований на каждом статусе. Одно место правды: и бэкенд, и
+# экран калибровки показывают одну и ту же картину, кто сейчас ходит.
+RECRUITER_EDITS = {"draft", "extracted", "changes_requested"}
+EXPERT_EDITS = {"calibration", "pending_review"}
 
 
 class InvalidQuestionError(Exception):
@@ -167,7 +177,6 @@ class VacancyService:
         grade: str | None = None,
         required_skills: list[str] | None = None,
         nice_to_have_skills: list[str] | None = None,
-        requirements: list[dict] | None = None,
         description_source: str | None = None,
         description_file_name: str | None = _UNSET,
         expert_id: UUID | None = _UNSET,
@@ -186,9 +195,6 @@ class VacancyService:
             vacancy.required_skills = list(required_skills)
         if nice_to_have_skills is not None:
             vacancy.nice_to_have_skills = list(nice_to_have_skills)
-        if requirements is not None:
-            vacancy.requirements = list(requirements)
-            _sync_skills_from_requirements(vacancy)
         if description_source is not None:
             vacancy.description_source = description_source
         if description_file_name is not _UNSET:
@@ -201,6 +207,29 @@ class VacancyService:
         if hiring_manager_id is not _UNSET:
             vacancy.hiring_manager_id = hiring_manager_id
 
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def set_requirements(
+        self, vacancy_id: UUID, requirements: list[dict], *, is_recruiter: bool, is_expert: bool
+    ) -> Vacancy:
+        """Единственный путь правки требований. Владелец определяется статусом, а не тем,
+        какие роли есть у пришедшего: пока вакансия у эксперта, рекрутёр её не трогает,
+        и наоборот."""
+        vacancy = await self.get_vacancy(vacancy_id)
+        self._ensure_unlocked(vacancy)
+
+        if vacancy.status in EXPERT_EDITS:
+            if not is_expert:
+                raise RequirementsNotYoursError
+        elif vacancy.status in RECRUITER_EDITS:
+            if not is_recruiter:
+                raise RequirementsNotYoursError
+        else:
+            raise VacancyLockedError
+
+        vacancy.requirements = list(requirements)
+        _sync_skills_from_requirements(vacancy)
         await self.vacancy_repository.commit()
         return vacancy
 

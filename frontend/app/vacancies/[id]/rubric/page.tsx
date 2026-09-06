@@ -21,8 +21,8 @@ import {
   approveManagedVacancy,
   loadRubricVersions,
   loadVacancy,
+  saveManagedRequirements,
   sendManagedVacancyToExpert,
-  updateManagedVacancy,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, isRecruiterViewMode, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
@@ -30,14 +30,20 @@ import { useToast } from "@/lib/toast";
 
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
 const RECRUITER_AREA = "area.recruiter_workspace";
-/** Статусы, на которых требования ещё можно править и вакансию — двигать. */
-const EDITABLE_STATUSES = new Set(["draft", "extracted", "calibration", "changes_requested"]);
-const APPROVABLE_STATUSES = new Set(["calibration", "pending_review"]);
+// Одно правило владения на весь экран — то же, что в backend/app/services/vacancy_service.py:
+// до калибровки список у рекрутёра, на калибровке у эксперта, дальше зафиксирован.
+const RECRUITER_TURN = new Set(["draft", "extracted", "changes_requested"]);
+const EXPERT_TURN = new Set(["calibration", "pending_review"]);
 
 const APPROVE_ERRORS: Record<string, string> = {
   question_generation_failed:
     "Не удалось собрать вопросы. Требования сохранены — попробуйте ещё раз.",
   not_enough_requirements: `Нужно хотя бы ${MIN_REQUIREMENTS} требования, прежде чем отправлять эксперту.`,
+  requirements_not_yours:
+    "Вакансию уже забрал в работу другой участник — обновите страницу, чтобы увидеть актуальный список.",
+  requirements_locked: "Вакансия уже запущена — список требований зафиксирован.",
+  "Invalid vacancy transition.":
+    "Вакансия уже ушла эксперту — обновите страницу, чтобы увидеть текущий статус.",
 };
 
 function explainApproveError(error: unknown): string {
@@ -114,14 +120,26 @@ function RubricInner() {
   const isExpert = (landing.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false) && !fromRecruiter;
   const isRecruiter = landing.available_areas.some((area) => area.id === RECRUITER_AREA);
   const status = vacancy?.status ?? "draft";
-  const editable = EDITABLE_STATUSES.has(status) && (isExpert || isRecruiter);
-  // Эксперт одобряет только на калибровке; до неё главное действие — отправить ему вакансию.
-  const expertTurn = isExpert && APPROVABLE_STATUSES.has(status);
+  // Ход эксперта: калибрует и запускает. Ход рекрутёра: собирает список и отдаёт эксперту.
+  // Если сейчас не ваш ход — экран только читается, и главной кнопки на нём нет вовсе.
+  const expertTurn = isExpert && EXPERT_TURN.has(status);
+  const recruiterTurn = isRecruiter && !isExpert && RECRUITER_TURN.has(status);
+  // Мультиролевой пользователь (рекрутёр и эксперт разом) на своих статусах ходит за обоих.
+  const recruiterTurnMultirole = isRecruiter && isExpert && RECRUITER_TURN.has(status);
+  const myTurn = expertTurn || recruiterTurn || recruiterTurnMultirole;
+  const editable = myTurn;
   const minutes = estimateMinutes(requirements);
   const notEnough = requirements.length < MIN_REQUIREMENTS;
 
+  // Почему кнопки нет — говорим прямо, чтобы экран не выглядел сломанным.
+  const waitingHint = EXPERT_TURN.has(status)
+    ? "Требования у эксперта — он проверит список, соберёт вопросы и запустит вакансию."
+    : RECRUITER_TURN.has(status)
+      ? "Список ещё собирает рекрутёр — эксперту он пока не отправлен."
+      : `Вакансия уже ${(VACANCY_STATUS_LABEL[status] ?? status).toLowerCase()} — список зафиксирован.`;
+
   async function persistRequirements() {
-    const updated = await updateManagedVacancy(vacancyId, { requirements });
+    const updated = await saveManagedRequirements(vacancyId, requirements);
     setVacancy((current) => (current ? { ...current, ...updated } : current));
     setDirty(false);
   }
@@ -186,9 +204,9 @@ function RubricInner() {
               description={
                 expertTurn
                   ? "Правьте формулировки, уровни и состав. Вопросы соберутся сами, когда вы одобрите список."
-                  : editable
+                  : myTurn
                     ? "Список, который проверим на интервью. Отправьте его эксперту — он калибрует и запустит вакансию."
-                    : `Вакансия уже ${(VACANCY_STATUS_LABEL[status] ?? status).toLowerCase()} — список зафиксирован.`
+                    : waitingHint
               }
             />
             <CalibrationSubnav vacancyId={vacancyId} />
@@ -211,19 +229,25 @@ function RubricInner() {
                 }}
                 readOnly={!editable}
                 busy={busy}
-                confirmLabel={expertTurn ? "Одобрить требования и запустить" : "Отправить эксперту"}
+                confirmLabel={
+                  expertTurn
+                    ? "Одобрить требования и запустить"
+                    : myTurn
+                      ? "Отправить эксперту"
+                      : null
+                }
                 confirmLoadingLabel={expertTurn ? "Собираем вопросы…" : "Отправляем…"}
                 confirmHint={
-                  expertTurn
-                    ? `${requirementsLabel(requirements.length)} · ≈${minutes} мин интервью · после одобрения соберём вопросы и вакансия станет активной`
-                    : `${requirementsLabel(requirements.length)} · ≈${minutes} мин интервью`
+                  !myTurn
+                    ? waitingHint
+                    : expertTurn
+                      ? `${requirementsLabel(requirements.length)} · ≈${minutes} мин интервью · после одобрения соберём вопросы и вакансия станет активной`
+                      : `${requirementsLabel(requirements.length)} · ≈${minutes} мин интервью`
                 }
                 confirmDisabledReason={
-                  !editable
-                    ? "Список зафиксирован — вакансия уже прошла калибровку"
-                    : notEnough
-                      ? `Нужно хотя бы ${MIN_REQUIREMENTS} требования — сейчас ${requirements.length}`
-                      : null
+                  myTurn && notEnough
+                    ? `Нужно хотя бы ${MIN_REQUIREMENTS} требования — сейчас ${requirements.length}`
+                    : null
                 }
                 onConfirm={() => void (expertTurn ? handleApprove() : handleSendToExpert())}
                 extraAction={

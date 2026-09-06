@@ -117,13 +117,16 @@ class VacancyCreate(BaseModel):
     hiring_manager_id: UUID | None = None
 
 
+class RequirementsUpdate(BaseModel):
+    requirements: list[RequirementModel]
+
+
 class VacancyUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=500)
     description: str | None = Field(default=None, min_length=1)
     grade: str | None = Field(default=None, min_length=1, max_length=100)
     required_skills: list[str] | None = None
     nice_to_have_skills: list[str] | None = None
-    requirements: list[RequirementModel] | None = None
     description_source: Literal["text", "pdf"] | None = None
     description_file_name: str | None = None
     # `None` явно означает «снять назначение» — поле применяется, только если

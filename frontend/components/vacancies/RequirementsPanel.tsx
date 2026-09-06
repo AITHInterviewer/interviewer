@@ -59,14 +59,15 @@ export function RequirementsPanel({
   requirements: Requirement[];
   onChange: (requirements: Requirement[]) => void;
   readOnly?: boolean;
-  confirmLabel: string;
+  /** Не передан — главного действия у этого зрителя сейчас нет, рисуем только подсказку. */
+  confirmLabel?: string | null;
   /** Подпись слева от кнопки: что произойдёт после нажатия. */
   confirmHint?: string;
   confirmLoadingLabel?: string;
   /** Не пусто — кнопка заблокирована, текст показывается вместо подсказки. */
   confirmDisabledReason?: string | null;
   busy?: boolean;
-  onConfirm: () => void;
+  onConfirm?: () => void;
   extraAction?: React.ReactNode;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(requirements[0]?.id ?? null);
@@ -220,15 +221,17 @@ export function RequirementsPanel({
             ? confirmDisabledReason
             : (confirmHint ?? `${requirementsLabel(requirements.length)} · ≈${minutes} мин интервью`)}
         </span>
-        <Button
-          type="button"
-          loading={busy}
-          loadingLabel={confirmLoadingLabel}
-          disabled={Boolean(confirmDisabledReason)}
-          onClick={onConfirm}
-        >
-          {confirmLabel}
-        </Button>
+        {confirmLabel ? (
+          <Button
+            type="button"
+            loading={busy}
+            loadingLabel={confirmLoadingLabel}
+            disabled={Boolean(confirmDisabledReason)}
+            onClick={onConfirm}
+          >
+            {confirmLabel}
+          </Button>
+        ) : null}
       </div>
 
       <Modal

@@ -11,6 +11,7 @@ import {
   createVacancy,
   deleteQuestion,
   extractRequirements,
+  putRequirements,
   fetchAnonymizedStats,
   fetchCurrentUser,
   fetchExpertQueue,
@@ -25,6 +26,7 @@ import {
   getVacancy,
   grantManagerOpinion,
   handoffToManager,
+  rejectInterview,
   listClarifications,
   listHiringManagers,
   listInterviews,
@@ -242,7 +244,6 @@ export async function updateManagedVacancy(vacancyId: string, input: Partial<Vac
     ...(input.grade !== undefined ? { grade: input.grade } : {}),
     ...(input.requiredSkills !== undefined ? { required_skills: input.requiredSkills } : {}),
     ...(input.niceToHaveSkills !== undefined ? { nice_to_have_skills: input.niceToHaveSkills } : {}),
-    ...(input.requirements !== undefined ? { requirements: input.requirements } : {}),
     ...(input.descriptionSource !== undefined ? { description_source: input.descriptionSource } : {}),
     ...(input.descriptionFileName !== undefined
       ? { description_file_name: input.descriptionFileName }
@@ -277,6 +278,15 @@ export async function extractVacancyRequirements(input: { file: File } | { descr
   }
 
   return extractRequirements(session.token, input);
+}
+
+export async function saveManagedRequirements(vacancyId: string, requirements: Requirement[]) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return putRequirements(session.token, vacancyId, requirements);
 }
 
 export async function generateVacancyQuestions(vacancyId: string) {
@@ -436,6 +446,10 @@ export async function handoffManagedInterview(
 
 export async function grantManagedOpinion(interviewId: string, managerId: string) {
   return grantManagerOpinion(requireToken(), interviewId, managerId);
+}
+
+export async function rejectManagedInterview(interviewId: string) {
+  return rejectInterview(requireToken(), interviewId);
 }
 
 export async function loadManagerCandidates() {

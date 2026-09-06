@@ -15,7 +15,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db_session
-from app.dependencies.auth import require_any_capability, require_capability
+from app.dependencies.auth import (
+    get_granted_capabilities,
+    require_any_capability,
+    require_capability,
+)
 from app.models.user import InternalUser
 from app.repositories.question_repository import QuestionRepository
 from app.repositories.vacancy_repository import VacancyRepository
@@ -33,6 +37,7 @@ from app.schemas.vacancy import (
     QuestionCreate,
     QuestionResponse,
     QuestionUpdate,
+    RequirementsUpdate,
     VacancyCreate,
     VacancyListResponse,
     VacancyResponse,
@@ -52,6 +57,7 @@ from app.services.vacancy_service import (
     InvalidQuestionError,
     QuestionNotFoundError,
     RequirementCoverageError,
+    RequirementsNotYoursError,
     VacancyLockedError,
     VacancyMissingQuestionsError,
     VacancyMissingRequirementsError,
@@ -197,6 +203,32 @@ async def update_vacancy(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found.") from exc
     except VacancyLockedError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vacancy is already ready.") from exc
+    return await _vacancy_response(service, vacancy)
+
+
+# Требования правятся ТОЛЬКО здесь, не через общий PATCH: у них своё правило владения —
+# до калибровки список у рекрутёра, на калибровке у эксперта (specs/010-vacancy-from-description).
+@router.put("/{vacancy_id}/requirements", response_model=VacancyResponse)
+async def set_requirements(
+    vacancy_id: UUID,
+    payload: RequirementsUpdate,
+    _: Annotated[InternalUser, Depends(require_reader)],
+    capabilities: Annotated[set[str], Depends(get_granted_capabilities)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> VacancyResponse:
+    try:
+        vacancy = await service.set_requirements(
+            vacancy_id,
+            [item.model_dump() for item in payload.requirements],
+            is_recruiter=AREA_RECRUITER_WORKSPACE in capabilities,
+            is_expert=ACTION_QUESTIONS_EDIT in capabilities,
+        )
+    except VacancyNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found.") from exc
+    except RequirementsNotYoursError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="requirements_not_yours") from exc
+    except VacancyLockedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="requirements_locked") from exc
     return await _vacancy_response(service, vacancy)
 
 

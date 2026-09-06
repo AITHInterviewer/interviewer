@@ -87,6 +87,18 @@ def require_any_capability(*capability_ids: str):
     return dependency
 
 
+async def get_granted_capabilities(
+    user: Annotated[InternalUser, Depends(get_current_user)],
+    user_repository: Annotated[UserRepository, Depends(get_current_user_repository)],
+    role_service: Annotated[RoleService, Depends(get_role_service)],
+) -> set[str]:
+    """Полный набор capability текущего пользователя. Нужен там, где эндпоинт открыт
+    нескольким ролям, но ведёт себя по-разному в зависимости от того, кто пришёл
+    (правка требований вакансии: до калибровки владелец рекрутёр, на калибровке — эксперт)."""
+    role_codes = await user_repository.list_role_codes(user.id)
+    return role_service.capabilities_for_roles(role_codes)
+
+
 def require_area(area_id: str):
     async def dependency(
         user: Annotated[InternalUser, Depends(get_current_user)],

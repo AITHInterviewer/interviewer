@@ -205,6 +205,10 @@ export default function NewVacancyPage() {
     try {
       await sendManagedVacancyToExpert(vacancy.id);
       pushToast("success", `Вакансия «${vacancy.title}» ушла эксперту на калибровку.`);
+      // На доску вакансии, а НЕ на /rubric: там ход эксперта, и рекрутёр видел бы вторую
+      // кнопку «Отправить эксперту», которая уже ничего не делает (409 на повторный переход).
+      router.push(`/vacancies/${vacancy.id}`);
+      return;
     } catch {
       // Вакансия уже создана — второй раз её создавать не нужно, отправить эксперту
       // можно со страницы требований.

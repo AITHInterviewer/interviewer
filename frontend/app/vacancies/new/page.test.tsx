@@ -178,7 +178,8 @@ describe("NewVacancyPage", () => {
     );
     await waitFor(() => expect(sendManagedVacancyToExpert).toHaveBeenCalledWith("v1"));
     expect(await screen.findByText(/ушла эксперту на калибровку/i)).toBeInTheDocument();
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/vacancies/v1/rubric"));
+    // На доску вакансии, а не на экран эксперта: там уже не ход рекрутёра.
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/vacancies/v1"));
   });
 
   it("блокирует отправку, пока требований меньше трёх", async () => {
@@ -204,5 +205,19 @@ describe("NewVacancyPage", () => {
 
     expect(await screen.findByText(/это скан: в файле нет текста/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/описание вакансии/i)).toHaveValue(DESCRIPTION);
+  });
+
+  it("при сбое отправки оставляет рекрутёра на требованиях, а не теряет вакансию", async () => {
+    vi.mocked(extractVacancyRequirements).mockResolvedValue(EXTRACTED);
+    vi.mocked(createManagedVacancy).mockResolvedValue(CREATED);
+    vi.mocked(sendManagedVacancyToExpert).mockRejectedValue(new Error("boom"));
+
+    renderPage();
+    await extractFromPastedText();
+    fireEvent.click(await screen.findByRole("button", { name: /отправить эксперту/i }));
+
+    expect(await screen.findByText(/сохранена, но не ушла эксперту/i)).toBeInTheDocument();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/vacancies/v1/rubric"));
+    expect(createManagedVacancy).toHaveBeenCalledTimes(1);
   });
 });

@@ -205,7 +205,10 @@ export const fixtures = {
       { id: "area.hiring_manager_review", label: "Встречи", path: "/manager" },
     ],
     // У этого пользователя роль эксперта — значит и право править вопросы/калибровать.
-    available_actions: ["action.internal_users.manage", "action.questions.edit"],
+    available_actions:
+      process.env.PW_ROLE === "recruiter"
+        ? ["action.internal_users.manage"]
+        : ["action.internal_users.manage", "action.questions.edit"],
   },
 };
 

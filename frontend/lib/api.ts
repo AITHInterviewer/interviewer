@@ -287,7 +287,12 @@ export type InterviewProductState =
   | "consent_revoked"
   | "data_deleted";
 
-export type RecruiterDecision = "awaiting" | "handed_off" | "rejected" | "closed_by_candidate";
+export type RecruiterDecision =
+  | "awaiting"
+  | "handed_off"
+  | "rejected"
+  | "closed_by_candidate"
+  | "opinion_asked";
 
 export type SkillClass = "fail" | "ambiguous" | "pass" | "untested";
 
@@ -422,6 +427,16 @@ type VacancyWriteBody = {
   expert_id?: string | null;
   hiring_manager_id?: string | null;
 };
+
+/** Требования правятся отдельной ручкой, а не общим PATCH: у них своё правило владения —
+ * до калибровки список у рекрутёра, на калибровке у эксперта. */
+export function putRequirements(token: string, vacancyId: string, requirements: Requirement[]) {
+  return request<Vacancy>(`/api/v1/vacancies/${vacancyId}/requirements`, {
+    method: "PUT",
+    token,
+    body: { requirements },
+  });
+}
 
 async function requestMultipart<T>(
   path: string,
@@ -602,6 +617,10 @@ export function grantManagerOpinion(token: string, interviewId: string, managerI
     token,
     body: { manager_id: managerId },
   });
+}
+
+export function rejectInterview(token: string, interviewId: string) {
+  return request<Interview>(`/api/v1/interviews/${interviewId}/reject`, { method: "POST", token });
 }
 
 export function listManagerCandidates(token: string) {
