@@ -16,6 +16,7 @@ export function InterviewerOrb({ presence }: { presence: AgentPresence }) {
       <div className={styles.content} aria-hidden="true">
         <span className={styles.orb}>
           <span className={styles.core} />
+          <span className={styles.voiceCore} />
         </span>
         <span className={styles.label}>{status.label}</span>
       </div>

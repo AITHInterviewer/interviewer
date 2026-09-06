@@ -12,8 +12,9 @@
   color: #fff;
   contain: paint;
   transition:
-    border-color 180ms cubic-bezier(.16, 1, .3, 1),
-    background-color 180ms cubic-bezier(.16, 1, .3, 1);
+    border-color 320ms cubic-bezier(.16, 1, .3, 1),
+    background-color 320ms cubic-bezier(.16, 1, .3, 1),
+    box-shadow 320ms cubic-bezier(.16, 1, .3, 1);
 }
 
 .tile::before {
@@ -51,7 +52,8 @@
 
 .orb::before,
 .orb::after,
-.core {
+.core,
+.voiceCore {
   position: absolute;
   inset: 0;
   display: block;
@@ -75,7 +77,8 @@
   animation: haloBreath 3.8s .35s cubic-bezier(.45, 0, .55, 1) infinite;
 }
 
-.core {
+.core,
+.voiceCore {
   background: #101d76;
   box-shadow:
     0 5px 10px #4dc8fd inset,
@@ -83,24 +86,36 @@
     0 29px 28px #1e40af inset,
     0 0 3px 1px rgb(56 189 248 / .34),
     0 0 7px 2px rgb(0 93 255 / .24);
-  animation: listeningMorph 5.4s cubic-bezier(.45, 0, .55, 1) infinite;
   will-change: transform, border-radius;
+}
+
+.core {
+  z-index: 1;
+  opacity: 1;
+  animation: listeningMorph 5.4s cubic-bezier(.45, 0, .55, 1) infinite;
+  transition: opacity 460ms cubic-bezier(.16, 1, .3, 1);
+}
+
+/* Обе формы движутся постоянно: при смене speaking → present не происходит
+   сброса animation-name на первый keyframe, вместо этого слои мягко перетекают
+   друг в друга, сохраняя текущую фазу движения. */
+.voiceCore {
+  z-index: 2;
+  opacity: 0;
+  animation: speakingMorph 1.15s cubic-bezier(.45, 0, .55, 1) infinite;
+  transition: opacity 380ms cubic-bezier(.16, 1, .3, 1);
 }
 
 .tile[data-state="speaking"] .orb {
   filter: drop-shadow(0 0 12px rgb(76 200 253 / .46));
 }
 
-.tile[data-state="speaking"] .orb::before {
-  animation: speakingHalo .9s cubic-bezier(.45, 0, .55, 1) infinite;
-}
-
-.tile[data-state="speaking"] .orb::after {
-  animation: speakingHalo .72s .12s cubic-bezier(.45, 0, .55, 1) infinite reverse;
-}
-
 .tile[data-state="speaking"] .core {
-  animation: speakingMorph 1.15s cubic-bezier(.45, 0, .55, 1) infinite;
+  opacity: .18;
+}
+
+.tile[data-state="speaking"] .voiceCore {
+  opacity: 1;
 }
 
 .tile[data-state="absent"] .orb {
@@ -109,6 +124,7 @@
 }
 
 .tile[data-state="absent"] .core,
+.tile[data-state="absent"] .voiceCore,
 .tile[data-state="absent"] .orb::before,
 .tile[data-state="absent"] .orb::after {
   animation-duration: 7.5s;
@@ -175,12 +191,6 @@
   50% { opacity: .45; transform: scale(1.12); }
 }
 
-@keyframes speakingHalo {
-  0%, 100% { opacity: .24; transform: scale(.86); }
-  45% { opacity: .58; transform: scale(1.25); }
-  70% { opacity: .34; transform: scale(1.04); }
-}
-
 @keyframes ambientDrift {
   from { transform: translate3d(-10%, 8%, 0) scale(.94); }
   to { transform: translate3d(12%, -7%, 0) scale(1.08); }
@@ -191,9 +201,7 @@
   .orb::before,
   .orb::after,
   .core,
-  .tile[data-state="speaking"] .orb::before,
-  .tile[data-state="speaking"] .orb::after,
-  .tile[data-state="speaking"] .core {
+  .voiceCore {
     animation: none;
   }
 
@@ -203,6 +211,16 @@
   }
 
   .tile[data-state="speaking"] .core {
+    opacity: 0;
+  }
+
+  .voiceCore {
+    border-radius: 48% 52% 54% 46% / 50% 46% 54% 50%;
+    transform: scale(.96);
+  }
+
+  .tile[data-state="speaking"] .voiceCore {
+    opacity: 1;
     transform: scale(1.06);
   }
 }
