@@ -339,14 +339,44 @@ export default function VacancyCandidatePage() {
                 ) : null}
                 {!processing && interview.report_json ? (
                   (() => {
-                    const lines = [...interview.report_json.strengths, ...interview.report_json.risks];
-                    if (lines.length === 0) return null;
+                    const report = interview.report_json;
+                    const normalize = (value: string) => value.trim().toLowerCase();
+                    const confirmed = report.confirmed_skills;
+                    const unconfirmed = report.unconfirmed_skills;
+                    // Оценён, но не классифицирован (между подтверждено/не подтверждено) —
+                    // по агентской шкале это «требует проверки».
+                    const seen = new Set([...confirmed.map(normalize), ...unconfirmed.map(normalize)]);
+                    const ambiguous: string[] = [];
+                    for (const tag of report.per_question.flatMap((row) =>
+                      row.skill_scores.map((entry) => entry.skill_tag),
+                    )) {
+                      const key = normalize(tag);
+                      if (!seen.has(key)) {
+                        seen.add(key);
+                        ambiguous.push(tag);
+                      }
+                    }
+                    const groups = [
+                      { label: "Подтверждено", tone: "positive" as const, skills: confirmed },
+                      { label: "Требует проверки", tone: "warning" as const, skills: ambiguous },
+                      { label: "Не подтверждено", tone: "danger" as const, skills: unconfirmed },
+                    ];
+                    if (groups.every((group) => group.skills.length === 0)) return null;
                     return (
-                      <ul className="verdict-reasoning">
-                        {lines.map((line, index) => (
-                          <li key={index}>{line}</li>
-                        ))}
-                      </ul>
+                      <div className="skill-chips">
+                        {groups.map((group) =>
+                          group.skills.length > 0 ? (
+                            <div key={group.label} className="skill-chips__group">
+                              <span className="muted-copy">{group.label}</span>
+                              {group.skills.map((skill) => (
+                                <span key={skill} className="score-chip" data-tone={group.tone}>
+                                  {skill}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null,
+                        )}
+                      </div>
                     );
                   })()
                 ) : null}

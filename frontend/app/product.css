@@ -639,7 +639,8 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .interview-recording h2 { margin: 0; }
 .interview-recording video { width: 100%; max-height: 480px; border-radius: var(--radius-panel); background: #000; }
 
-.verdict-reasoning { margin: 8px 0 0; padding: 0 0 0 18px; display: grid; gap: 4px; font-size: var(--text-meta); color: var(--ink-secondary); }
+.skill-chips { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 10px 0 0; }
+.skill-chips__group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .report-narrative { display: grid; gap: 10px; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--surface-muted); }
 .report-narrative dt { font-size: var(--text-meta); color: var(--ink-secondary); margin-bottom: 2px; }
 .report-narrative dd { margin: 0; }
