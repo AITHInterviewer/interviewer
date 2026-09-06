@@ -44,3 +44,27 @@ async def test_landing_for_single_role_user_is_role_scoped(client) -> None:
     assert [area["id"] for area in landing["available_areas"]] == ["area.expert_questions"]
     assert landing["default_path"] == "/expert"
     assert "action.questions.edit" in landing["available_actions"]
+
+
+@pytest.mark.anyio
+async def test_demo_admin_email_receives_every_area_and_action(client) -> None:
+    admin_token = await register_recruiter(client, email="admin@example.com")
+
+    response = await client.get(
+        "/api/v1/internal-users/me/landing",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert response.status_code == 200
+    landing = response.json()
+    assert landing["roles"] == ["recruiter"]
+    assert {area["id"] for area in landing["available_areas"]} == {
+        "area.recruiter_workspace",
+        "area.hiring_manager_review",
+        "area.expert_questions",
+    }
+    assert set(landing["available_actions"]) == {
+        "action.internal_users.manage",
+        "action.questions.edit",
+    }
+    assert landing["default_path"] == "/vacancies"

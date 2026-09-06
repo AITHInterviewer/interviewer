@@ -100,7 +100,7 @@ class UserAdminService:
 
     async def get_landing(self, user: InternalUser) -> InternalUserLandingResponse:
         role_codes = await self.user_repository.list_role_codes(user.id)
-        return self.role_service.build_landing(role_codes)
+        return self.role_service.build_landing(role_codes, email=user.email)
 
     async def list_internal_users(self, actor: InternalUser) -> list[InternalUserResponse]:
         users = await self.user_repository.list_by_creator(actor.id)

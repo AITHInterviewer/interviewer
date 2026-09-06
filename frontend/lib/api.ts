@@ -267,6 +267,10 @@ export type QuestionInput = {
 
 export type VacancyDetail = Vacancy & { questions: Question[] };
 
+export type GenerateQuestionsResponse = {
+  questions: Question[];
+};
+
 export type VacancyListResponse = {
   items: Vacancy[];
 };
@@ -493,7 +497,10 @@ export function getVacancy(token: string, vacancyId: string) {
 }
 
 export function generateQuestions(token: string, vacancyId: string) {
-  return request<VacancyDetail>(`/api/v1/vacancies/${vacancyId}/questions/generate`, { method: "POST", token });
+  return request<GenerateQuestionsResponse>(`/api/v1/vacancies/${vacancyId}/questions/generate`, {
+    method: "POST",
+    token,
+  });
 }
 
 export function addQuestion(token: string, vacancyId: string, body: QuestionInput) {

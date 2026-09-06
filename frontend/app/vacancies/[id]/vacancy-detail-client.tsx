@@ -17,6 +17,7 @@ import { Tag } from "@/components/ui/tag";
 import { AvatarGroup, type AvatarPerson } from "@/components/ui/avatar";
 import { CandidateCard } from "@/components/ui/candidate-card";
 import { QuestionsPanel } from "@/components/vacancies/QuestionsPanel";
+import { VacancyDescription } from "@/components/vacancies/VacancyDescription";
 import type { AnonymizedStats, InternalUser, Interview, VacancyDetail } from "@/lib/api";
 import {
   createManagedInterview,
@@ -446,7 +447,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
               </div>
 
               <div className="vacancy-info-card__body">
-                <p className="vacancy-info-card__description">{vacancy.description}</p>
+                <VacancyDescription title={vacancy.title} description={vacancy.description} />
 
                 {vacancy.required_skills.length > 0 ? (
                   <div className="vacancy-info-card__skills">

@@ -81,6 +81,20 @@ async def test_recruiter_without_capability_is_denied_question_editing(client) -
 
 
 @pytest.mark.anyio
+async def test_demo_admin_email_can_use_expert_question_actions(client) -> None:
+    admin_token = await register_recruiter(client, email="admin@example.com")
+    vacancy_id = await _create_vacancy(client, admin_token)
+
+    response = await client.post(
+        f"/api/v1/vacancies/{vacancy_id}/questions",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"text": "Вопрос, добавленный администратором."},
+    )
+
+    assert response.status_code == 201
+
+
+@pytest.mark.anyio
 async def test_role_retirement_guard_rejects_live_assignments(client, db_session) -> None:
     token = await register_recruiter(client)
     await create_internal_user(client, token, email="expert@example.com", roles=["expert"])

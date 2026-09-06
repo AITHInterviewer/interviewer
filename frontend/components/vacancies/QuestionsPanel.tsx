@@ -11,6 +11,7 @@ import type { Question, QuestionFormat, QuestionInput } from "@/lib/api";
 import {
   addManagedQuestion,
   deleteManagedQuestion,
+  generateVacancyQuestions,
   regenerateManagedQuestion,
   updateManagedQuestion,
 } from "@/lib/auth";
@@ -42,6 +43,7 @@ export function QuestionsPanel({
   const sorted = sortByOrder(questions);
   const [selectedId, setSelectedId] = useState<string | null>(sorted[0]?.id ?? null);
   const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [adding, setAdding] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -51,6 +53,7 @@ export function QuestionsPanel({
 
   useEffect(() => {
     if (!sorted.some((question) => question.id === selectedId)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven selection fallback
       setSelectedId(sorted[0]?.id ?? null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -63,6 +66,7 @@ export function QuestionsPanel({
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- drafts reset when the selected question changes
     setTextDraft(selected?.text ?? "");
     setAnswerDraft(selected?.reference_answer ?? "");
     setDurationDraft(selected ? String(Math.round(selected.estimated_duration_sec / 60)) : "");
@@ -96,6 +100,19 @@ export function QuestionsPanel({
       setError(normalizeError(caughtError, "Не удалось перегенерировать вопрос."));
     } finally {
       setRegenerating(false);
+    }
+  }
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setError(null);
+    try {
+      await generateVacancyQuestions(vacancyId);
+      await onQuestionsChanged();
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, "Не удалось сгенерировать вопросы."));
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -139,14 +156,27 @@ export function QuestionsPanel({
   }
 
   if (questions.length === 0) {
-    // Вопросы больше не собираются вручную: их даёт одобрение требований экспертом
-    // (specs/010-vacancy-from-description).
     return (
       <section className="question-panel form-panel">
-        <h2>Вопросы</h2>
+        <div className="question-panel__head">
+          <h2>Вопросы</h2>
+          {canManage ? (
+            <Button
+              type="button"
+              variant="secondary"
+              icon={<ArrowsClockwise size={16} />}
+              loading={generating}
+              loadingLabel="Собираем вопросы…"
+              onClick={() => void handleGenerate()}
+            >
+              Сгенерировать вопросы
+            </Button>
+          ) : null}
+        </div>
         <p className="disabled-hint">
-          Комплект соберётся сам, когда эксперт одобрит требования вакансии.
+          Можно собрать черновик сейчас или дождаться одобрения эксперта — тогда комплект обновится автоматически.
         </p>
+        {error ? <p className="form-error">{error}</p> : null}
         <div className="form-actions">
           <Button type="button" variant="secondary" asChild>
             <Link href={`/vacancies/${vacancyId}/rubric`}>Открыть требования</Link>
@@ -160,6 +190,18 @@ export function QuestionsPanel({
     <section className="question-panel form-panel">
       <div className="question-panel__head">
         <h2>Вопросы</h2>
+        {canManage ? (
+          <Button
+            type="button"
+            variant="secondary"
+            icon={<ArrowsClockwise size={16} />}
+            loading={generating}
+            loadingLabel="Обновляем комплект…"
+            onClick={() => void handleGenerate()}
+          >
+            Сгенерировать заново
+          </Button>
+        ) : null}
       </div>
       {error ? <p className="form-error">{error}</p> : null}
 

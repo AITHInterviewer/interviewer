@@ -7,8 +7,12 @@ LLM и S3 не вызываются по-настоящему — `VacancyLLMSer
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import UUID
+
 import pytest
 
+from app.services.interview_event_service import InterviewEventService
 from app.services.vacancy_llm_service import GeneratedQuestion, GeneratedQuestionSet, VacancyLLMService
 from tests.conftest import create_internal_user, login, register_recruiter
 
@@ -124,17 +128,48 @@ async def test_expert_cannot_generate_questions(client, monkeypatch: pytest.Monk
 
 
 @pytest.mark.anyio
-async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_manual_generation_does_not_move_vacancy_back_from_calibration(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_llm(monkeypatch)
+    admin_token = await register_recruiter(client, email="admin@example.com")
+    vacancy = await _create_vacancy(client, admin_token)
+
+    sent = await client.post(
+        f"/api/v1/vacancies/{vacancy['id']}/send-to-expert",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert sent.status_code == 200
+    assert sent.json()["status"] == "calibration"
+
+    generated = await client.post(
+        f"/api/v1/vacancies/{vacancy['id']}/questions/generate",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+    assert generated.status_code == 200
+    assert len(generated.json()["questions"]) == 5
+
+    detail = await client.get(
+        f"/api/v1/vacancies/{vacancy['id']}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "calibration"
+
+
+@pytest.mark.anyio
+async def test_full_vacancy_to_interview_flow(
+    client, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _patch_llm(monkeypatch)
     _patch_storage(monkeypatch)
 
-    recruiter_token = await register_recruiter(client)
-    await create_internal_user(
-        client, recruiter_token, email="combo@example.com", roles=["recruiter", "expert"]
-    )
-    combo_token = await login(client, "combo@example.com")
+    # Демо-администратор проходит рекрутёрские и экспертные шаги одной сессией —
+    # именно так будет показан сценарий на стенде.
+    admin_token = await register_recruiter(client, email="admin@example.com")
 
-    vacancy = await _create_vacancy(client, combo_token)
+    vacancy = await _create_vacancy(client, admin_token)
     vacancy_id = vacancy["id"]
     # Вакансия создаётся сразу с требованиями — значит описание уже разобрано.
     assert vacancy["status"] == "extracted"
@@ -143,7 +178,7 @@ async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.Monkey
 
     send_response = await client.post(
         f"/api/v1/vacancies/{vacancy_id}/send-to-expert",
-        headers={"Authorization": f"Bearer {combo_token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert send_response.status_code == 200
     assert send_response.json()["status"] == "calibration"
@@ -152,7 +187,7 @@ async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.Monkey
     # ручного /activate) — см. VacancyService.approve_vacancy.
     approve_response = await client.post(
         f"/api/v1/vacancies/{vacancy_id}/approve",
-        headers={"Authorization": f"Bearer {combo_token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert approve_response.status_code == 200
     assert approve_response.json()["status"] == "active"
@@ -165,14 +200,14 @@ async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.Monkey
 
     locked_response = await client.patch(
         f"/api/v1/vacancies/{vacancy_id}",
-        headers={"Authorization": f"Bearer {combo_token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
         json={"title": "New title"},
     )
     assert locked_response.status_code == 409
 
     interview_response = await client.post(
         f"/api/v1/vacancies/{vacancy_id}/interviews",
-        headers={"Authorization": f"Bearer {combo_token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
         files={"resume_file": ("resume.pdf", b"%PDF-1.4 ...", "application/pdf")},
         data={"candidate_name": "Ivan Petrov"},
     )
@@ -184,18 +219,97 @@ async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.Monkey
 
     list_interviews_response = await client.get(
         f"/api/v1/vacancies/{vacancy_id}/interviews",
-        headers={"Authorization": f"Bearer {combo_token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert list_interviews_response.status_code == 200
     assert len(list_interviews_response.json()["items"]) == 1
 
     events_response = await client.get(
         f"/api/v1/interviews/{interview_id}/events",
-        headers={"Authorization": f"Bearer {combo_token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert events_response.status_code == 200
     assert events_response.json()["events"] == []
     assert events_response.json()["answers"] == []
+
+    # Кандидат проходит продуктовые шаги по той же публичной ссылке, которую получил
+    # рекрутёр. Браузерные камера/LiveKit проверяются отдельно; здесь фиксируем связь
+    # приглашения с конкретным интервью и серверную ось состояния.
+    opened = await client.post(
+        f"/api/interview/{access_token}/progress", json={"product_state": "opened"}
+    )
+    assert opened.status_code == 200
+    consented = await client.post(f"/api/interview/{access_token}/consent")
+    assert consented.status_code == 200
+    for product_state in ("device_checked", "ready", "in_interview", "submitted"):
+        progressed = await client.post(
+            f"/api/interview/{access_token}/progress",
+            json={"product_state": product_state},
+        )
+        assert progressed.status_code == 200
+        assert progressed.json()["product_state"] == product_state
+
+    # Live-agent сообщает о завершении: создаётся outbox-задача оценки, evaluation-agent
+    # забирает её, публикует отчёт и закрывает задачу.
+    await InterviewEventService(db_session).record_event(
+        UUID(interview_id),
+        {"type": "interview_completed", "ts": datetime.now(UTC).isoformat()},
+    )
+    claimed = await client.post(
+        "/api/v1/evaluation-jobs/claim",
+        headers={"X-Service-Token": "dev-evaluation-token"},
+    )
+    assert claimed.status_code == 200
+    evaluation_job_id = claimed.json()["id"]
+
+    evaluation_payload = {
+        "per_question": [
+            {
+                "question_id": approved_questions[1]["id"],
+                "skill_scores": [
+                    {"skill_tag": "Python", "score": 2, "rationale": "Уверенный ответ"}
+                ],
+                "quotes": [],
+                "confidence": 0.9,
+                "answered_with_hint": False,
+                "report": "Кандидат уверенно раскрыл тему.",
+            }
+        ],
+        "overall_score": 82,
+        "verdict": "fits",
+        "confirmed_skills": ["Python"],
+        "unconfirmed_skills": ["PostgreSQL", "Docker"],
+        "contradictions_found": [],
+        "strengths": ["Системное мышление"],
+        "risks": [],
+        "summary_intro": "Интервью завершено, ответы обработаны.",
+        "summary_conclusion": "Кандидат соответствует основным требованиям.",
+        "model_version": "test-evaluator",
+        "prompt_version": "v1",
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
+    evaluated = await client.post(
+        f"/api/v1/interviews/{interview_id}/evaluation",
+        headers={"X-Service-Token": "dev-evaluation-token"},
+        json=evaluation_payload,
+    )
+    assert evaluated.status_code == 200
+
+    completed = await client.post(
+        f"/api/v1/evaluation-jobs/{evaluation_job_id}/complete",
+        headers={"X-Service-Token": "dev-evaluation-token"},
+    )
+    assert completed.status_code == 204
+
+    refreshed_interviews = await client.get(
+        f"/api/v1/vacancies/{vacancy_id}/interviews",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    assert refreshed_interviews.status_code == 200
+    report_interview = refreshed_interviews.json()["items"][0]
+    assert report_interview["product_state"] == "report_ready"
+    assert report_interview["report_json"]["overall_score"] == 82
+    assert report_interview["report_json"]["verdict"] == "fits"
 
 
 @pytest.mark.anyio

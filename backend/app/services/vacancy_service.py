@@ -261,7 +261,11 @@ class VacancyService:
             await self.question_repository.create(question)
             created.append(question)
 
-        vacancy.status = "extracted"
+        # Явная генерация — вспомогательное действие, а не переход назад по workflow.
+        # Для нового черновика она означает, что описание уже разобрано; на калибровке
+        # или после запроса правок текущий ответственный и статус должны сохраниться.
+        if vacancy.status == "draft":
+            vacancy.status = "extracted"
         await self.vacancy_repository.commit()
         return created
 

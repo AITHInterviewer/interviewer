@@ -153,6 +153,7 @@ jobs:
           APP_PORT=8000
           SECRET_KEY=${SECRET_KEY}
           JWT_SECRET=${JWT_SECRET}
+          ADMIN_EMAILS=["admin@example.com"]
           POSTGRES_DB=ainterviewer
           POSTGRES_HOST=postgres
           POSTGRES_USER=ainterviewer

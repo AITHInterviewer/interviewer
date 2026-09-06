@@ -1,3 +1,4 @@
+from app.config import settings
 from app.roles.catalog import AREA_PATHS, build_default_registry
 from app.roles.models import Capability, CapabilityKind, RoleDefinition, RoleRegistry
 from app.roles.validation import validate_registry
@@ -17,8 +18,14 @@ class RoleStillAssignedError(Exception):
 
 
 class RoleService:
-    def __init__(self, registry: RoleRegistry | None = None) -> None:
+    def __init__(
+        self,
+        registry: RoleRegistry | None = None,
+        admin_emails: list[str] | tuple[str, ...] | None = None,
+    ) -> None:
         self.registry = registry if registry is not None else build_default_registry()
+        configured_admins = settings.admin_emails if admin_emails is None else admin_emails
+        self.admin_emails = {email.strip().lower() for email in configured_admins if email.strip()}
         validate_registry(self.registry)
 
     def get_role(self, code: str) -> RoleDefinition:
@@ -43,8 +50,22 @@ class RoleService:
     def capabilities_for_roles(self, role_codes: list[str]) -> set[str]:
         return self.registry.capabilities_for_roles(role_codes)
 
-    def granted_capabilities(self, role_codes: list[str], kind: CapabilityKind) -> list[Capability]:
-        granted_ids = self.capabilities_for_roles(role_codes)
+    def is_admin(self, email: str | None) -> bool:
+        return bool(email and email.strip().lower() in self.admin_emails)
+
+    def capabilities_for_user(self, role_codes: list[str], email: str | None) -> set[str]:
+        if self.is_admin(email):
+            return set(self.registry.capabilities)
+        return self.capabilities_for_roles(role_codes)
+
+    def granted_capabilities(
+        self,
+        role_codes: list[str],
+        kind: CapabilityKind,
+        *,
+        email: str | None = None,
+    ) -> list[Capability]:
+        granted_ids = self.capabilities_for_user(role_codes, email)
         capabilities = [
             capability
             for capability_id, capability in self.registry.capabilities.items()
@@ -52,11 +73,14 @@ class RoleService:
         ]
         return sorted(capabilities, key=lambda capability: capability.id)
 
-    def build_landing(self, role_codes: list[str]) -> InternalUserLandingResponse:
+    def build_landing(
+        self, role_codes: list[str], *, email: str | None = None
+    ) -> InternalUserLandingResponse:
         # Order areas by the priority of the role that grants them so the
         # default path lands on the user's primary workspace.
+        priority_codes = set(self.registry.roles) if self.is_admin(email) else set(role_codes)
         role_priority = {
-            code: role.sort_order for code, role in self.registry.roles.items() if code in set(role_codes)
+            code: role.sort_order for code, role in self.registry.roles.items() if code in priority_codes
         }
 
         def area_priority(capability: Capability) -> tuple[int, str]:
@@ -67,7 +91,7 @@ class RoleService:
             ]
             return (min(granting_priorities) if granting_priorities else len(role_priority), capability.id)
 
-        area_capabilities = self.granted_capabilities(role_codes, CapabilityKind.AREA)
+        area_capabilities = self.granted_capabilities(role_codes, CapabilityKind.AREA, email=email)
         area_capabilities.sort(key=area_priority)
         areas = [
             LandingArea(id=capability.id, label=capability.label, path=AREA_PATHS[capability.id])
@@ -76,7 +100,7 @@ class RoleService:
         ]
         actions = [
             capability.id
-            for capability in self.granted_capabilities(role_codes, CapabilityKind.ACTION)
+            for capability in self.granted_capabilities(role_codes, CapabilityKind.ACTION, email=email)
         ]
         default_path = areas[0].path if areas else "/internal"
         return InternalUserLandingResponse(

@@ -54,7 +54,7 @@ def require_capability(capability_id: str):
         role_service: Annotated[RoleService, Depends(get_role_service)],
     ) -> InternalUser:
         role_codes = await user_repository.list_role_codes(user.id)
-        granted = role_service.capabilities_for_roles(role_codes)
+        granted = role_service.capabilities_for_user(role_codes, user.email)
         if capability_id not in granted:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -76,7 +76,7 @@ def require_any_capability(*capability_ids: str):
         role_service: Annotated[RoleService, Depends(get_role_service)],
     ) -> InternalUser:
         role_codes = await user_repository.list_role_codes(user.id)
-        granted = role_service.capabilities_for_roles(role_codes)
+        granted = role_service.capabilities_for_user(role_codes, user.email)
         if granted.isdisjoint(capability_ids):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -96,7 +96,7 @@ async def get_granted_capabilities(
     нескольким ролям, но ведёт себя по-разному в зависимости от того, кто пришёл
     (правка требований вакансии: до калибровки владелец рекрутёр, на калибровке — эксперт)."""
     role_codes = await user_repository.list_role_codes(user.id)
-    return role_service.capabilities_for_roles(role_codes)
+    return role_service.capabilities_for_user(role_codes, user.email)
 
 
 def require_area(area_id: str):
@@ -106,7 +106,7 @@ def require_area(area_id: str):
         role_service: Annotated[RoleService, Depends(get_role_service)],
     ) -> InternalUser:
         role_codes = await user_repository.list_role_codes(user.id)
-        granted = role_service.capabilities_for_roles(role_codes)
+        granted = role_service.capabilities_for_user(role_codes, user.email)
         if area_id not in granted:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
