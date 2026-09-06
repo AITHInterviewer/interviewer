@@ -18,8 +18,8 @@ jobs:
 
       - name: Rewrite mock reports inside backend
         run: |
-          docker compose --project-directory . \
-            -f docker-compose.dev.yml \
-            -f infra/docker-compose.yml \
-            -f docker-compose.vps.yml \
-            exec -T backend uv run python -m scripts.refresh_mock_candidate_reports
+          # VPS-образ backend не копирует scripts/ и без bind-mount (volumes: !reset []).
+          main=(--project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml -f docker-compose.vps.yml)
+          docker compose "${main[@]}" cp backend/scripts/refresh_mock_candidate_reports.py \
+            backend:/tmp/refresh_mock_candidate_reports.py
+          docker compose "${main[@]}" exec -T backend python /tmp/refresh_mock_candidate_reports.py
