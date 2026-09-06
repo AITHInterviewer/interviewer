@@ -144,6 +144,37 @@ export function isReportProcessing(interview: Pick<Interview, "product_state">):
   return interview.product_state === "report_processing";
 }
 
+export type ReportVerdict = "fits" | "not_fits" | "needs_review";
+
+export const VERDICT_LABEL: Record<ReportVerdict, string> = {
+  fits: "Проходит",
+  not_fits: "Не проходит",
+  needs_review: "Нуждается в доп. проверке",
+};
+
+export function verdictTone(verdict: ReportVerdict): "positive" | "warning" | "danger" {
+  if (verdict === "fits") return "positive";
+  if (verdict === "not_fits") return "danger";
+  return "warning";
+}
+
+/**
+ * Готовая оценка для списков кандидатов: не-null только когда отчёт собран.
+ * До этого момента оценки не существует — показывать нельзя.
+ */
+export function interviewScore(interview: Pick<Interview, "product_state" | "report_json">): {
+  percent: number | null;
+  verdict: ReportVerdict | null;
+} | null {
+  if (isReportProcessing(interview)) return null;
+  const report = interview.report_json;
+  if (!report) return null;
+  return {
+    percent: report.score_percent ?? report.overall_score,
+    verdict: report.verdict ?? null,
+  };
+}
+
 /**
  * Тон чипа балла 0-100 из отчёта агента: <40 — не подтверждён, <70 — требует
  * проверки, иначе подтверждён (пороги совпадают с verdict.py evaluation-agent).

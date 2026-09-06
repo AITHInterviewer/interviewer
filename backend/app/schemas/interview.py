@@ -4,6 +4,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 
+class HandoffTargetResponse(BaseModel):
+    id: UUID
+    name: str
+
+
 class InterviewResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -21,6 +26,8 @@ class InterviewResponse(BaseModel):
     recording_url: str | None = None
     recruiter_decision: str = "awaiting"
     rubric_version_id: UUID | None = None
+    # Активный (не возвращённый) хендофф: кому передана заявка. null — не передавали.
+    handed_off_to: HandoffTargetResponse | None = None
 
 
 class InterviewListResponse(BaseModel):

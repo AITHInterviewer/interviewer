@@ -14,6 +14,7 @@ from app.db import get_db_session
 from app.dependencies.auth import require_any_capability, require_capability
 from app.dependencies.live_agent_auth import require_live_agent_token
 from app.models.answer import Answer
+from app.models.handoff import Handoff
 from app.models.interview import Interview
 from app.models.interview_event import InterviewEvent
 from app.models.question import Question
@@ -22,6 +23,7 @@ from app.models.vacancy import Vacancy
 from app.roles.catalog import AREA_EXPERT_QUESTIONS, AREA_RECRUITER_WORKSPACE
 from app.schemas.interview import (
     AnswerResponse,
+    HandoffTargetResponse,
     InterviewEventResponse,
     InterviewEventsResponse,
     InterviewResponse,
@@ -47,11 +49,27 @@ async def get_interview(
     interview_id: UUID,
     _: Annotated[InternalUser, Depends(require_interview_reader)],
     service: Annotated[InterviewAdminService, Depends(get_interview_admin_service)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> InterviewResponse:
     interview = await service.get_interview(interview_id)
     if interview is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found.")
-    return InterviewResponse.model_validate(interview)
+    response = InterviewResponse.model_validate(interview)
+    response.handed_off_to = await _handoff_target(session, interview_id)
+    return response
+
+
+async def _handoff_target(session: AsyncSession, interview_id: UUID) -> HandoffTargetResponse | None:
+    """Кому сейчас передана заявка (активный, не возвращённый хендофф)."""
+    row = await session.execute(
+        select(Handoff.to_manager_id, InternalUser.name)
+        .join(InternalUser, InternalUser.id == Handoff.to_manager_id)
+        .where(Handoff.interview_id == interview_id, Handoff.returned_at.is_(None))
+    )
+    item = row.first()
+    if item is None:
+        return None
+    return HandoffTargetResponse(id=item.to_manager_id, name=item.name)
 
 
 @router.post("/{interview_id}/reevaluate", response_model=InterviewResponse)
@@ -66,7 +84,9 @@ async def reevaluate_interview(
     if interview is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found.")
     await session.refresh(interview)
-    return InterviewResponse.model_validate(interview)
+    response = InterviewResponse.model_validate(interview)
+    response.handed_off_to = await _handoff_target(session, interview_id)
+    return response
 
 
 @router.get("/{interview_id}/events", response_model=InterviewEventsResponse)

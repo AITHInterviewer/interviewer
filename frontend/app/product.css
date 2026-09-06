@@ -36,6 +36,8 @@ p { text-wrap: pretty; }
 .vacancy-title-input:hover { border-bottom-color: var(--border-strong); }
 .vacancy-title-input:focus { border-bottom-color: var(--accent); outline: none; }
 .vacancy-title-input:focus-visible { outline: none; box-shadow: none; }
+.vacancy-title-input[data-invalid="true"] { border-bottom-color: var(--danger); }
+.vacancy-title-error { margin: -4px 0 14px; }
 .vacancy-grade-select { align-self: center; flex: 0 0 auto; min-height: var(--control-h); padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-raised); color: var(--ink); font-size: var(--text-body); }
 .vacancy-assignees-trigger { display: inline-flex; align-items: center; flex: 0 0 auto; margin-left: auto; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius-pill); }
 .vacancy-assignees-trigger:hover .avatar { box-shadow: 0 0 0 2px var(--accent); }
@@ -556,6 +558,7 @@ input:hover, textarea:hover { border-color: var(--border-strong); }
 .account-trigger__name { font-size: var(--text-meta); color: var(--ink); }
 .account-trigger__roles { font-size: var(--text-mono); color: var(--ink-tertiary); }
 .tag { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--ink-secondary); font-size: var(--text-meta); }
+.skill-tag-field { display: grid; gap: 7px; color: var(--ink-secondary); font-size: var(--text-body); }
 .skill-tag-input { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: var(--control-h); padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
 .skill-tag-input:focus-within { border-color: var(--border-strong); }
 .skill-tag__remove { display: inline-grid; place-items: center; margin-left: 2px; border: 0; background: transparent; color: inherit; font-size: inherit; line-height: 1; cursor: pointer; }
@@ -583,7 +586,8 @@ input:hover, textarea:hover { border-color: var(--border-strong); }
 .candidate-card { min-height: 110px; padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-raised); }
 .candidate-card--interactive { width: 100%; text-align: left; text-decoration: none; color: inherit; }
 .candidate-card__top { display: flex; align-items: center; gap: 9px; }
-.candidate-card__action { display: flex; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px solid var(--surface-muted); color: var(--accent); font-size: var(--text-body); }
+.candidate-card__action { display: grid; place-items: center; width: 24px; height: 24px; margin-left: auto; border-radius: 50%; color: var(--ink-tertiary); transition: background var(--ease), color var(--ease); }
+.candidate-card--interactive:hover .candidate-card__action { background: var(--surface-selected); color: var(--accent); }
 .field { display: flex; flex-direction: column; gap: 8px; }
 .field > label { color: var(--ink-secondary); font-size: var(--text-body); }
 .field__hint { color: var(--ink-tertiary); font-size: var(--text-meta); }
@@ -799,9 +803,12 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 
 /* Панель решения: фиксированная внизу */
 .workspace--with-deck { padding-bottom: 110px; }
+/* Тосты не должны перекрывать кнопки нижней панели. */
+body:has(.decision-deck) .toast-stack { bottom: 92px; }
 .decision-deck { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: color-mix(in srgb, var(--surface-raised) 92%, transparent); backdrop-filter: blur(12px); border-top: 1px solid var(--border); }
 .decision-deck__in { max-width: var(--content); margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .decision-deck__label { font-size: var(--text-meta); color: var(--ink-tertiary); }
+.decision-deck__manager { padding: 5px 12px; border-radius: var(--radius-pill); background: var(--surface-selected); color: var(--accent); font-size: var(--text-meta); font-weight: 600; }
 .decision-deck__spacer { flex: 1; }
 .decision-deck select { font: inherit; font-size: var(--text-meta); color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-control); padding: 8px 11px; max-width: 320px; }
 
@@ -813,3 +820,14 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
   .q-row__detail { padding-left: 20px; }
   .report-hero__score { justify-items: start; }
 }
+
+/* Оценка кандидата в списке вакансии: процент, окрашенный по вердикту */
+.candidate-score { display: inline-flex; align-items: center; gap: 7px; }
+.candidate-score i { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+.candidate-score i[data-tone="fits"] { background: var(--positive); }
+.candidate-score i[data-tone="needs_review"] { background: var(--warning); }
+.candidate-score i[data-tone="not_fits"] { background: var(--danger); }
+.candidate-score__value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-body); font-weight: 600; }
+.candidate-score__value[data-tone="fits"] { color: var(--positive); }
+.candidate-score__value[data-tone="needs_review"] { color: var(--warning); }
+.candidate-score__value[data-tone="not_fits"] { color: var(--danger); }

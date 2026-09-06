@@ -7,8 +7,9 @@ import type { ReactNode } from "react";
 import { Avatar } from "@/components/ui/avatar";
 
 /**
- * Карточка человека по эталону: инициалы, имя, стадия словами.
- * Процентов и общего балла на карточке нет и не будет.
+ * Карточка человека по эталону: инициалы, имя, стадия словами, оценка (status).
+ * Переход — стрелкой справа внизу (action — подпись для aria-label, текст не дублируем:
+ * имя уже на карточке).
  */
 export function CandidateCard({
   name,
@@ -30,15 +31,14 @@ export function CandidateCard({
       <span className="candidate-card__top">
         <Avatar name={name} accent={accent} />
         <strong>{name}</strong>
+        {action && href ? (
+          <span className="candidate-card__action" aria-hidden="true">
+            <CaretRight size={15} />
+          </span>
+        ) : null}
       </span>
       <p>{stage}</p>
       {status}
-      {action && href ? (
-        <span className="candidate-card__action">
-          {action}
-          <CaretRight size={15} />
-        </span>
-      ) : null}
     </>
   );
 
@@ -47,7 +47,11 @@ export function CandidateCard({
   }
 
   return (
-    <Link className="candidate-card candidate-card--interactive" href={href} aria-label={action}>
+    <Link
+      className="candidate-card candidate-card--interactive"
+      href={href}
+      aria-label={action ? `${action} ${name}` : undefined}
+    >
       {body}
     </Link>
   );

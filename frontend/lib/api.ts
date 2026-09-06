@@ -341,6 +341,8 @@ export type Interview = {
   recording_url?: string | null;
   recruiter_decision?: RecruiterDecision;
   rubric_version_id?: string | null;
+  /** Кому передана заявка (активный хендофф); null/отсутствует — не передавали. */
+  handed_off_to?: { id: string; name: string } | null;
 };
 
 export type ClarificationRequest = {
