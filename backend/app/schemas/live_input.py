@@ -29,6 +29,7 @@ class LiveInputQuestion(BaseModel):
     reference_answer: str
     rubric_notes: str = ""
     difficulty: str
+    stt_terms: list[str] = Field(default_factory=list)
 
 
 class LiveInputResponse(BaseModel):

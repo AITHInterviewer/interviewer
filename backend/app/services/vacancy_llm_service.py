@@ -51,8 +51,18 @@ class GeneratedQuestionSet(BaseModel):
     questions: list[GeneratedQuestion]
 
 
+class GeneratedSttTerms(BaseModel):
+    id: str
+    stt_terms: list[str] = Field(default_factory=list)
+
+
+class GeneratedSttTermsSet(BaseModel):
+    questions: list[GeneratedSttTerms]
+
+
 _SET_SYSTEM_PROMPT = load_prompt("vacancy_question_set.txt")
 _SINGLE_SYSTEM_PROMPT = load_prompt("vacancy_question_single.txt")
+_STT_TERMS_SYSTEM_PROMPT = load_prompt("vacancy_stt_terms.txt")
 
 
 def _vacancy_prompt(vacancy: Vacancy) -> str:
@@ -125,6 +135,28 @@ class VacancyLLMService:
             return GeneratedQuestionSet.model_validate(json.loads(_strip_code_fence(raw)))
         except Exception as exc:  # noqa: BLE001 — любая ошибка парсинга/валидации сворачивается в наш тип
             raise QuestionGenerationError(f"Не удалось разобрать сгенерированные вопросы: {exc}") from exc
+
+    async def generate_stt_terms(
+        self, vacancy: Vacancy, questions: list[Question]
+    ) -> dict[str, list[str]]:
+        """Термины-подсказки ASR для каждого вопроса — см. `vacancy_stt_terms.txt`.
+        Возвращает `{question_id: [term, ...]}`; отсутствующие/пустые ключи — норма."""
+        if not questions:
+            return {}
+        blocks = [
+            f"[{q.id}] role={q.role}\n"
+            f"Вопрос: {q.text}\n"
+            f"Что проверяет: {q.intent or '(не указано)'}\n"
+            f"Эталонный ответ: {q.reference_answer or '(не указан)'}"
+            for q in questions
+        ]
+        user_prompt = _vacancy_prompt(vacancy) + "\nВопросы:\n" + "\n\n".join(blocks)
+        raw = await self._complete(_STT_TERMS_SYSTEM_PROMPT, user_prompt)
+        try:
+            parsed = GeneratedSttTermsSet.model_validate(json.loads(_strip_code_fence(raw)))
+        except Exception as exc:  # noqa: BLE001
+            raise QuestionGenerationError(f"Не удалось разобрать термины ASR: {exc}") from exc
+        return {item.id: item.stt_terms for item in parsed.questions if item.stt_terms}
 
     async def generate_single_question(self, vacancy: Vacancy, existing: Question) -> GeneratedQuestion:
         prompt = _vacancy_prompt(vacancy) + f'Исходный вопрос (role="{existing.role}"): {existing.text}\n'

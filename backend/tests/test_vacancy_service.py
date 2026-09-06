@@ -47,6 +47,11 @@ class FakeVacancyLLMService:
         self.calls += 1
         return GeneratedQuestionSet(questions=self.questions)
 
+    async def generate_stt_terms(self, vacancy, questions) -> dict[str, list[str]]:
+        self.calls += 1
+        # эмулируем частичный ответ LLM: термины не для всех вопросов
+        return {str(questions[0].id): ["PostgreSQL", "B-tree"]}
+
     async def generate_single_question(self, vacancy, existing) -> GeneratedQuestion:
         self.calls += 1
         return GeneratedQuestion(
@@ -226,6 +231,54 @@ async def test_approve_activates_vacancy_when_valid(db_session: AsyncSession) ->
     approved = await service.approve_vacancy(vacancy.id)
 
     assert approved.status == "active"
+
+
+@pytest.mark.anyio
+async def test_approve_populates_stt_terms(db_session: AsyncSession) -> None:
+    recruiter = await _make_recruiter(db_session)
+    llm = FakeVacancyLLMService()
+    service = _make_service(db_session, llm_service=llm)
+
+    vacancy = await service.create_vacancy(
+        recruiter_id=recruiter.id, title="Backend", description="...", grade="middle",
+        required_skills=["python"], nice_to_have_skills=[],
+    )
+    q = await service.add_question(
+        vacancy.id, text="Расскажите про индексы в Postgres", role="assessment",
+        skill_tag=["postgres"], intent="intent", reference_answer="reference",
+    )
+    await service.send_to_expert(vacancy.id)
+    await service.approve_vacancy(vacancy.id)
+
+    await db_session.refresh(q)
+    assert q.stt_terms == ["PostgreSQL", "B-tree"]
+
+
+@pytest.mark.anyio
+async def test_approve_survives_stt_terms_failure(db_session: AsyncSession) -> None:
+    recruiter = await _make_recruiter(db_session)
+    llm = FakeVacancyLLMService()
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("LLM down")
+
+    llm.generate_stt_terms = _boom  # type: ignore[assignment]
+    service = _make_service(db_session, llm_service=llm)
+
+    vacancy = await service.create_vacancy(
+        recruiter_id=recruiter.id, title="Backend", description="...", grade="middle",
+        required_skills=["python"], nice_to_have_skills=[],
+    )
+    q = await service.add_question(
+        vacancy.id, text="Расскажите про индексы в Postgres", role="assessment",
+        skill_tag=["postgres"], intent="intent", reference_answer="reference",
+    )
+    await service.send_to_expert(vacancy.id)
+    approved = await service.approve_vacancy(vacancy.id)
+
+    assert approved.status == "active"
+    await db_session.refresh(q)
+    assert q.stt_terms is None
 
 
 @pytest.mark.anyio

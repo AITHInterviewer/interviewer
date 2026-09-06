@@ -44,6 +44,10 @@ class Question(BaseModel):
     reference_answer: str
     rubric_notes: str = ""
     difficulty: QuestionDifficulty = QuestionDifficulty.BASELINE
+    # Термины, вероятные в устном ответе кандидата на этот вопрос — подсказка Whisper
+    # (`prompt`). Заполняет backend при approve вакансии; агент подмешивает их в STT-
+    # подсказку при входе в вопрос (см. agent._build_stt_prompt).
+    stt_terms: list[str] = Field(default_factory=list)
 
 
 class Vacancy(BaseModel):

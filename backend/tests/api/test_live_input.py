@@ -45,6 +45,7 @@ async def _seed_interview_with_questions(session: AsyncSession) -> Interview:
                 skill_tag=["postgres"],
                 intent="intent-3",
                 reference_answer="ref-3",
+                stt_terms=["gRPC", "protobuf"],
                 estimated_duration_sec=180,
                 source="base_manual",
             ),
@@ -149,6 +150,10 @@ async def test_live_input_returns_shape_and_order(client, db_session: AsyncSessi
     assert second["intent"] == ""
     assert second["reference_answer"] == ""
     assert second["skill_tag"] == []
+
+    # stt_terms passthrough: set on the third question, [] when the column is NULL.
+    assert third["stt_terms"] == ["gRPC", "protobuf"]
+    assert first["stt_terms"] == []
 
 
 @pytest.mark.anyio

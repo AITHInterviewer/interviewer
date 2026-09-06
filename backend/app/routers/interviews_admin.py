@@ -137,6 +137,7 @@ async def get_live_input(
                 reference_answer=question.reference_answer or "",
                 rubric_notes="",
                 difficulty=question.difficulty,
+                stt_terms=list(question.stt_terms or []),
             )
             for question in questions
         ],

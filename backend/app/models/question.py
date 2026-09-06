@@ -30,6 +30,10 @@ class Question(Base):
     skill_tag: Mapped[list[str]] = mapped_column(_text_array, nullable=False, default=list)
     intent: Mapped[str | None] = mapped_column(Text, nullable=True)
     reference_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Термины/жаргон/названия инструментов, которые вероятны в устном ответе кандидата на
+    # этот вопрос — подсказка ASR-словарю (Whisper `prompt`). Заполняется LLM при approve
+    # вакансии; None до этого. live-agent подмешивает их в STT-подсказку на этот вопрос.
+    stt_terms: Mapped[list[str] | None] = mapped_column(_text_array, nullable=True)
     format: Mapped[str] = mapped_column(
         Enum("voice", "code_review_verbal", "live_coding", name="question_format"), default="voice"
     )
