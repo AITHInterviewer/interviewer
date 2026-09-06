@@ -262,36 +262,36 @@ export type RecruiterDecision = "awaiting" | "handed_off" | "rejected" | "closed
 
 export type SkillClass = "fail" | "ambiguous" | "pass" | "untested";
 
-export type SkillVerdict = {
+export type SkillScoreEntry = {
   skill_tag: string;
-  required: boolean;
-  skill_class: SkillClass;
-  effective_score: number | null; // 1-5
-  stretch_bonus: boolean;
-  reasoning: string[];
-  mastery_level: 1 | 2 | 3 | null;
-};
-
-export type PerQuestionScore = {
-  question_id: string;
-  order: number;
-  skill_tag: string[];
-  difficulty: QuestionDifficulty;
-  score: number; // 1-5
-  answered_with_hint: boolean;
+  score: number; // 0-100
   rationale: string;
 };
 
+/** Разбор одного ответа в report_json (контракт EvaluationCreateRequest evaluation-agent). */
+export type PerQuestionReport = {
+  question_id: string;
+  skill_scores: SkillScoreEntry[];
+  quotes: Array<{ text: string; question_id?: string | null }>;
+  confidence: number;
+  answered_with_hint: boolean;
+  report: string | null;
+};
+
 export type InterviewReport = {
-  generated_at: string;
-  model: string;
+  generated_at: string | null;
+  model_version: string | null;
+  prompt_version: string | null;
   verdict: "fits" | "not_fits" | "needs_review";
-  verdict_reasoning: string[];
-  skill_verdicts: SkillVerdict[];
-  per_question: PerQuestionScore[];
-  summary: string;
-  strengths: string;
-  weaknesses: string;
+  overall_score: number | null; // 0-100
+  per_question: PerQuestionReport[];
+  confirmed_skills: string[];
+  unconfirmed_skills: string[];
+  contradictions_found: Array<{ quote_a: { text: string }; quote_b: { text: string }; description: string }>;
+  strengths: string[];
+  risks: string[];
+  summary_intro: string | null;
+  summary_conclusion: string | null;
 };
 
 export type Interview = {

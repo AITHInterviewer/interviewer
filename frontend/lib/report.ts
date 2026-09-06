@@ -4,6 +4,7 @@ import type {
   InterviewReport,
   Question,
   QuestionDifficulty,
+  SkillClass,
   VacancyDetail,
 } from "@/lib/api";
 
@@ -138,33 +139,71 @@ export function isReportProcessing(interview: Pick<Interview, "product_state">):
 }
 
 /**
- * Якоря шкалы 1-5 (см. backend/app/prompts/evaluation_answer_score.txt) — короткие
- * подписи для интерфейса. «Как хорошо ответил» показываем этими словами, не голым числом.
+ * Тон чипа балла 0-100 из отчёта агента: <40 — не подтверждён, <70 — требует
+ * проверки, иначе подтверждён (пороги совпадают с verdict.py evaluation-agent).
  */
-export const SCORE_ANCHOR: Record<1 | 2 | 3 | 4 | 5, string> = {
-  1: "не раскрыл",
-  2: "упустил важное",
-  3: "ответил как ожидалось",
-  4: "чуть глубже эталона",
-  5: "глубокое понимание",
-};
+export function scoreTone(score: number): "positive" | "warning" | "danger" {
+  if (score < 40) return "danger";
+  if (score < 70) return "warning";
+  return "positive";
+}
 
 export const DIFFICULTY_LABEL: Record<QuestionDifficulty, string> = {
   baseline: "базовый вопрос",
   stretch: "вопрос со звёздочкой",
 };
 
-/** Разбор по навыку из report_json для строки требования. */
-export function skillVerdictFor(report: InterviewReport | null | undefined, skill: string) {
-  const needle = skill.trim().toLowerCase();
-  return report?.skill_verdicts.find((row) => row.skill_tag.trim().toLowerCase() === needle) ?? null;
+function normalizeSkill(skill: string): string {
+  return skill.trim().toLowerCase();
+}
+
+/**
+ * Разбор навыка из report_json агента. Авторитетная классификация — списки
+ * confirmed/unconfirmed_skills (их считает verdict.py по всем ответам); баллы и
+ * обоснования берём из per_question[].skill_scores. reasoning_lines строим в формате
+ * бывшего skill_verdicts.reasoning («Вопрос N (score/100): rationale») — порядок вопроса
+ * берём из questions, потому что в per_question лежит только question_id.
+ * null — навыка нет в отчёте (страница показывает тогда пилюлю покрытия).
+ */
+export function skillVerdictFor(
+  report: InterviewReport | null | undefined,
+  skill: string,
+  questions?: Pick<Question, "id" | "order">[],
+): {
+  skill_class: SkillClass;
+  best_score: number | null;
+  reasoning_lines: string[];
+} | null {
+  if (!report) return null;
+  const needle = normalizeSkill(skill);
+  const orderById = new Map((questions ?? []).map((question) => [question.id, question.order]));
+  const entries = report.per_question.flatMap((row) =>
+    row.skill_scores
+      .filter((entry) => normalizeSkill(entry.skill_tag) === needle)
+      .map((entry) => ({ question_id: row.question_id, score: entry.score, rationale: entry.rationale })),
+  );
+  const confirmed = report.confirmed_skills.some((item) => normalizeSkill(item) === needle);
+  const unconfirmed = report.unconfirmed_skills.some((item) => normalizeSkill(item) === needle);
+  if (!confirmed && !unconfirmed && entries.length === 0) return null;
+  return {
+    skill_class: confirmed ? "pass" : unconfirmed ? "fail" : "ambiguous",
+    best_score: entries.length > 0 ? Math.max(...entries.map((entry) => entry.score)) : null,
+    reasoning_lines: entries.map((entry) => {
+      const order = orderById.get(entry.question_id);
+      const prefix = order != null ? `Вопрос ${order} (${entry.score}/100)` : `${entry.score}/100`;
+      return entry.rationale ? `${prefix}: ${entry.rationale}` : prefix;
+    }),
+  };
 }
 
 /**
  * Свод по обязательным навыкам: сколько подтверждено / требует проверки / не подтверждено.
  * Это и есть ответ на «насколько хорошо кандидат ответил», одной строкой.
  */
-export function requiredSkillTally(report: InterviewReport | null | undefined): {
+export function requiredSkillTally(
+  report: InterviewReport | null | undefined,
+  requiredSkills: string[],
+): {
   pass: number;
   ambiguous: number;
   fail: number;
@@ -172,10 +211,9 @@ export function requiredSkillTally(report: InterviewReport | null | undefined): 
   total: number;
 } {
   const tally = { pass: 0, ambiguous: 0, fail: 0, untested: 0, total: 0 };
-  for (const verdict of report?.skill_verdicts ?? []) {
-    if (!verdict.required) continue;
+  for (const skill of requiredSkills) {
     tally.total += 1;
-    tally[verdict.skill_class] += 1;
+    tally[skillVerdictFor(report, skill)?.skill_class ?? "untested"] += 1;
   }
   return tally;
 }

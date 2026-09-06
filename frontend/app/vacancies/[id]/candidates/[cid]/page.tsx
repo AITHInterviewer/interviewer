@@ -43,7 +43,7 @@ import {
   mandatorySummary,
   requirementConclusion,
   requiredSkillTally,
-  SCORE_ANCHOR,
+  scoreTone,
   skillVerdictFor,
   uncoveredRequirements,
   type RequirementCoverage,
@@ -97,12 +97,6 @@ function skillClassTone(skillClass: SkillClass): StatusTone {
   if (skillClass === "ambiguous") return "warning";
   return "unchecked";
 }
-
-const MASTERY_LABEL: Record<1 | 2 | 3, string> = {
-  1: "Начальный уровень",
-  2: "Базовый уверенный уровень",
-  3: "Продвинутый уровень",
-};
 
 const SECURITY_SIGNAL_LABEL: Record<string, string> = {
   "security:tab_hidden": "Свернул вкладку/окно",
@@ -366,6 +360,11 @@ export default function VacancyCandidatePage() {
                       {VERDICT_LABEL[interview.report_json.verdict]}
                     </StatusPill>
                   ) : null}
+                  {interview.report_json?.overall_score != null ? (
+                    <span className="score-chip" data-tone={scoreTone(interview.report_json.overall_score)}>
+                      {interview.report_json.overall_score}/100
+                    </span>
+                  ) : null}
                 </h2>
                 <p className="muted-copy">
                   {processing
@@ -384,7 +383,10 @@ export default function VacancyCandidatePage() {
                 ) : null}
                 {!processing && interview.report_json ? (
                   (() => {
-                    const tally = requiredSkillTally(interview.report_json);
+                    const tally = requiredSkillTally(
+                      interview.report_json,
+                      requirements.filter((row) => row.mandatory).map((row) => row.skill),
+                    );
                     if (tally.total === 0) return null;
                     return (
                       <ul className="score-tally">
@@ -406,29 +408,33 @@ export default function VacancyCandidatePage() {
                     );
                   })()
                 ) : null}
-                {!processing && interview.report_json && interview.report_json.verdict_reasoning.length > 0 ? (
-                  <ul className="verdict-reasoning">
-                    {interview.report_json.verdict_reasoning.map((line, index) => (
-                      <li key={index}>{line}</li>
-                    ))}
-                  </ul>
+                {!processing && interview.report_json ? (
+                  (() => {
+                    const lines = [...interview.report_json.strengths, ...interview.report_json.risks];
+                    if (lines.length === 0) return null;
+                    return (
+                      <ul className="verdict-reasoning">
+                        {lines.map((line, index) => (
+                          <li key={index}>{line}</li>
+                        ))}
+                      </ul>
+                    );
+                  })()
                 ) : null}
-                {!processing && interview.report_json?.summary ? (
+                {!processing &&
+                interview.report_json &&
+                (interview.report_json.summary_intro || interview.report_json.summary_conclusion) ? (
                   <dl className="report-narrative">
-                    <div>
-                      <dt>Итог</dt>
-                      <dd>{interview.report_json.summary}</dd>
-                    </div>
-                    {interview.report_json.strengths ? (
+                    {interview.report_json.summary_intro ? (
                       <div>
-                        <dt>Сильные стороны</dt>
-                        <dd>{interview.report_json.strengths}</dd>
+                        <dt>Итог</dt>
+                        <dd>{interview.report_json.summary_intro}</dd>
                       </div>
                     ) : null}
-                    {interview.report_json.weaknesses ? (
+                    {interview.report_json.summary_conclusion ? (
                       <div>
-                        <dt>Слабые стороны</dt>
-                        <dd>{interview.report_json.weaknesses}</dd>
+                        <dt>Вывод</dt>
+                        <dd>{interview.report_json.summary_conclusion}</dd>
                       </div>
                     ) : null}
                   </dl>
@@ -465,8 +471,10 @@ export default function VacancyCandidatePage() {
                     <div>
                       <dt>Отчёт сформирован</dt>
                       <dd>
-                        {new Date(interview.report_json.generated_at).toLocaleString("ru-RU")}
-                        <span className="muted-copy"> · модель {interview.report_json.model}</span>
+                        {interview.report_json.generated_at
+                          ? new Date(interview.report_json.generated_at).toLocaleString("ru-RU")
+                          : "время не указано"}
+                        <span className="muted-copy"> · модель {interview.report_json.model_version ?? "—"}</span>
                       </dd>
                     </div>
                   ) : null}
@@ -535,9 +543,9 @@ export default function VacancyCandidatePage() {
                         }
                         return (
                           <span className="requirement-row__verdict">
-                            {sv.effective_score ? (
-                              <span className="score-chip" data-tone={skillClassTone(sv.skill_class)}>
-                                {sv.effective_score}/5
+                            {sv.best_score != null ? (
+                              <span className="score-chip" data-tone={scoreTone(sv.best_score)}>
+                                {sv.best_score}/100
                               </span>
                             ) : null}
                             <StatusPill tone={skillClassTone(sv.skill_class)}>
@@ -566,25 +574,19 @@ export default function VacancyCandidatePage() {
                       </p>
                       {(() => {
                         if (processing) return null;
-                        const sv = interview.report_json?.skill_verdicts.find(
-                          (row) => row.skill_tag === selected.skill,
-                        );
+                        const sv = skillVerdictFor(interview.report_json, selected.skill, selected.questions);
                         if (!sv) return null;
                         return (
                           <div className="skill-verdict">
                             <StatusPill tone={skillClassTone(sv.skill_class)}>
                               {SKILL_CLASS_LABEL[sv.skill_class]}
-                              {sv.mastery_level ? ` · ${MASTERY_LABEL[sv.mastery_level]}` : ""}
                             </StatusPill>
-                            {sv.effective_score ? (
-                              <p className="muted-copy">
-                                Балл за навык: {sv.effective_score}/5 — {SCORE_ANCHOR[sv.effective_score as 1 | 2 | 3 | 4 | 5]}.
-                                {sv.stretch_bonus ? " Справился и с вопросом со звёздочкой." : ""}
-                              </p>
+                            {sv.best_score != null ? (
+                              <p className="muted-copy">Лучший балл по навыку: {sv.best_score}/100.</p>
                             ) : null}
-                            {sv.reasoning.length > 0 ? (
+                            {sv.reasoning_lines.length > 0 ? (
                               <ul>
-                                {sv.reasoning.map((line, index) => (
+                                {sv.reasoning_lines.map((line, index) => (
                                   <li key={index} className="muted-copy">
                                     {line}
                                   </li>
@@ -611,17 +613,32 @@ export default function VacancyCandidatePage() {
                             const scored = interview.report_json?.per_question.find(
                               (row) => row.question_id === question.id,
                             );
-                            if (!scored) return null;
+                            if (!scored || scored.skill_scores.length === 0) return null;
                             return (
                               <div className="question-score">
-                                <span className="score-chip" data-tone={scored.score >= 3 ? "positive" : scored.score === 2 ? "warning" : "danger"}>
-                                  {scored.score}/5
-                                </span>
+                                {scored.skill_scores.map((skillScore) => (
+                                  <span
+                                    key={skillScore.skill_tag}
+                                    className="score-chip"
+                                    data-tone={scoreTone(skillScore.score)}
+                                  >
+                                    {skillScore.skill_tag}: {skillScore.score}/100
+                                  </span>
+                                ))}
                                 <span className="muted-copy">
-                                  {SCORE_ANCHOR[scored.score as 1 | 2 | 3 | 4 | 5]} · {DIFFICULTY_LABEL[scored.difficulty]}
+                                  {DIFFICULTY_LABEL[question.difficulty]}
                                   {scored.answered_with_hint ? " · отвечал с подсказкой" : ""}
+                                  {" · уверенность оценки "}
+                                  {Math.round(scored.confidence * 100)}%
                                 </span>
-                                {scored.rationale ? <p className="muted-copy">{scored.rationale}</p> : null}
+                                {scored.report ? <p className="muted-copy">{scored.report}</p> : null}
+                                {scored.quotes.length > 0
+                                  ? scored.quotes.map((quote, index) => (
+                                      <blockquote key={index}>«{quote.text}»</blockquote>
+                                    ))
+                                  : null}
+                                {/* Обоснования баллов не дублируем здесь: панель навыка выше
+                                    уже показывает те же строки агрегированно (с номером вопроса). */}
                               </div>
                             );
                           })()}
