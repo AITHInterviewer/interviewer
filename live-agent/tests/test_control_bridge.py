@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from ainterviewer.control_bridge import RedisEventSink, redis_channel_name  # noqa: E402
+from ainterviewer.control_bridge import EVENT_STREAM_NAME, RedisEventSink, redis_channel_name  # noqa: E402
 from ainterviewer.events import Event, EventLog, EventType  # noqa: E402
 
 
@@ -103,10 +103,14 @@ async def test_redis_event_sink_publishes_same_payload_as_eventlog_file(tmp_path
     """Payload, ушедший в Redis, идентичен строке, записанной в файл — один и тот же
     `Event.to_jsonl()`, не переизобретённая сериализация."""
     published: list[tuple[str, str]] = []
+    streamed: list[tuple[str, dict[str, str]]] = []
 
     class _StubRedis:
         async def publish(self, channel, payload):
             published.append((channel, payload))
+
+        async def xadd(self, stream, fields):
+            streamed.append((stream, fields))
 
     sink = RedisEventSink(_StubRedis(), interview_id="int-42")
     log = EventLog(tmp_path / "events.jsonl", sinks=[sink])
@@ -122,3 +126,4 @@ async def test_redis_event_sink_publishes_same_payload_as_eventlog_file(tmp_path
     channel, payload = published[0]
     assert channel == "live-agent:events:int-42"
     assert payload == event.to_jsonl()
+    assert streamed == [(EVENT_STREAM_NAME, {"interview_id": "int-42", "payload": payload})]

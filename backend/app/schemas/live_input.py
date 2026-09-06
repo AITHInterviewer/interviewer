@@ -29,6 +29,8 @@ class LiveInputQuestion(BaseModel):
     reference_answer: str
     rubric_notes: str = ""
     difficulty: str
+    role: str = "assessment"
+    estimated_duration_sec: int = 180
     stt_terms: list[str] = Field(default_factory=list)
 
 

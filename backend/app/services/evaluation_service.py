@@ -1,224 +1,163 @@
-"""LLM-разбор ответов кандидата -> отчёт по интервью (report_json).
-
-Один LLM-вызов на ответ (тот же клиент, что `vacancy_llm_service.py` — `app/services/llm.py`,
-Anthropic Messages API): даём модели transcript_text ответа и reference_answer/intent
-вопроса, просим оценку 1-5 по фиксированным якорям (см. `app/prompts/evaluation_answer_score.txt`)
-и флаг «отвечал с подсказкой». Дальше — уже готовое правило агрегации (`evaluation_verdict`),
-плюс один дополнительный LLM-вызов, который сводит уже выставленные оценки в summary/strengths/
-weaknesses (см. `app/prompts/evaluation_summary.txt`) — не придумывает новых фактов, только
-обобщает то, что уже посчитано.
-
-Запускается синхронно сразу при событии `interview_completed` (см.
-`interview_event_service.py`) — без очереди/воркера, см. обсуждение в чате: полноценный
-async batch-контур (`evaluation-agent/src/evaluation_agent/worker.py`) не реализован и не
-нужен для этого объёма (несколько LLM-вызовов на интервью, не тяжёлый ASR-проход).
-"""
+"""Сервис подготовки входных данных для evaluation-agent и сохранения результата."""
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.answer import Answer
+from app.models.evaluation import Evaluation
+from app.models.interview import Interview
+from app.models.interview_event import InterviewEvent
 from app.models.question import Question
 from app.models.vacancy import Vacancy
-from app.prompts import load_prompt
-from app.services.evaluation_verdict import (
-    QuestionScore,
-    SkillVerdict,
-    aggregate_skills,
-    compute_verdict,
+from app.schemas.evaluation import (
+    AnswerForEvaluationResponse,
+    EvaluationCreateRequest,
+    EvaluationInputResponse,
+    EvaluationResponse,
+    QuestionForEvaluationResponse,
+    VacancyContextResponse,
 )
-from app.services.llm import AnthropicJSONClient, LLMError
-
-_SKILL_CLASS_LABEL = {
-    "fail": "не подтверждён",
-    "ambiguous": "требует проверки",
-    "pass": "подтверждён",
-    "untested": "не проверен",
-}
-
-
-class EvaluationError(Exception):
-    """LLM не вернул валидную оценку (сетевая ошибка/невалидный ответ)."""
-
-
-class _AnswerScore(BaseModel):
-    score: int = Field(ge=1, le=5)
-    answered_with_hint: bool = False
-    rationale: str = ""
-
-
-class _SummaryText(BaseModel):
-    summary: str = ""
-    strengths: str = ""
-    weaknesses: str = ""
-
-
-_SYSTEM_PROMPT = load_prompt("evaluation_answer_score.txt")
-_SUMMARY_SYSTEM_PROMPT = load_prompt("evaluation_summary.txt")
-
-
-def _strip_code_fence(raw: str) -> str:
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text.removeprefix("```")
-        if text.endswith("```"):
-            text = text[: -len("```")]
-    return text.strip()
-
-
-def _skill_reasoning(rows: list[dict]) -> list[str]:
-    return [
-        f"Вопрос {row['order']} ({row['score']}/5): {row['rationale']}" for row in rows if row["rationale"]
-    ]
-
-
-# Итоговый уровень владения навыком — 1-3, отдельная (более грубая) шкала поверх
-# per-question effective_score (1-5): не «сколько баллов набрал по вопросам», а
-# «на каком уровне подтверждено владение навыком в целом». Считается детерминированно
-# из effective_score, не отдельным LLM-вызовом — чтобы уровень не расходился с
-# skill_class/effective_score, на которых уже строится verdict.
-_MASTERY_LABEL = {1: "Начальный уровень", 2: "Базовый уверенный уровень", 3: "Продвинутый уровень"}
-
-
-def _mastery_level(effective_score: int | None) -> int | None:
-    if effective_score is None:
-        return None
-    if effective_score <= 2:
-        return 1
-    if effective_score == 3:
-        return 2
-    return 3
 
 
 class EvaluationService:
-    def __init__(self, model: str | None = None, api_key: str | None = None) -> None:
-        self._llm = AnthropicJSONClient(model=model, api_key=api_key)
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
 
-    async def _complete(self, system_prompt: str, user_prompt: str) -> str:
-        try:
-            return await self._llm.complete(system_prompt, user_prompt, temperature=0.2)
-        except LLMError as exc:
-            raise EvaluationError(str(exc)) from exc
+    async def get_interview(self, interview_id: UUID) -> Interview | None:
+        result = await self.session.execute(select(Interview).where(Interview.id == interview_id))
+        return result.scalar_one_or_none()
 
-    async def _score_answer(self, question: Question, answer: Answer) -> _AnswerScore:
-        user_prompt = (
-            f"Вопрос: {question.text}\n"
-            f"Intent: {question.intent or '(не указан)'}\n"
-            f"Эталонный ответ: {question.reference_answer or '(не указан)'}\n"
-            f"Ответ кандидата (расшифровка): {answer.transcript_text or '(пусто — не ответил)'}\n"
+    async def build_evaluation_input(self, interview_id: UUID) -> EvaluationInputResponse:
+        interview = await self.get_interview(interview_id)
+        if interview is None:
+            raise ValueError("Interview not found")
+
+        vacancy_result = await self.session.execute(select(Vacancy).where(Vacancy.id == interview.vacancy_id))
+        vacancy = vacancy_result.scalar_one()
+
+        questions_result = await self.session.execute(
+            select(Question)
+            .where(
+                Question.role == "assessment",
+                (Question.vacancy_id == vacancy.id) | (Question.interview_id == interview_id),
+            )
+            .order_by(Question.order)
         )
-        raw = await self._complete(_SYSTEM_PROMPT, user_prompt)
-        try:
-            return _AnswerScore.model_validate(json.loads(_strip_code_fence(raw)))
-        except Exception as exc:  # noqa: BLE001
-            raise EvaluationError(f"Не удалось разобрать оценку ответа: {exc}") from exc
+        questions = questions_result.scalars().all()
 
-    async def _summarize(self, skill_verdicts: list[dict]) -> _SummaryText:
-        if not skill_verdicts:
-            return _SummaryText(
-                summary="Кандидат не ответил ни на один оцениваемый вопрос — сводка недоступна.",
-            )
-        lines = []
-        for sv in skill_verdicts:
-            label = _SKILL_CLASS_LABEL.get(sv["skill_class"], sv["skill_class"])
-            required = "обязательный" if sv["required"] else "желательный"
-            mastery = _MASTERY_LABEL.get(sv["mastery_level"], "не определён")
-            lines.append(
-                f"- {sv['skill_tag']} ({required}): {label}, эффективный балл {sv['effective_score']}, "
-                f"уровень владения: {mastery}"
-            )
-            for line in sv["reasoning"]:
-                lines.append(f"  · {line}")
-        user_prompt = "Разбор по навыкам:\n" + "\n".join(lines)
-        raw = await self._complete(_SUMMARY_SYSTEM_PROMPT, user_prompt)
-        try:
-            return _SummaryText.model_validate(json.loads(_strip_code_fence(raw)))
-        except Exception as exc:  # noqa: BLE001
-            raise EvaluationError(f"Не удалось разобрать сводку: {exc}") from exc
+        answers_result = await self.session.execute(select(Answer).where(Answer.interview_id == interview_id))
+        answer_by_question = {answer.question_id: answer for answer in answers_result.scalars().all()}
 
-    async def evaluate_interview(
-        self,
-        vacancy: Vacancy,
-        questions: list[Question],
-        answers: list[Answer],
-    ) -> dict:
-        """Строит report_json: per_question (сырые оценки) + skill_verdicts (с аргументами
-        по каждому навыку) + verdict (с аргументами по обязательным навыкам) + summary/
-        strengths/weaknesses.
+        events_result = await self.session.execute(
+            select(InterviewEvent)
+            .where(InterviewEvent.interview_id == interview_id)
+            .order_by(InterviewEvent.created_at.asc())
+        )
+        events = events_result.scalars().all()
 
-        Оцениваем только role="assessment" вопросы с непустой расшифровкой — warmup/closing
-        не несут skill_tag и не участвуют в вердикте (см. evaluation_verdict.aggregate_skills).
-        """
-        questions_by_id = {q.id: q for q in questions}
-        per_question: list[dict] = []
-        question_scores: list[QuestionScore] = []
-        rows_by_skill: dict[str, list[dict]] = {}
-
-        for answer in answers:
-            question = questions_by_id.get(answer.question_id)
-            if question is None or question.role != "assessment":
-                continue
-            if not (answer.transcript_text or "").strip():
-                continue
-
-            scored = await self._score_answer(question, answer)
-            skill_tags = question.skill_tag or ["_unspecified"]
-            row = {
-                "question_id": str(question.id),
-                "order": question.order,
-                "skill_tag": skill_tags,
-                "difficulty": question.difficulty,
-                "score": scored.score,
-                "answered_with_hint": scored.answered_with_hint,
-                "rationale": scored.rationale,
-            }
-            per_question.append(row)
-            for tag in skill_tags:
-                rows_by_skill.setdefault(tag, []).append(row)
-                question_scores.append(
-                    QuestionScore(
-                        skill_tag=tag,
-                        score=scored.score,
-                        difficulty=question.difficulty,
-                        answered_with_hint=scored.answered_with_hint,
-                    )
+        question_responses: list[QuestionForEvaluationResponse] = []
+        for question in questions:
+            answer = answer_by_question.get(question.id)
+            answer_response = None
+            if answer is not None:
+                answer_response = AnswerForEvaluationResponse(
+                    transcript_text=answer.transcript_text,
+                    code_submission=answer.code_submission,
+                    code_language=answer.code_language,
+                    code_snapshots=answer.code_snapshots or [],
+                    started_at=answer.started_at,
+                    completed_at=answer.completed_at,
                 )
+            question_responses.append(
+                QuestionForEvaluationResponse(
+                    question_id=question.id,
+                    text=question.text,
+                    skill_tag=list(question.skill_tag or []),
+                    intent=question.intent,
+                    reference_answer=question.reference_answer,
+                    difficulty=question.difficulty,
+                    format=question.format,
+                    role=question.role,
+                    dynamic_trigger=question.dynamic_trigger,
+                    source=question.source,
+                    answer=answer_response,
+                    answered_with_hint=question.dynamic_trigger == "leading_hint",
+                )
+            )
 
-        required_skills = set(vacancy.required_skills or [])
-        raw_skill_verdicts: list[SkillVerdict] = aggregate_skills(question_scores, required_skills)
-        verdict = compute_verdict(raw_skill_verdicts, has_contradictions=False)
+        return EvaluationInputResponse(
+            interview=interview,
+            vacancy=VacancyContextResponse(
+                title=vacancy.title,
+                description=vacancy.description,
+                grade=vacancy.grade,
+                required_skills=list(vacancy.required_skills or []),
+                nice_to_have_skills=list(vacancy.nice_to_have_skills or []),
+            ),
+            questions=question_responses,
+            events=events,
+        )
 
-        skill_verdicts = [
-            {
-                **sv.model_dump(),
-                "reasoning": _skill_reasoning(rows_by_skill.get(sv.skill_tag, [])),
-                "mastery_level": _mastery_level(sv.effective_score),
-            }
-            for sv in raw_skill_verdicts
-        ]
+    async def create_evaluation(
+        self,
+        interview_id: UUID,
+        request: EvaluationCreateRequest,
+    ) -> EvaluationResponse:
+        interview = await self.get_interview(interview_id)
+        if interview is None:
+            raise ValueError("Interview not found")
 
-        verdict_reasoning = [
-            f"«{sv['skill_tag']}» (обязательный) — {_SKILL_CLASS_LABEL[sv['skill_class']]}"
-            + (f", {_MASTERY_LABEL[sv['mastery_level']]}" if sv["mastery_level"] else "")
-            + ("; " + "; ".join(sv["reasoning"]) if sv["reasoning"] else " (вопросов не было)")
-            for sv in skill_verdicts
-            if sv["required"]
-        ]
-
-        summary = await self._summarize(skill_verdicts)
-
-        return {
-            "generated_at": datetime.now(UTC).isoformat(),
-            "model": self._llm.model,
-            "verdict": verdict.value,
-            "verdict_reasoning": verdict_reasoning,
-            "skill_verdicts": skill_verdicts,
-            "per_question": per_question,
-            "summary": summary.summary,
-            "strengths": summary.strengths,
-            "weaknesses": summary.weaknesses,
+        # Upsert: повторный прогон (reevaluate/retry после failed-джобы) присылает
+        # отчёт заново — evaluation на интервью один (unique evaluation_interview_id_key),
+        # перезаписываем строку, а не падаем с UniqueViolationError.
+        evaluation = await self.get_evaluation(interview_id)
+        fields = {
+            "per_question": [item.model_dump(mode="json") for item in request.per_question],
+            "overall_score": request.overall_score,
+            "verdict": request.verdict,
+            "confirmed_skills": list(request.confirmed_skills),
+            "unconfirmed_skills": list(request.unconfirmed_skills),
+            "contradictions_found": [item.model_dump(mode="json") for item in request.contradictions_found],
+            "strengths": list(request.strengths),
+            "risks": list(request.risks),
+            "summary_intro": request.summary_intro,
+            "summary_conclusion": request.summary_conclusion,
+            "model_version": request.model_version,
+            "prompt_version": request.prompt_version,
+            "generated_at": request.generated_at,
         }
+        if evaluation is None:
+            evaluation = Evaluation(interview_id=interview_id, **fields)
+            self.session.add(evaluation)
+        else:
+            for name, value in fields.items():
+                setattr(evaluation, name, value)
+
+        # Продуктовая ось (009): тот же контракт, что давал бывший синхронный
+        # `_complete_interview` из main — `report_json` на интервью + "report_ready"
+        # (канбан «Готовы к решению», страница кандидата). Структура — то, что прислал
+        # evaluation-agent (EvaluationCreateRequest), не старая main-овская
+        # (skill_verdicts там нет — фронт мирно показывает «Разбор недоступен»).
+        interview.report_json = request.model_dump(mode="json")
+        interview.product_state = "report_ready"
+
+        await self.session.commit()
+        await self.session.refresh(evaluation)
+        return EvaluationResponse.model_validate(evaluation)
+
+    async def mark_processing_failed(self, interview_id: UUID) -> None:
+        interview = await self.get_interview(interview_id)
+        if interview is not None:
+            interview.status = "processing_failed"
+            # Дедицированного product_state для провала нет (см. frontend/lib/pipeline.ts) —
+            # честнее «Ответы отправлены», чем вечное «Готовим отчёт».
+            interview.product_state = "submitted"
+            await self.session.commit()
+
+    async def get_evaluation(self, interview_id: UUID) -> Evaluation | None:
+        result = await self.session.execute(select(Evaluation).where(Evaluation.interview_id == interview_id))
+        return result.scalar_one_or_none()

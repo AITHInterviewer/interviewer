@@ -4,10 +4,12 @@
 # `interview_event_service.py`). Собран по официальной документации LiveKit:
 # https://docs.livekit.io/home/egress/overview/
 #
-# api_key/api_secret совпадают с dev-ключами livekit-server (LIVEKIT_KEYS=devkey: secret).
+# api_key/api_secret совпадают с dev-ключами livekit-server.
 api_key: devkey
-api_secret: secret
+api_secret: dev-secret-change-me-32-characters
 ws_url: ws://livekit-server:7880
+redis:
+  address: redis:6379
 
 # Обязательно: egress получает start/stop-запросы не напрямую (backend зовёт только
 # livekit-server API), а через тот же Redis, что и livekit-server — без этого блока

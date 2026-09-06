@@ -204,7 +204,11 @@ class PilotService:
 
     async def manager_can_view(self, interview_id: UUID, manager_id: UUID) -> bool:
         handoff = await self.session.execute(
-            select(Handoff).where(Handoff.interview_id == interview_id, Handoff.to_manager_id == manager_id)
+            select(Handoff).where(
+                Handoff.interview_id == interview_id,
+                Handoff.to_manager_id == manager_id,
+                Handoff.returned_at.is_(None),
+            )
         )
         if handoff.scalar_one_or_none() is not None:
             return True
@@ -218,7 +222,9 @@ class PilotService:
 
     async def list_manager_candidates(self, manager_id: UUID) -> list[dict]:
         handoffs = (
-            await self.session.execute(select(Handoff).where(Handoff.to_manager_id == manager_id))
+            await self.session.execute(
+                select(Handoff).where(Handoff.to_manager_id == manager_id, Handoff.returned_at.is_(None))
+            )
         ).scalars().all()
         grants = (
             await self.session.execute(
@@ -258,6 +264,25 @@ class PilotService:
                 }
             )
         return items
+
+    async def return_from_manager(self, interview_id: UUID, manager_id: UUID) -> Interview:
+        handoff = (
+            await self.session.execute(
+                select(Handoff).where(
+                    Handoff.interview_id == interview_id,
+                    Handoff.to_manager_id == manager_id,
+                    Handoff.returned_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if handoff is None:
+            raise PilotError(404, "Active handoff not found.")
+        interview = await self._interview(interview_id)
+        handoff.returned_at = datetime.now(timezone.utc)
+        interview.recruiter_decision = "awaiting"
+        await self.session.commit()
+        await self.session.refresh(interview)
+        return interview
 
     async def expert_queue(self) -> dict:
         calibrations = (

@@ -10,10 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.answer import Answer
+from app.models.evaluation_job import EvaluationJob
 from app.models.interview_event import InterviewEvent
 from app.models.question import Question
-from app.services import interview_event_service as interview_event_service_module
-from app.services.evaluation_service import EvaluationError
 from app.services.interview_event_service import InterviewEventService
 from tests.conftest import seed_demo_interview
 
@@ -249,23 +248,12 @@ async def test_record_security_signal_logs_event_without_touching_answers(
     assert (await db_session.execute(select(Answer))).scalars().all() == []
 
 
-class _FakeEvaluationService:
-    """Подменяет реальный OpenRouter-вызов детерминированным отчётом."""
-
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        pass
-
-    async def evaluate_interview(self, vacancy, questions, answers) -> dict:  # noqa: ANN001
-        return {"generated_at": "2026-09-06T00:00:00+00:00", "model": "fake", "verdict": "fits",
-                "skill_verdicts": [], "per_question": []}
-
-
 @pytest.mark.anyio
-async def test_interview_completed_marks_status_and_runs_evaluation(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+async def test_interview_completed_marks_status_and_enqueues_evaluation_job(
+    db_session: AsyncSession,
 ) -> None:
-    monkeypatch.setattr(interview_event_service_module, "EvaluationService", _FakeEvaluationService)
-
+    """`interview_completed` больше не оценивает синхронно (см. `_handle_interview_completed`):
+    статус + product_state + задача в outbox для evaluation-agent."""
     interview = await seed_demo_interview(db_session, question_count=1)
     service = InterviewEventService(db_session)
 
@@ -273,69 +261,70 @@ async def test_interview_completed_marks_status_and_runs_evaluation(
 
     await db_session.refresh(interview)
     assert interview.status == "completed"
-    assert interview.product_state == "report_ready"
-    assert interview.report_json == {
-        "generated_at": "2026-09-06T00:00:00+00:00",
-        "model": "fake",
-        "verdict": "fits",
-        "skill_verdicts": [],
-        "per_question": [],
-    }
-
-
-@pytest.mark.anyio
-async def test_interview_completed_twice_does_not_rerun_evaluation(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    calls = 0
-
-    class _CountingEvaluationService(_FakeEvaluationService):
-        async def evaluate_interview(self, vacancy, questions, answers):  # noqa: ANN001
-            nonlocal calls
-            calls += 1
-            return await super().evaluate_interview(vacancy, questions, answers)
-
-    monkeypatch.setattr(interview_event_service_module, "EvaluationService", _CountingEvaluationService)
-
-    interview = await seed_demo_interview(db_session, question_count=1)
-    service = InterviewEventService(db_session)
-
-    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
-    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
-
-    assert calls == 1
-
-
-class _FailingThenOkEvaluationService(_FakeEvaluationService):
-    """Первый вызов имитирует упавший LLM (report остаётся пустым), второй — успех."""
-
-    attempts = 0
-
-    async def evaluate_interview(self, vacancy, questions, answers):  # noqa: ANN001
-        type(self).attempts += 1
-        if type(self).attempts == 1:
-            raise EvaluationError("429")
-        return await super().evaluate_interview(vacancy, questions, answers)
-
-
-@pytest.mark.anyio
-async def test_reevaluate_recovers_interview_stuck_in_report_processing(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _FailingThenOkEvaluationService.attempts = 0
-    monkeypatch.setattr(
-        interview_event_service_module, "EvaluationService", _FailingThenOkEvaluationService
-    )
-
-    interview = await seed_demo_interview(db_session, question_count=1)
-    service = InterviewEventService(db_session)
-
-    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
-    await db_session.refresh(interview)
     assert interview.product_state == "report_processing"
-    assert interview.report_json is None
+    job = (
+        (
+            await db_session.execute(
+                select(EvaluationJob).where(EvaluationJob.interview_id == interview.id)
+            )
+        )
+        .scalars()
+        .one()
+    )
+    assert job.status == "pending"
+
+
+@pytest.mark.anyio
+async def test_interview_completed_twice_does_not_duplicate_job(
+    db_session: AsyncSession,
+) -> None:
+    interview = await seed_demo_interview(db_session, question_count=1)
+    service = InterviewEventService(db_session)
+
+    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
+    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
+
+    jobs = (
+        (
+            await db_session.execute(
+                select(EvaluationJob).where(EvaluationJob.interview_id == interview.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(jobs) == 1
+
+
+@pytest.mark.anyio
+async def test_reevaluate_resets_failed_job_and_requeues(
+    db_session: AsyncSession,
+) -> None:
+    """`reevaluate` — кнопка с карточки кандидата для интервью, застрявшего на отчёте:
+    существующая failed-задача сбрасывается в pending, interview снова в report_processing.
+    Фактический разбор — прерогатива evaluation-agent (claim_pending_job)."""
+    interview = await seed_demo_interview(db_session, question_count=1)
+    service = InterviewEventService(db_session)
+
+    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
+    job = (
+        (await db_session.execute(select(EvaluationJob).where(EvaluationJob.interview_id == interview.id)))
+        .scalars()
+        .one()
+    )
+    job.status = "failed"
+    job.attempts = job.max_attempts
+    job.last_error = "moonshot 401"
+    await db_session.commit()
+    await db_session.refresh(interview)
+    assert interview.status == "completed"
+    assert interview.product_state == "report_processing"
 
     await service.reevaluate(interview.id)
+
     await db_session.refresh(interview)
-    assert interview.product_state == "report_ready"
-    assert interview.report_json["verdict"] == "fits"
+    await db_session.refresh(job)
+    assert interview.product_state == "report_processing"
+    assert job.status == "pending"
+    assert job.attempts == 0
+    assert job.last_error is None

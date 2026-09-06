@@ -82,13 +82,61 @@ async def test_interview_completed_maps_to_completed(db_session: AsyncSession) -
 async def test_internal_event_types_are_not_translated(db_session: AsyncSession) -> None:
     internal_event_types = (
         "backchannel_played",
-        "candidate_utterance",
         "live_control_decision",
-        "agent_utterance",
         "interview_started",
     )
     for event_type in internal_event_types:
         assert await to_control_event(db_session, {"type": event_type, "payload": {}}) is None
+
+
+@pytest.mark.anyio
+async def test_utterances_map_to_subtitles(db_session: AsyncSession) -> None:
+    """Субтитры внизу экрана кандидата — зеркало произнесённого, не управление ходом."""
+    candidate = await to_control_event(
+        db_session,
+        {"type": "candidate_utterance", "question_id": "q1", "payload": {"text": "Мой ответ"}},
+    )
+    assert candidate is not None
+    assert candidate["type"] == "subtitle_candidate"
+    assert candidate["text"] == "Мой ответ"
+
+    agent = await to_control_event(
+        db_session,
+        {"type": "agent_utterance", "payload": {"kind": "checkin", "text": "Что-то добавите?"}},
+    )
+    assert agent is not None
+    assert agent["type"] == "subtitle_agent"
+    assert agent["text"] == "Что-то добавите?"
+
+    # Пустой транскрипт (ещё не финализирован) — не шлём.
+    assert await to_control_event(db_session, {"type": "candidate_utterance", "payload": {}}) is None
+
+    # Живой (потоковый) STT кандидата идёт в тот же слот субтитров.
+    partial = await to_control_event(
+        db_session,
+        {"type": "stt_partial", "question_id": "q1", "payload": {"text": "я работал с", "is_final": False}},
+    )
+    assert partial is not None
+    assert partial["type"] == "subtitle_candidate"
+    assert partial["text"] == "я работал с"
+
+
+@pytest.mark.anyio
+async def test_question_started_carries_time_limit_for_countdown(db_session: AsyncSession) -> None:
+    await seed_demo_interview(db_session, question_count=1)
+    question = (await db_session.execute(select(Question))).scalar_one()
+
+    event = await to_control_event(
+        db_session,
+        {
+            "type": "question_started",
+            "question_id": str(question.id),
+            "payload": {"text": "...", "estimated_duration_sec": 240},
+        },
+    )
+
+    assert event is not None
+    assert event["time_limit_sec"] == 240
 
 
 @pytest.mark.anyio

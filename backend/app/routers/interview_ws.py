@@ -64,6 +64,13 @@ async def interview_control_channel(websocket: WebSocket, access_token: str) -> 
                     await InterviewEventService(session).record_candidate_input(interview_id, message)
                 elif message_type == "security_signal":
                     await InterviewEventService(session).record_security_signal(interview_id, message)
+            # Кнопка «Дальше» на карточке кандидата — просто просим live-agent завершить
+            # текущий вопрос. Решение принимает граф live-контура (FR-011), backend только
+            # передаёт команду в его канал.
+            if message_type == "next_question":
+                await redis.publish(
+                    f"live-agent:commands:{interview_id}", json.dumps({"type": "skip"})
+                )
     except WebSocketDisconnect:
         pass
     finally:
@@ -75,9 +82,7 @@ async def interview_control_channel(websocket: WebSocket, access_token: str) -> 
 
 async def _relay_control_events(websocket: WebSocket, redis: Redis, interview_id: str) -> None:
     async with SessionLocal() as session:
-        event_service = InterviewEventService(session)
         async for raw_event in subscribe_raw_events(redis, interview_id):
-            await event_service.record_event(interview_id, raw_event)
             control_event = await to_control_event(session, raw_event)
             if control_event is None:
                 continue

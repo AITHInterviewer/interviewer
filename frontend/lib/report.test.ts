@@ -7,6 +7,7 @@ import {
   mandatorySummary,
   requiredSkillTally,
   requirementConclusion,
+  scoreTone,
   skillVerdictFor,
   uncoveredRequirements,
 } from "@/lib/report";
@@ -104,50 +105,100 @@ describe("requirementConclusion", () => {
   });
 });
 
-function report(skillVerdicts: InterviewReport["skill_verdicts"]): InterviewReport {
+function report(args: {
+  confirmed?: string[];
+  unconfirmed?: string[];
+  skillScores?: Array<{ skill_tag: string; score: number; rationale?: string }>;
+}): InterviewReport {
   return {
     generated_at: "2026-09-06T10:00:00Z",
-    model: "test/model",
+    model_version: "test/model",
+    prompt_version: "v1",
     verdict: "needs_review",
-    verdict_reasoning: [],
-    skill_verdicts: skillVerdicts,
-    per_question: [],
-    summary: "",
-    strengths: "",
-    weaknesses: "",
+    overall_score: 92,
+    per_question: [
+      {
+        question_id: "q1",
+        skill_scores: (args.skillScores ?? []).map((entry) => ({
+          skill_tag: entry.skill_tag,
+          score: entry.score,
+          rationale: entry.rationale ?? "",
+        })),
+        quotes: [],
+        confidence: 0.9,
+        answered_with_hint: false,
+        report: null,
+      },
+    ],
+    confirmed_skills: args.confirmed ?? [],
+    unconfirmed_skills: args.unconfirmed ?? [],
+    contradictions_found: [],
+    strengths: [],
+    risks: [],
+    summary_intro: null,
+    summary_conclusion: null,
   };
 }
 
-function verdict(
-  skill_tag: string,
-  skill_class: InterviewReport["skill_verdicts"][number]["skill_class"],
-  required: boolean,
-): InterviewReport["skill_verdicts"][number] {
-  return { skill_tag, required, skill_class, effective_score: 3, stretch_bonus: false, reasoning: [], mastery_level: 2 };
-}
-
 describe("requiredSkillTally", () => {
-  it("считает только обязательные навыки по классам", () => {
-    const data = report([
-      verdict("Python", "pass", true),
-      verdict("SQL", "ambiguous", true),
-      verdict("Celery", "untested", true),
-      verdict("Docker", "fail", false),
-    ]);
-    expect(requiredSkillTally(data)).toEqual({ pass: 1, ambiguous: 1, fail: 0, untested: 1, total: 3 });
+  it("считает обязательные навыки по спискам confirmed/unconfirmed из отчёта", () => {
+    const data = report({ confirmed: ["Python"], unconfirmed: ["Celery"] });
+    expect(requiredSkillTally(data, ["Python", "SQL", "Celery"])).toEqual({
+      pass: 1,
+      ambiguous: 0,
+      fail: 1,
+      untested: 1,
+      total: 3,
+    });
   });
 
-  it("без отчёта — нули", () => {
-    expect(requiredSkillTally(null)).toEqual({ pass: 0, ambiguous: 0, fail: 0, untested: 0, total: 0 });
+  it("навык с баллами, но без классификации — ambiguous", () => {
+    const data = report({ skillScores: [{ skill_tag: "SQL", score: 55 }] });
+    expect(requiredSkillTally(data, ["SQL"])).toEqual({ pass: 0, ambiguous: 1, fail: 0, untested: 0, total: 1 });
+  });
+
+  it("без отчёта — все не проверены", () => {
+    expect(requiredSkillTally(null, ["Python"])).toEqual({ pass: 0, ambiguous: 0, fail: 0, untested: 1, total: 1 });
   });
 });
 
 describe("skillVerdictFor", () => {
   it("находит навык без учёта регистра и пробелов", () => {
-    const data = report([verdict("Python", "pass", true)]);
+    const data = report({ confirmed: ["Python"] });
     expect(skillVerdictFor(data, " python ")?.skill_class).toBe("pass");
     expect(skillVerdictFor(data, "Go")).toBeNull();
     expect(skillVerdictFor(null, "Python")).toBeNull();
+  });
+
+  it("отдаёт лучший уровень и обоснования в формате «Вопрос N (уровень/3)»", () => {
+    const data = report({
+      confirmed: ["Python"],
+      skillScores: [
+        { skill_tag: "Python", score: 2, rationale: "event loop" },
+        { skill_tag: "Python", score: 3, rationale: "процесс-пул" },
+      ],
+    });
+    const sv = skillVerdictFor(data, "Python", [{ id: "q1", order: 2 }]);
+    expect(sv?.skill_class).toBe("pass");
+    expect(sv?.best_score).toBe(3);
+    expect(sv?.reasoning_lines).toEqual([
+      "Вопрос 2 (2/3): event loop",
+      "Вопрос 2 (3/3): процесс-пул",
+    ]);
+  });
+
+  it("без списка вопросов обходится без номера", () => {
+    const data = report({ skillScores: [{ skill_tag: "Python", score: 2, rationale: "ок" }] });
+    expect(skillVerdictFor(data, "Python")?.reasoning_lines).toEqual(["2/3: ок"]);
+  });
+});
+
+describe("scoreTone", () => {
+  it("пороги совпадают с verdict.py агента", () => {
+    expect(scoreTone(39)).toBe("danger");
+    expect(scoreTone(40)).toBe("warning");
+    expect(scoreTone(69)).toBe("warning");
+    expect(scoreTone(70)).toBe("positive");
   });
 });
 

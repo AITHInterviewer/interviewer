@@ -1,7 +1,7 @@
 """vacancy requirements: извлечённые из описания требования
 
 Revision ID: 20260907_000001
-Revises: 20260906_000005
+Revises: 20260906_000008
 Create Date: 2026-09-07
 
 `vacancy.requirements` (jsonb, not null, default '[]') — список требований, которые LLM
@@ -20,7 +20,7 @@ from sqlalchemy import inspect
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20260907_000001"
-down_revision: str | None = "20260906_000005"
+down_revision: str | None = "20260906_000008"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

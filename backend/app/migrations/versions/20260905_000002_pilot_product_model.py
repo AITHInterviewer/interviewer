@@ -137,7 +137,9 @@ def upgrade() -> None:
             sa.Column("id", sa.Uuid(), nullable=False),
             sa.Column("vacancy_id", sa.Uuid(), nullable=False),
             sa.Column("version_number", sa.Integer(), nullable=False),
-            sa.Column("approved_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+            sa.Column(
+                "approved_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+            ),
             sa.Column("approved_by_id", sa.Uuid(), nullable=True),
             sa.Column("snapshot", _json_type(), nullable=False),
             sa.ForeignKeyConstraint(["vacancy_id"], ["vacancy.id"]),
@@ -185,6 +187,7 @@ def upgrade() -> None:
             sa.Column("created_by_id", sa.Uuid(), nullable=False),
             sa.Column("close_reason", sa.Text(), nullable=True),
             sa.Column("extra_token", sa.Text(), nullable=True),
+            sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
             sa.ForeignKeyConstraint(["interview_id"], ["interview.id"]),
             sa.ForeignKeyConstraint(["created_by_id"], ["internal_users.id"]),
             sa.PrimaryKeyConstraint("id"),

@@ -44,6 +44,13 @@ class Question(BaseModel):
     reference_answer: str
     rubric_notes: str = ""
     difficulty: QuestionDifficulty = QuestionDifficulty.BASELINE
+    # "assessment" | "warmup" | "closing" — таймер отведённого времени и попытка
+    # разговорить кандидата (см. agent._question_timer_loop) работают только для
+    # "assessment"; разминочный и завершающий вопросы просто ждут ответа.
+    role: str = "assessment"
+    # Отведённое на вопрос время. На половине без единой реплики кандидата агент даёт
+    # подсказку, по истечении — сам переходит к следующему вопросу.
+    estimated_duration_sec: int = 180
     # Термины, вероятные в устном ответе кандидата на этот вопрос — подсказка Whisper
     # (`prompt`). Заполняет backend при approve вакансии; агент подмешивает их в STT-
     # подсказку при входе в вопрос (см. agent._build_stt_prompt).

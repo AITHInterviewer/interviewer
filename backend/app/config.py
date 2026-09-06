@@ -67,10 +67,10 @@ class Settings(BaseSettings):
 
     # LiveKit (specs/004-candidate-interview-flow, contracts/livekit-token.md) — backend
     # выпускает access token кандидату, secret никогда не уходит на frontend. Dev-значения
-    # по умолчанию совпадают с infra/docker-compose.yml (LIVEKIT_KEYS=devkey: secret) —
+    # по умолчанию совпадают с infra/livekit.yaml —
     # НЕ для прода, см. комментарий в том файле.
     livekit_api_key: str = "devkey"
-    livekit_api_secret: str = "secret"
+    livekit_api_secret: str = "dev-secret-change-me-32-characters"
     livekit_ws_url: str = "ws://localhost:3907"
 
     # URL, по которому backend сам (сервер-сервер, не кандидатский браузер) обращается к
@@ -86,6 +86,9 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: list[str] = []
+
+    # Evaluation-agent service-to-service auth
+    evaluation_service_token: str = "dev-evaluation-token"
 
     model_config = SettingsConfigDict(
         env_file=".env",

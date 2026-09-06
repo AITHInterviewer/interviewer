@@ -7,6 +7,8 @@
 
 from app.models.answer import Answer
 from app.models.clarification import ClarificationRequest
+from app.models.evaluation import Evaluation
+from app.models.evaluation_job import EvaluationJob
 from app.models.handoff import Handoff
 from app.models.interview import Interview
 from app.models.interview_event import InterviewEvent
@@ -21,6 +23,8 @@ from app.models.vacancy import Vacancy
 __all__ = [
     "Answer",
     "ClarificationRequest",
+    "Evaluation",
+    "EvaluationJob",
     "Handoff",
     "Interview",
     "InterviewEvent",

@@ -31,7 +31,14 @@ class Interview(Base):
     resume_file_url: Mapped[str] = mapped_column(Text, nullable=False)
     access_token: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     status: Mapped[str] = mapped_column(
-        Enum("created", "in_progress", "completed", "processing_failed", name="interview_status"),
+        Enum(
+            "created",
+            "in_progress",
+            "processing",
+            "completed",
+            "processing_failed",
+            name="interview_status",
+        ),
         default="created",
     )
     dynamic_questions_used: Mapped[int] = mapped_column(Integer, default=0)

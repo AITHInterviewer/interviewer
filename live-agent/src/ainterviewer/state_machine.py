@@ -32,6 +32,7 @@ from .prompts import (
     CHECKIN_PHRASES,
     EXHAUSTIVE_TRANSITION_PHRASES,
     GAP_TYPE_LABELS,
+    NUDGE_PHRASES,
     SYSTEM_PROMPT,
     build_turn_prompt,
 )
@@ -53,6 +54,7 @@ class QuestionRunState:
     dialogue: list[str] = field(default_factory=list)  # реплики кандидата ТОЛЬКО по этому вопросу
     checkin_used: bool = False
     hint_used: bool = False
+    nudge_used: bool = False  # подсказка-«разговорите» на половине лимита времени, не более одной
 
 
 @dataclass
@@ -142,6 +144,38 @@ class LiveContourEngine:
             payload={"phrase": phrase},
         )
         return phrase
+
+    def silence_timer_enabled(self) -> bool:
+        """Таймер отведённого времени крутится только для обычных (assessment) вопросов —
+        разминочный/завершающий просто ждут ответа сколько нужно."""
+        cur = self.state.current
+        return cur is not None and cur.question.role == "assessment"
+
+    def time_limit_sec(self) -> int:
+        return self.state.current_question.estimated_duration_sec
+
+    def nudge(self) -> str | None:
+        """Половина отведённого времени прошла, кандидат не сказал ни слова — одна мягкая
+        попытка разговорить. Возвращает фразу для TTS либо None (уже подсказывали / кандидат
+        уже начал отвечать / вопросы кончились)."""
+        import random
+
+        cur = self.state.current
+        if cur is None or cur.nudge_used or cur.dialogue or self.state.phase == Phase.DONE:
+            return None
+        cur.nudge_used = True
+        phrase = random.choice(NUDGE_PHRASES)
+        self.events.emit(EventType.NUDGE_PLAYED, question_id=cur.question.id, payload={"text": phrase})
+        self._say(cur.question.id, "nudge", phrase)
+        return phrase
+
+    async def skip_current_question(self, reason: str) -> str | None:
+        """Принудительный переход к следующему вопросу — по кнопке «Дальше» от кандидата
+        или по истечении отведённого времени. Возвращает переходную фразу + следующий
+        вопрос (как `_advance_to_next_question`), либо None если интервью уже завершено."""
+        if self.state.current is None or self.state.phase == Phase.DONE:
+            return None
+        return await self._advance_to_next_question(reason=reason)
 
     # -- внутренняя логика графа --------------------------------------------
 
@@ -246,6 +280,8 @@ class LiveContourEngine:
                 "text": question.text,
                 "skill_tag": question.skill_tag,
                 "difficulty": question.difficulty.value,
+                "role": question.role,
+                "estimated_duration_sec": question.estimated_duration_sec,
             },
         )
         self._say(question.id, "question", question.text)

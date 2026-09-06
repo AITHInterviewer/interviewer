@@ -34,7 +34,7 @@ class QuestionScore(BaseModel):
     """Один элемент `skill_scores[]` внутри `per_question` — раздел 4/5.1."""
 
     skill_tag: str
-    score: int  # 0-100, см. якоря шкалы в разделе 5.1
+    score: int  # 0-3, уровень владения навыком для грейда вакансии
     difficulty: Difficulty = Difficulty.BASELINE
     answered_with_hint: bool = False
 

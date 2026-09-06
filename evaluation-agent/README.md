@@ -8,16 +8,10 @@ API — очередь-консьюмер (см. корневой [README.md](..
 Названа не «batch-agent», а по тому, ЧТО делает (оценка по рубрике), а не КАК (батчами)
 — решение из истории чата.
 
-## Статус — честно
+## Статус
 
-- ✅ **`verdict.py` — правило вынесения вердикта (раздел 5.1) реализовано полностью и
-  протестировано** (`pytest`, 11 тестов — каждый называет конкретный пункт правила: минимум
-  по обязательным навыкам, среднее по доп. навыкам, штраф за подсказку, stretch-бонус не
-  топит навык, противоречие блокирует «подходит» и т.д.). Единственная часть сервиса, не
-  зависящая от внешней инфраструктуры — поэтому единственная, что реально готова.
-- ❌ **`worker.py` — каркас, `NotImplementedError`.** Точный ASR, нарезка записи по
-  таймстампам, LLM-оценка по вопросам, запись в backend — не реализовано. Подробный план
-  по шагам — докстринг `run_worker()` в самом файле, не дублирую здесь.
+`worker.py` обрабатывает durable outbox-задачи: забирает job из backend, получает входные
+данные интервью, оценивает ответы, сохраняет результат и отмечает job complete/failed.
 
 ## Стек
 
@@ -42,7 +36,23 @@ pytest                    # 11/11 зелёных — только verdict.py
 ruff check src/ tests/
 ```
 
-`python -m evaluation_agent.worker` упадёт с `NotImplementedError` — ожидаемо, см. «Статус».
+Запустите `python -m evaluation_agent.worker`, чтобы начать polling backend.
+
+## Провайдер оценки
+
+`EVALUATION_LLM_PROVIDER` выбирает судью без изменения кода:
+
+- `claude` — значение по умолчанию; использует Claude Agent SDK и `LLM_MODEL`.
+- `kimi` — использует Moonshot API с `MOONSHOT_API_KEY` и `KIMI_MODEL` (по умолчанию `kimi-k2.6`).
+  Ключи официальных платформ .ai/.cn между собой НЕ взаимозаменяемы, а ключи Kimi for Coding
+  (консоль kimi.ai/code) вообще не принимает официальный api.moonshot.ai — им нужен
+  `KIMI_BASE_URL=https://api.kimi.com/coding/v1/chat/completions` и `KIMI_MODEL=kimi-for-coding`
+  (проверено 2026-09-06; доступные модели на KFC: `kimi-for-coding`, `kimi-for-coding-highspeed`, `k3`).
+- `dummygpt` — всегда создаёт детерминированный mock review по эталону и транскрипту; API-ключ не нужен.
+
+Для Docker Compose используйте `BACKEND_URL=http://backend:8000`; при локальном запуске
+evaluation-agent вне Docker используйте `http://localhost:8000`. `BACKEND_SERVICE_TOKEN`
+должен совпадать с backend `EVALUATION_SERVICE_TOKEN`.
 
 ## Через Docker Compose
 
@@ -50,8 +60,7 @@ ruff check src/ tests/
 docker compose -f ../infra/docker-compose.yml -f docker-compose.yml up --build
 ```
 
-Контейнер `evaluation-agent` завершится с ошибкой сразу после старта (воркер не
-реализован) — это не баг сборки, я об этом прямо предупреждаю в `docker-compose.yml`.
+Контейнер ожидает доступность backend и повторяет claim-запросы, пока нет pending-задач.
 
 ## Куда смотреть за подробностями
 

@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ApiError } from "@/lib/api";
 import type { InterviewEventsResponse, ManagerCandidate, RubricVersion } from "@/lib/api";
-import { loadInterviewEvents, loadManagerCandidate, loadRubricVersions } from "@/lib/auth";
+import { loadInterviewEvents, loadManagerCandidate, loadRubricVersions, returnManagedCandidate } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
 
@@ -28,6 +28,7 @@ export default function ManagerCandidatePage() {
   const [denied, setDenied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
+  const [returning, setReturning] = useState(false);
 
   useEffect(() => {
     if (!landing) {
@@ -143,6 +144,19 @@ export default function ManagerCandidatePage() {
 
   const isHandoff = candidate.access === "handoff";
 
+  async function handleReturn() {
+    setReturning(true);
+    setError(null);
+    try {
+      await returnManagedCandidate(params.cid);
+      setCandidate(null);
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, "Не удалось вернуть кандидата рекрутеру."));
+    } finally {
+      setReturning(false);
+    }
+  }
+
   return (
     <AppShell nav={nav} title={isHandoff ? "Перед встречей" : "Запрос мнения"}>
       <div className="workspace">
@@ -174,6 +188,11 @@ export default function ManagerCandidatePage() {
               <Button asChild variant="secondary">
                 <Link href="/manager">К встречам</Link>
               </Button>
+              {isHandoff ? (
+                <Button type="button" disabled={returning} onClick={() => void handleReturn()}>
+                  {returning ? "Возвращаем…" : "Вернуть рекрутеру"}
+                </Button>
+              ) : null}
             </>
           }
         />
