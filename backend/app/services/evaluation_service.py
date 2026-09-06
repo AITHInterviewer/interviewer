@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from app.models.answer import Answer
 from app.models.question import Question
 from app.models.vacancy import Vacancy
+from app.prompts import load_prompt
 from app.services.evaluation_verdict import (
     QuestionScore,
     aggregate_skills,
@@ -42,18 +43,7 @@ class _AnswerScore(BaseModel):
     rationale: str = ""
 
 
-_SCHEMA_HINT = """
-
-Ответь СТРОГО одним JSON-объектом, без markdown-обёртки (```), без текста до или после JSON:
-{"score": 0-100, "answered_with_hint": true|false, "rationale": "..."}"""
-
-_SYSTEM_PROMPT = """Ты оцениваешь ответ кандидата на технический вопрос собеседования. \
-Сравни ответ с эталоном (reference_answer) и намерением вопроса (intent), поставь оценку \
-0-100: 0 — ответа по существу нет или он неверный, 40-59 — ответ частичный/поверхностный, \
-60-100 — ответ по существу верный и достаточно полный. answered_with_hint=true, только если \
-из текста ответа видно, что кандидату явно подсказали направление (в самом transcript_text \
-есть текст подсказки/наводящего уточнения от интервьюера). rationale — одно короткое \
-предложение на русском, почему такая оценка.""" + _SCHEMA_HINT
+_SYSTEM_PROMPT = load_prompt("evaluation_answer_score.txt")
 
 
 def _strip_code_fence(raw: str) -> str:

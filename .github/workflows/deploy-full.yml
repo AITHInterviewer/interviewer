@@ -412,7 +412,9 @@ jobs:
         if: always()
         run: |
           Write-Output "--- infra + backend + frontend ---"
-          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml ps
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml ps -a
+          Write-Output "--- livekit-egress logs (tail) ---"
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs --tail=80 livekit-egress
           Write-Output "--- live-agent ---"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps
           Write-Output "--- evaluation-agent (stt-accurate only) ---"

@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from app.models.question import Question
 from app.models.vacancy import Vacancy
+from app.prompts import load_prompt
 
 DEFAULT_MODEL = "minimax/minimax-m3:free"
 BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -50,57 +51,8 @@ class GeneratedQuestionSet(BaseModel):
     questions: list[GeneratedQuestion]
 
 
-_SET_SCHEMA_HINT = """
-
-Ответь СТРОГО одним JSON-объектом, без markdown-обёртки (```), без текста до или после \
-JSON, ровно с такими полями:
-{"questions": [
-  {"text": "...", "role": "warmup"|"assessment"|"closing", "skill_tag": ["..."], \
-"intent": "..."|null, "reference_answer": "..."|null, "format": "voice", \
-"difficulty": "baseline"|"stretch", "estimated_duration_sec": 180}
-]}
-Ровно 6 вопросов в массиве: 1 warmup, 4 assessment, 1 closing (в этом порядке или любом —
-роль в каждом объекте обязательна)."""
-
-_SET_SYSTEM_PROMPT = """Ты помогаешь рекрутёру составить базовый набор вопросов для \
-технического собеседования на вакансию. ВСЕ вопросы без исключения — строго технические, \
-по существу вакансии и её навыков. Никакой светской беседы и общих вопросов про личность/\
-мотивацию/soft skills ("расскажите о себе", "почему хотите у нас работать", "есть ли вопросы \
-к нам" и т.п.) — это НЕ техническое интервью, а собеседование по технической части. \
-Сгенерируй ровно 6 вопросов на русском языке:
-- 1 вопрос с role="warmup" — короткий, но всё равно технический разогревающий вопрос по одному \
-из навыков вакансии (например, попросить кратко описать разницу двух связанных понятий), без \
-intent/reference_answer/skill_tag;
-- 4 вопроса с role="assessment" — для каждого ОБЯЗАТЕЛЬНО заполни непустые intent \
-(что именно проверяет вопрос), reference_answer (эталонный ответ для оценки) и \
-skill_tag (список навыков из требований вакансии, минимум один тег). Навыки (skill_tag) этих \
-4 вопросов ВМЕСТЕ ДОЛЖНЫ ПОКРЫТЬ КАЖДЫЙ обязательный навык вакансии хотя бы одним вопросом — \
-если обязательных навыков больше 4, задай на один вопрос несколько связанных навыков \
-(skill_tag может содержать больше одного тега), но не оставляй ни один навык без вопроса;
-- 1 вопрос с role="closing" — короткий, но тоже технический завершающий вопрос (например, про \
-границы применимости одного из обсуждённых подходов), без intent/reference_answer/skill_tag.
-
-Для всех вопросов: format="voice", difficulty — смешивай "baseline"/"stretch", \
-estimated_duration_sec — целое число от 120 до 240. Верни только вопросы, соответствующие \
-описанию вакансии и её required/nice-to-have навыкам.""" + _SET_SCHEMA_HINT
-
-_SINGLE_SCHEMA_HINT = """
-
-Ответь СТРОГО одним JSON-объектом, без markdown-обёртки (```), без текста до или после \
-JSON, ровно с такими полями:
-{"text": "...", "role": "warmup"|"assessment"|"closing", "skill_tag": ["..."], \
-"intent": "..."|null, "reference_answer": "..."|null, "format": "voice", \
-"difficulty": "baseline"|"stretch", "estimated_duration_sec": 180}"""
-
-_SINGLE_SYSTEM_PROMPT = """Ты помогаешь рекрутёру переформулировать один вопрос для \
-собеседования на вакансию. Сгенерируй ОДИН новый вопрос взамен старого, той же роли (role), \
-что и исходный вопрос:
-- если role="assessment" — ОБЯЗАТЕЛЬНО заполни непустые intent, reference_answer и skill_tag \
-(список навыков из требований вакансии, минимум один тег);
-- если role="warmup"/"closing" — оставь intent/reference_answer/skill_tag пустыми.
-
-Новый вопрос должен проверять то же самое, но другими словами/с другим фокусом — не повторяй \
-исходную формулировку дословно. format="voice", estimated_duration_sec — целое число от 120 до 240.""" + _SINGLE_SCHEMA_HINT
+_SET_SYSTEM_PROMPT = load_prompt("vacancy_question_set.txt")
+_SINGLE_SYSTEM_PROMPT = load_prompt("vacancy_question_single.txt")
 
 
 def _vacancy_prompt(vacancy: Vacancy) -> str:
