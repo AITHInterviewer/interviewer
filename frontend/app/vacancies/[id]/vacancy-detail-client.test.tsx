@@ -33,12 +33,15 @@ vi.mock("@/lib/auth", async () => {
 
 import { createManagedInterview, loadInterviews, loadLanding, loadVacancy } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
+import { ToastProvider } from "@/lib/toast";
 import { VacancyDetailClient } from "./vacancy-detail-client";
 
 function renderClient(vacancyId: string) {
   return render(
     <ThemeProvider>
-      <VacancyDetailClient vacancyId={vacancyId} />
+      <ToastProvider>
+        <VacancyDetailClient vacancyId={vacancyId} />
+      </ToastProvider>
     </ThemeProvider>,
   );
 }

@@ -14,7 +14,7 @@ import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import type { Vacancy } from "@/lib/api";
 import { getSession, loadVacancies } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, candidateCountLabel, vacancyNextStep, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { buildNav, candidateCountLabel, gradeLabel, vacancyNextStep, VACANCY_STATUS_LABEL } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
@@ -239,7 +239,10 @@ export default function VacanciesPage() {
                   aria-label={`Открыть ${vacancy.title}`}
                 >
                   <div className="vacancy-card__header">
-                    <span className="vacancy-card__title">{vacancy.title}</span>
+                    <span className="vacancy-card__title">
+                      {vacancy.title}
+                      {vacancy.grade !== "unspecified" ? ` (${gradeLabel(vacancy.grade)})` : null}
+                    </span>
                     <StatusPill tone={statusTone(vacancy.status)}>
                       {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
                     </StatusPill>

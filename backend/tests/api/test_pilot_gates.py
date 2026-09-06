@@ -72,17 +72,15 @@ async def _calibrate(client, token: str, vacancy_id: str) -> None:
 
 
 async def _activate(client, token: str, vacancy_id: str) -> None:
+    # approve() переводит вакансию сразу в "active" — отдельный /activate после него
+    # (из "approved") больше не нужен, см. VacancyService.approve_vacancy.
     await _calibrate(client, token, vacancy_id)
     approve = await client.post(
         f"/api/v1/vacancies/{vacancy_id}/approve",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert approve.status_code == 200
-    activate = await client.post(
-        f"/api/v1/vacancies/{vacancy_id}/activate",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert activate.status_code == 200
+    assert approve.json()["status"] == "active"
 
 
 async def _create_interview(client, token: str, vacancy_id: str) -> dict:
@@ -102,13 +100,10 @@ async def test_invite_before_active_is_422(client, monkeypatch: pytest.MonkeyPat
     _patch_storage(monkeypatch)
     token = await _combo_token(client)
     vacancy = await _create_vacancy(client, token)
+    # На калибровке (до подтверждения экспертом) вакансия ещё не активна — approve()
+    # теперь переводит вакансию сразу в "active" (без промежуточного "approved"), так
+    # что для проверки гейта берём состояние до approve.
     await _calibrate(client, token, vacancy["id"])
-    approve = await client.post(
-        f"/api/v1/vacancies/{vacancy['id']}/approve",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert approve.status_code == 200
-    assert approve.json()["status"] == "approved"
 
     response = await client.post(
         f"/api/v1/vacancies/{vacancy['id']}/interviews",

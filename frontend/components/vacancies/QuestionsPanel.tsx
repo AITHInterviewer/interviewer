@@ -1,33 +1,38 @@
 "use client";
 
+import { ArrowsClockwise, Trash } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 
 import { SkillTagInput } from "@/components/chrome/SkillTagInput";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalActions } from "@/components/ui/overlay";
-import type { Question, QuestionInput } from "@/lib/api";
+import type { Question, QuestionFormat, QuestionInput, VacancyStatus } from "@/lib/api";
 import {
   addManagedQuestion,
+  approveManagedVacancy,
   deleteManagedQuestion,
   regenerateManagedQuestion,
+  sendManagedVacancyToExpert,
   updateManagedQuestion,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { QUESTION_FORMAT_LABEL } from "@/lib/pipeline";
+import { useToast } from "@/lib/toast";
+
+const SENDABLE_STATUSES = new Set<VacancyStatus>(["draft", "extracted", "changes_requested"]);
+const APPROVABLE_STATUSES = new Set<VacancyStatus>(["calibration", "pending_review"]);
 
 const BLANK_QUESTION_TEXT = "Новый вопрос — заполните текст или перегенерируйте";
+const QUESTION_FORMATS: QuestionFormat[] = ["voice", "code_review_verbal", "live_coding"];
 
 function sortByOrder(questions: Question[]): Question[] {
   return [...questions].sort((a, b) => a.order - b.order);
 }
 
-function durationLabel(seconds: number): string {
-  const minutes = Math.round(seconds / 60);
-  return minutes > 0 ? `≈${minutes} мин` : "—";
-}
-
 export function QuestionsPanel({
   vacancyId,
+  vacancyStatus,
+  requiredSkills,
   questions,
   canManage,
   canEditContent,
@@ -36,6 +41,8 @@ export function QuestionsPanel({
   onQuestionsChanged,
 }: {
   vacancyId: string;
+  vacancyStatus: VacancyStatus;
+  requiredSkills: string[];
   questions: Question[];
   /** Может генерировать/добавлять/удалять/перегенерировать вопросы (рекрутёр). */
   canManage: boolean;
@@ -45,6 +52,7 @@ export function QuestionsPanel({
   onGenerate: () => void;
   onQuestionsChanged: () => Promise<void>;
 }) {
+  const { pushToast } = useToast();
   const sorted = sortByOrder(questions);
   const [selectedId, setSelectedId] = useState<string | null>(sorted[0]?.id ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +60,7 @@ export function QuestionsPanel({
   const [adding, setAdding] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   const selected = sorted.find((question) => question.id === selectedId) ?? sorted[0] ?? null;
 
@@ -73,6 +82,15 @@ export function QuestionsPanel({
     setAnswerDraft(selected?.reference_answer ?? "");
     setDurationDraft(selected ? String(Math.round(selected.estimated_duration_sec / 60)) : "");
   }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const showConfirm =
+    (canManage && SENDABLE_STATUSES.has(vacancyStatus)) ||
+    (canEditContent && APPROVABLE_STATUSES.has(vacancyStatus));
+  // Пересчитывается на каждый рендер из вопросов — не кэшируем в state, чтобы
+  // сумма всегда отражала актуальные estimated_duration_sec после правок.
+  const totalDurationMinutes = Math.round(
+    questions.reduce((sum, question) => sum + question.estimated_duration_sec, 0) / 60,
+  );
 
   async function saveField<K extends keyof QuestionInput>(field: K, value: QuestionInput[K]) {
     if (!selected) return;
@@ -138,6 +156,39 @@ export function QuestionsPanel({
     }
   }
 
+  function missingSkillCoverage(): string[] {
+    const covered = new Set(
+      questions.flatMap((question) => (question.skill_tag ?? []).map((skill) => skill.trim().toLowerCase())),
+    );
+    return requiredSkills.filter((skill) => !covered.has(skill.trim().toLowerCase()));
+  }
+
+  async function handleApprove() {
+    const missing = missingSkillCoverage();
+    if (missing.length > 0) {
+      pushToast("warning", `Нет ни одного вопроса на навыки: ${missing.join(", ")}.`);
+      return;
+    }
+
+    setApproving(true);
+    setError(null);
+    try {
+      let status = vacancyStatus;
+      if (canManage && SENDABLE_STATUSES.has(status)) {
+        const updated = await sendManagedVacancyToExpert(vacancyId);
+        status = updated.status;
+      }
+      if (canEditContent && APPROVABLE_STATUSES.has(status)) {
+        await approveManagedVacancy(vacancyId);
+      }
+      await onQuestionsChanged();
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, "Не удалось подтвердить вакансию."));
+    } finally {
+      setApproving(false);
+    }
+  }
+
   if (questions.length === 0) {
     return (
       <section className="question-panel form-panel">
@@ -162,16 +213,6 @@ export function QuestionsPanel({
     <section className="question-panel form-panel">
       <div className="question-panel__head">
         <h2>Вопросы</h2>
-        {canManage ? (
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={!selected || regenerating}
-            onClick={() => void handleRegenerate()}
-          >
-            {regenerating ? "Перегенерируем…" : "Перегенерировать"}
-          </Button>
-        ) : null}
       </div>
       {error ? <p className="form-error">{error}</p> : null}
 
@@ -205,20 +246,90 @@ export function QuestionsPanel({
           <div className="question-detail">
             <div className="question-detail__meta-row">
               <span className="question-detail__number">Вопрос {sorted.indexOf(selected) + 1}</span>
-              <span className="status">{QUESTION_FORMAT_LABEL[selected.format] ?? selected.format}</span>
-              <span className="status" data-tone={selected.role === "assessment" ? undefined : "neutral"}>
-                {selected.role === "assessment" ? "Обязательный" : "Необязательный"}
-              </span>
-              <span className="question-detail__duration">{durationLabel(selected.estimated_duration_sec)}</span>
-              {canManage ? (
-                <button
-                  type="button"
-                  className="question-detail__delete"
-                  aria-label="Удалить вопрос"
-                  onClick={() => setDeleteOpen(true)}
+
+              {canEditContent ? (
+                <select
+                  className="question-detail__format-select"
+                  value={selected.format}
+                  onChange={(event) => void saveField("format", event.target.value as QuestionFormat)}
+                  aria-label="Тип вопроса"
                 >
-                  Удалить
-                </button>
+                  {QUESTION_FORMATS.map((format) => (
+                    <option key={format} value={format}>
+                      {QUESTION_FORMAT_LABEL[format]}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="status">{QUESTION_FORMAT_LABEL[selected.format] ?? selected.format}</span>
+              )}
+
+              <span className="question-detail__duration">
+                {canEditContent ? (
+                  <input
+                    className="question-detail__duration-input"
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    aria-label="Время на ответ, мин"
+                    value={durationDraft}
+                    onChange={(event) => setDurationDraft(event.target.value.replace(/[^0-9]/g, ""))}
+                    onBlur={() => {
+                      const minutes = Number(durationDraft);
+                      if (minutes > 0 && minutes * 60 !== selected.estimated_duration_sec) {
+                        void saveField("estimated_duration_sec", minutes * 60);
+                      }
+                    }}
+                  />
+                ) : (
+                  Math.round(selected.estimated_duration_sec / 60)
+                )}{" "}
+                мин
+              </span>
+
+              {canEditContent ? (
+                <span className="density-switch" role="group" aria-label="Обязательность вопроса">
+                  <button
+                    type="button"
+                    data-active={selected.role === "assessment" ? "true" : undefined}
+                    onClick={() => void saveField("role", "assessment")}
+                  >
+                    Обязательный
+                  </button>
+                  <button
+                    type="button"
+                    data-active={selected.role !== "assessment" ? "true" : undefined}
+                    onClick={() => void saveField("role", "warmup")}
+                  >
+                    Необязательный
+                  </button>
+                </span>
+              ) : (
+                <span className="status" data-tone={selected.role === "assessment" ? undefined : "neutral"}>
+                  {selected.role === "assessment" ? "Обязательный" : "Необязательный"}
+                </span>
+              )}
+
+              {canManage ? (
+                <span className="question-detail__icon-actions">
+                  <button
+                    type="button"
+                    className="question-detail__icon-button"
+                    aria-label="Перегенерировать вопрос"
+                    disabled={regenerating}
+                    onClick={() => void handleRegenerate()}
+                  >
+                    <ArrowsClockwise size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    className="question-detail__icon-button question-detail__icon-button--danger"
+                    aria-label="Удалить вопрос"
+                    onClick={() => setDeleteOpen(true)}
+                  >
+                    <Trash size={16} />
+                  </button>
+                </span>
               ) : null}
             </div>
 
@@ -260,27 +371,18 @@ export function QuestionsPanel({
               onChange={(skills) => void saveField("skill_tag", skills)}
               placeholder={canEditContent ? "python, sql…" : undefined}
             />
-
-            {canEditContent ? (
-              <label className="question-detail__duration-field">
-                Время на ответ, мин
-                <input
-                  type="number"
-                  min={1}
-                  value={durationDraft}
-                  onChange={(event) => setDurationDraft(event.target.value)}
-                  onBlur={() => {
-                    const minutes = Number(durationDraft);
-                    if (minutes > 0 && minutes * 60 !== selected.estimated_duration_sec) {
-                      void saveField("estimated_duration_sec", minutes * 60);
-                    }
-                  }}
-                />
-              </label>
-            ) : null}
           </div>
         ) : null}
       </div>
+
+      {showConfirm ? (
+        <div className="question-panel__confirm">
+          <span className="disabled-hint">≈{totalDurationMinutes} мин на прохождение</span>
+          <Button type="button" disabled={approving} onClick={() => void handleApprove()}>
+            {approving ? "Подтверждаем…" : "Подтвердить"}
+          </Button>
+        </div>
+      ) : null}
 
       <Modal open={deleteOpen} title="Удалить вопрос?" onClose={() => setDeleteOpen(false)}>
         <p>Вопрос «{selected?.text}» пропадёт из комплекта без возможности восстановить.</p>

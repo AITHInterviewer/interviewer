@@ -137,12 +137,14 @@ async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.Monkey
     assert send_response.status_code == 200
     assert send_response.json()["status"] == "calibration"
 
+    # approve() переводит вакансию сразу в "active" (без промежуточного "approved" и
+    # ручного /activate) — см. VacancyService.approve_vacancy.
     approve_response = await client.post(
         f"/api/v1/vacancies/{vacancy_id}/approve",
         headers={"Authorization": f"Bearer {combo_token}"},
     )
     assert approve_response.status_code == 200
-    assert approve_response.json()["status"] == "approved"
+    assert approve_response.json()["status"] == "active"
 
     locked_response = await client.patch(
         f"/api/v1/vacancies/{vacancy_id}",
@@ -150,20 +152,6 @@ async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.Monkey
         json={"title": "New title"},
     )
     assert locked_response.status_code == 409
-
-    too_early = await client.post(
-        f"/api/v1/vacancies/{vacancy_id}/interviews",
-        headers={"Authorization": f"Bearer {combo_token}"},
-        files={"resume_file": ("resume.pdf", b"%PDF-1.4 ...", "application/pdf")},
-    )
-    assert too_early.status_code == 422
-
-    activate_response = await client.post(
-        f"/api/v1/vacancies/{vacancy_id}/activate",
-        headers={"Authorization": f"Bearer {combo_token}"},
-    )
-    assert activate_response.status_code == 200
-    assert activate_response.json()["status"] == "active"
 
     interview_response = await client.post(
         f"/api/v1/vacancies/{vacancy_id}/interviews",

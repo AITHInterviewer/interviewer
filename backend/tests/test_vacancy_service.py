@@ -202,7 +202,7 @@ async def test_approve_requires_non_empty_assessment_fields(db_session: AsyncSes
 
 
 @pytest.mark.anyio
-async def test_approve_sets_status_ready_when_valid(db_session: AsyncSession) -> None:
+async def test_approve_activates_vacancy_when_valid(db_session: AsyncSession) -> None:
     recruiter = await _make_recruiter(db_session)
     service = _make_service(db_session)
 
@@ -225,7 +225,7 @@ async def test_approve_sets_status_ready_when_valid(db_session: AsyncSession) ->
     await service.send_to_expert(vacancy.id)
     approved = await service.approve_vacancy(vacancy.id)
 
-    assert approved.status == "approved"
+    assert approved.status == "active"
 
 
 @pytest.mark.anyio

@@ -104,7 +104,7 @@ export const QUESTION_ROLE_LABEL: Record<string, string> = {
 export const QUESTION_FORMAT_LABEL: Record<string, string> = {
   voice: "Ответ голосом",
   code_review_verbal: "Разбор кода вслух",
-  live_coding: "Живое кодирование",
+  live_coding: "Live-coding",
 };
 
 export const QUESTION_DIFFICULTY_LABEL: Record<string, string> = {

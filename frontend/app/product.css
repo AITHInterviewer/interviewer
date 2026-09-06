@@ -31,7 +31,7 @@ p { text-wrap: pretty; }
 .path--breadcrumbs a:hover { color: var(--accent); }
 .view-mode-banner { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-muted); color: var(--ink-secondary); font-size: var(--text-body); }
 .page-title h1 { font-size: var(--text-h1); line-height: 1.08; letter-spacing: -.035em; }
-.vacancy-title-row { display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; }
+.vacancy-title-row { display: flex; align-items: center; gap: 16px; flex-wrap: nowrap; font-size: var(--text-h2); }
 .vacancy-title-input { flex: 1 1 auto; min-width: 160px; min-height: auto; padding: 2px 2px 6px; border: 0; border-bottom: 2px solid var(--border); border-radius: 0; background: transparent; font: inherit; letter-spacing: inherit; color: var(--ink); }
 .vacancy-title-input:hover { border-bottom-color: var(--border-strong); }
 .vacancy-title-input:focus { border-bottom-color: var(--accent); outline: none; }
@@ -148,11 +148,19 @@ blockquote { margin: 10px 0; padding: 0; border: 0; color: var(--ink); font-size
 .form-surface { display: grid; align-content: start; gap: 18px; padding: 28px; background: var(--surface-raised); }
 .form-panel { border: 1px solid var(--border); border-radius: var(--radius-panel); }
 .form-panel + .form-panel { margin-top: 16px; }
-.vacancy-info-card { display: grid; gap: 14px; padding: 24px; background: var(--surface-raised); margin-bottom: 16px; }
-.vacancy-info-card__header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.vacancy-info-card__header h1 { margin: 0 auto 0 0; font-size: var(--text-h1); line-height: 1.08; letter-spacing: -.035em; }
-.vacancy-info-card__actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.vacancy-info-card__meta { display: flex; gap: 16px; flex-wrap: wrap; color: var(--ink-secondary); font-size: var(--text-meta); }
+.vacancy-info-card { display: flex; align-items: center; gap: 20px; padding: 16px 0 20px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.vacancy-info-card__main { display: grid; gap: 10px; flex: 0 1 640px; min-width: 0; }
+.vacancy-info-card__invite { display: flex; align-items: center; margin-left: auto; flex: 0 0 auto; }
+.vacancy-info-card__header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vacancy-info-card__header h1 { margin: 0; font-size: var(--text-h2); line-height: 1.2; letter-spacing: -.02em; }
+.vacancy-info-card__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.vacancy-info-card__meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--ink-secondary); font-size: var(--text-meta); }
+.vacancy-info-card__body { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
+.vacancy-info-card__description { margin: 0; font-size: var(--text-meta); color: var(--ink-secondary); }
+.vacancy-info-card__skills { display: flex; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: 6px; max-width: 320px; }
+@media (max-width: 720px) {
+  .vacancy-info-card__body { grid-template-columns: 1fr; }
+}
 .question-panel { padding: 24px; background: var(--surface-raised); margin-bottom: 16px; }
 .question-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .question-panel__layout { display: grid; grid-template-columns: 220px 1fr; gap: 24px; }
@@ -165,12 +173,20 @@ blockquote { margin: 10px 0; padding: 0; border: 0; color: var(--ink); font-size
 .question-nav__add { margin-top: 6px; padding: 8px 10px; border: 1px dashed var(--border-strong); border-radius: var(--radius-control); background: transparent; color: var(--ink-secondary); text-align: left; font-size: var(--text-meta); }
 .question-nav__add:hover { border-color: var(--accent); color: var(--ink); }
 .question-detail { display: grid; gap: 14px; align-content: start; }
-.question-detail__meta-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.question-detail__meta-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
 .question-detail__number { font-weight: 600; }
-.question-detail__duration { color: var(--ink-tertiary); font-size: var(--text-meta); }
-.question-detail__delete { margin-left: auto; border: 0; background: transparent; color: var(--danger); cursor: pointer; font-size: var(--text-meta); }
+.question-detail__duration { display: inline-flex; align-items: baseline; gap: 4px; color: var(--ink-tertiary); font-size: var(--text-meta); }
+.question-detail__duration-input { width: 34px; padding: 0 0 2px; border: 0; border-bottom: 2px solid var(--border); border-radius: 0; background: transparent; color: var(--ink); font: inherit; text-align: right; }
+.question-detail__duration-input:hover { border-bottom-color: var(--border-strong); }
+.question-detail__duration-input:focus { border-bottom-color: var(--accent); outline: none; }
+.question-detail__format-select { min-height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface); color: var(--ink-secondary); font-size: var(--text-meta); }
+.question-detail__icon-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.question-detail__icon-button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: var(--radius-control); background: transparent; color: var(--ink-secondary); cursor: pointer; }
+.question-detail__icon-button:hover { border-color: var(--border-strong); color: var(--ink); }
+.question-detail__icon-button:disabled { opacity: .5; cursor: default; }
+.question-detail__icon-button--danger:hover { border-color: var(--danger); color: var(--danger); }
 .question-detail label { display: grid; gap: 7px; color: var(--ink-secondary); }
-.question-detail__duration-field { max-width: 160px; }
+.question-panel__confirm { display: flex; align-items: center; justify-content: flex-end; gap: 14px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); }
 @media (max-width: 720px) {
   .question-panel__layout { grid-template-columns: 1fr; }
 }
@@ -452,6 +468,7 @@ input:hover, textarea:hover { border-color: var(--border-strong); }
 .vacancy-card__candidates { color: var(--ink-tertiary); font-size: var(--text-meta); }
 .vacancy-card__created { color: var(--ink-tertiary); font-size: var(--text-meta); }
 .tabs { display: flex; gap: 4px; margin-bottom: 18px; }
+.candidates-table-section { display: grid; gap: 14px; }
 .tabs button { min-height: 32px; padding: 0 14px; border: 1px solid transparent; border-radius: var(--radius-pill); background: transparent; color: var(--ink-secondary); font-size: var(--text-meta); }
 .tabs button[data-active="true"] { border-color: var(--border); background: var(--surface-raised); color: var(--ink); }
 .empty-state, .screen-state { display: grid; justify-items: start; gap: 14px; padding: 48px; border: 1px dashed var(--border); border-radius: var(--radius-panel); background: var(--surface); }

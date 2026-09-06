@@ -7,6 +7,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { AssigneeField } from "@/components/chrome/AssigneeField";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SearchField, SelectField, Toolbar } from "@/components/chrome/Toolbar";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shadcn/popover";
 import { Modal, ModalActions } from "@/components/ui/overlay";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,6 @@ import { CandidateCard } from "@/components/ui/candidate-card";
 import { QuestionsPanel } from "@/components/vacancies/QuestionsPanel";
 import type { AnonymizedStats, InternalUser, Interview, VacancyDetail } from "@/lib/api";
 import {
-  activateManagedVacancy,
   createManagedInterview,
   generateVacancyQuestions,
   getSession,
@@ -27,12 +27,11 @@ import {
   loadVacancy,
   pauseManagedVacancy,
   resumeManagedVacancy,
-  sendManagedVacancyToExpert,
   updateManagedVacancy,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, gradeLabel, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
-import { groupInterviews, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
+import { groupInterviews, interviewColumn, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
@@ -103,6 +102,9 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copyDone, setCopyDone] = useState(false);
+  const [activeTab, setActiveTab] = useState<"dashboard" | "questions" | "candidates" | null>(null);
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [candidateStageFilter, setCandidateStageFilter] = useState("all");
 
   const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
   const hasEditAction = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
@@ -171,16 +173,26 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   }, [landing, vacancyId, showAnonymized, canManage]);
 
   const grouped = useMemo(() => groupInterviews(interviews), [interviews]);
+  const filteredCandidates = useMemo(() => {
+    const needle = candidateSearch.trim().toLowerCase();
+    return interviews.filter((interview) => {
+      const matchesStage =
+        candidateStageFilter === "all" || interviewColumn(interview) === candidateStageFilter;
+      const matchesSearch = (interview.candidate_name ?? "Без имени").toLowerCase().includes(needle);
+      return matchesStage && matchesSearch;
+    });
+  }, [interviews, candidateSearch, candidateStageFilter]);
   const canInvite = vacancy?.status === "active";
-  const showSend =
-    canManage &&
-    vacancy &&
-    (vacancy.status === "extracted" || vacancy.status === "draft" || vacancy.status === "changes_requested");
-  const showActivate = canManage && vacancy?.status === "approved";
   const showPause = canManage && vacancy?.status === "active";
   const showResume = canManage && vacancy?.status === "paused";
   const canManageQuestions = canManage && vacancyUnlocked;
   const canEditQuestionContent = hasEditAction && vacancyUnlocked;
+  // По умолчанию: активная вакансия открывается на дашборде кандидатов, вакансия
+  // на проверке у эксперта — на вопросах. Once пользователь сам переключил вкладку,
+  // его выбор не трогаем, даже если статус вакансии сменится.
+  const defaultTab =
+    vacancy?.status === "calibration" || vacancy?.status === "pending_review" ? "questions" : "dashboard";
+  const effectiveTab = activeTab ?? defaultTab;
 
   const assignedPeople: AvatarPerson[] = vacancy
     ? [
@@ -330,9 +342,13 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
               ))}
             </nav>
 
-            <section className="vacancy-info-card form-panel">
+            <section className="vacancy-info-card">
+              <div className="vacancy-info-card__main">
               <div className="vacancy-info-card__header">
-                <h1>{vacancy.title}</h1>
+                <h1>
+                  {vacancy.title}
+                  {vacancy.grade !== "unspecified" ? ` (${gradeLabel(vacancy.grade)})` : null}
+                </h1>
                 <StatusPill tone={statusTone(vacancy.status)}>
                   {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
                 </StatusPill>
@@ -381,36 +397,6 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                   </PopoverContent>
                 </Popover>
                 <div className="vacancy-info-card__actions">
-                  {canManage ? (
-                    <Button type="button" disabled={!canInvite} onClick={() => setInviteOpen(true)}>
-                      Пригласить кандидата
-                    </Button>
-                  ) : null}
-                  {showSend ? (
-                    <Button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() =>
-                        void applyVacancyUpdate(
-                          () => sendManagedVacancyToExpert(vacancyId),
-                          "Не удалось отправить эксперту.",
-                        )
-                      }
-                    >
-                      {actionBusy ? "Отправляем…" : "Отправить эксперту"}
-                    </Button>
-                  ) : null}
-                  {showActivate ? (
-                    <Button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() =>
-                        void applyVacancyUpdate(() => activateManagedVacancy(vacancyId), "Не удалось активировать вакансию.")
-                      }
-                    >
-                      {actionBusy ? "Активируем…" : "Активировать вакансию"}
-                    </Button>
-                  ) : null}
                   {showPause ? (
                     <Button
                       type="button"
@@ -438,34 +424,154 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
               </div>
 
               <div className="vacancy-info-card__meta">
-                <span>{gradeLabel(vacancy.grade)}</span>
                 <span>Создана {formatCreatedAt(vacancy.created_at)}</span>
               </div>
 
-              <p>{vacancy.description}</p>
+              <div className="vacancy-info-card__body">
+                <p className="vacancy-info-card__description">{vacancy.description}</p>
 
-              {vacancy.required_skills.length > 0 ? (
-                <p className="table-tags">
-                  {vacancy.required_skills.map((skill) => (
-                    <Tag key={skill} label={skill} />
-                  ))}
-                </p>
-              ) : null}
+                {vacancy.required_skills.length > 0 ? (
+                  <div className="vacancy-info-card__skills">
+                    {vacancy.required_skills.map((skill) => (
+                      <Tag key={skill} label={skill} />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              </div>
+
+              <div className="vacancy-info-card__invite">
+                {canManage ? (
+                  <Button type="button" disabled={!canInvite} onClick={() => setInviteOpen(true)}>
+                    Пригласить кандидата
+                  </Button>
+                ) : null}
+              </div>
 
               {actionError ? <p className="form-error">{actionError}</p> : null}
             </section>
 
-            <QuestionsPanel
-              vacancyId={vacancyId}
-              questions={vacancy.questions}
-              canManage={canManageQuestions}
-              canEditContent={canEditQuestionContent}
-              generating={generating}
-              onGenerate={() => void handleGenerateQuestions()}
-              onQuestionsChanged={refreshVacancy}
-            />
+            <div className="tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                data-active={effectiveTab === "questions" ? "true" : undefined}
+                onClick={() => setActiveTab("questions")}
+              >
+                Вопросы
+              </button>
+              <button
+                type="button"
+                role="tab"
+                data-active={effectiveTab === "dashboard" ? "true" : undefined}
+                onClick={() => setActiveTab("dashboard")}
+              >
+                Дашборд
+              </button>
+              <button
+                type="button"
+                role="tab"
+                data-active={effectiveTab === "candidates" ? "true" : undefined}
+                onClick={() => setActiveTab("candidates")}
+              >
+                Кандидаты
+              </button>
+            </div>
 
-            {vacancy.questions.length === 0 ? null : showAnonymized ? (
+            {effectiveTab === "questions" ? (
+              <QuestionsPanel
+                vacancyId={vacancyId}
+                vacancyStatus={vacancy.status}
+                requiredSkills={vacancy.required_skills}
+                questions={vacancy.questions}
+                canManage={canManageQuestions}
+                canEditContent={canEditQuestionContent}
+                generating={generating}
+                onGenerate={() => void handleGenerateQuestions()}
+                onQuestionsChanged={refreshVacancy}
+              />
+            ) : vacancy.questions.length === 0 ? (
+              <ScreenState
+                kind="empty"
+                title="Сначала соберите вопросы"
+                text="Дашборд и список кандидатов появятся, как только у вакансии будет хотя бы один вопрос."
+                action={
+                  <Button type="button" variant="secondary" onClick={() => setActiveTab("questions")}>
+                    К вопросам
+                  </Button>
+                }
+              />
+            ) : effectiveTab === "candidates" ? (
+              <section className="candidates-table-section">
+                <Toolbar>
+                  <SearchField
+                    className="search-field--grow"
+                    label="Поиск по имени кандидата"
+                    placeholder="Поиск кандидата"
+                    value={candidateSearch}
+                    onChange={setCandidateSearch}
+                  />
+                  <SelectField
+                    label="Стадия"
+                    value={candidateStageFilter}
+                    onChange={setCandidateStageFilter}
+                    options={[
+                      { value: "all", label: "Любая стадия" },
+                      ...KANBAN_COLUMNS.map((column) => ({ value: column.id, label: column.title })),
+                    ]}
+                  />
+                </Toolbar>
+                {interviewsLoading ? (
+                  <ScreenState kind="loading" title="Загрузка" text="Загружаем кандидатов…" />
+                ) : interviewsError ? (
+                  <ScreenState
+                    kind="error"
+                    title="Не удалось загрузить интервью"
+                    text={interviewsError}
+                    action={
+                      <Button type="button" variant="secondary" onClick={() => void refreshInterviews()}>
+                        Повторить
+                      </Button>
+                    }
+                  />
+                ) : filteredCandidates.length === 0 ? (
+                  <ScreenState
+                    kind="empty"
+                    title="Никого не нашли"
+                    text="Снимите фильтры или измените поиск."
+                  />
+                ) : (
+                  <table className="vacancies-table">
+                    <thead>
+                      <tr>
+                        <th>Имя</th>
+                        <th>Стадия</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredCandidates.map((interview) => {
+                        const name = interview.candidate_name ?? "Без имени";
+                        return (
+                          <tr key={interview.id}>
+                            <td>{name}</td>
+                            <td>{interviewStageLabel(interview)}</td>
+                            <td>
+                              <Link
+                                href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
+                                aria-label={`Открыть ${name}`}
+                              >
+                                Открыть
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+            ) : showAnonymized ? (
               <section className="plain-section">
                 <h2>Сводка без имён</h2>
                 {interviewsLoading ? <ScreenState kind="loading" title="Загрузка" text="Считаем статусы…" /> : null}
@@ -508,13 +614,6 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
 
                 {!interviewsLoading && !interviewsError ? (
                   <>
-                    {interviews.length === 0 ? (
-                      <ScreenState
-                        kind="empty"
-                        title="Кандидатов пока нет"
-                        text="После активации вакансии здесь появится доска кандидатов."
-                      />
-                    ) : null}
                     <section className="kanban" aria-label="Кандидаты по этапам">
                       {KANBAN_COLUMNS.map((column) => {
                         const items = grouped[column.id];

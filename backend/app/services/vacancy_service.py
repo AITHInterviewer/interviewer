@@ -327,7 +327,11 @@ class VacancyService:
                 },
             )
         )
-        vacancy.status = "approved"
+        # Раньше здесь был отдельный статус "approved" с ручным шагом "Активировать
+        # вакансию" — по запросу пользователя вакансия активируется сразу по факту
+        # подтверждения экспертом, без промежуточной кнопки (см. activate() ниже —
+        # оставлен нетронутым как отдельный API, просто больше не часть обычного флоу).
+        vacancy.status = "active"
         await self.vacancy_repository.commit()
         return vacancy
 
