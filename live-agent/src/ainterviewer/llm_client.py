@@ -195,7 +195,7 @@ class OpenRouterLiveControlLLM(_OpenAICompatibleLiveControlLLM):
 
     def __init__(self, model: str | None = None, api_key: str | None = None):
         super().__init__(
-            model=model or os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash-exp:free"),
+            model=model or os.environ.get("OPENROUTER_MODEL", "minimax/minimax-m3:free"),
             api_key=api_key or os.environ["OPENROUTER_API_KEY"],
         )
 

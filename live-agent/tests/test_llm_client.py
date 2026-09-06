@@ -70,7 +70,7 @@ async def test_openrouter_decide_parses_response():
         payload = {"decision": "ambiguous", "gap_type": None, "utterance": "Что-то добавите?", "reasoning": "коротко"}
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(payload)}}]})
 
-    llm = OpenRouterLiveControlLLM(model="google/gemini-2.0-flash-exp:free", api_key="test-key")
+    llm = OpenRouterLiveControlLLM(model="minimax/minimax-m3:free", api_key="test-key")
     llm._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
     result = await llm.decide("система", "вопрос")

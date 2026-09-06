@@ -236,7 +236,7 @@ jobs:
           LLM_PROVIDER=openrouter
           ANTHROPIC_MODEL=claude-haiku-4-5
           MISTRAL_MODEL=mistral-small-latest
-          OPENROUTER_MODEL=google/gemini-2.0-flash-exp:free
+          OPENROUTER_MODEL=minimax/minimax-m3:free
           STT_BASE_URL=http://stt:8000/v1
           TTS_BASE_URL=http://tts:8080
           STT_API_KEY=not-needed

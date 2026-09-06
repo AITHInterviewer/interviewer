@@ -121,9 +121,8 @@ class InterviewerAgent(Agent):
             return
 
         # Слой 1 — мгновенный бэкчаннел без LLM (раздел 9.2, п.4 архитектурного документа).
-        backchannel = self.engine.backchannel_phrase()
-        self._last_agent_utterance = backchannel
-        yield backchannel
+        # Временно отключён (2026-09-06, явный запрос пользователя) — engine.backchannel_phrase()
+        # оставлен как есть в state_machine.py, просто не вызываем/не озвучиваем здесь.
 
         # Слой 2 — собственно решение реактивного цикла (см. state_machine.py).
         logger.info("llm_node: calling engine.on_candidate_final_turn...")

@@ -57,8 +57,11 @@
      - `mistral` — `MistralLiveControlLLM`, прямой REST к Mistral API. Пробовали и
        откатили: бесплатный ключ отдавал 429 на каждый вызов (нулевая квота).
      - `openrouter` — `OpenRouterLiveControlLLM`, бесплатная модель через OpenRouter
-       (дефолт `google/gemini-2.0-flash-exp:free`) — для рутинного тестирования интервью,
-       не тратит платные токены.
+       (дефолт `minimax/minimax-m3:free` — `google/gemini-2.0-flash-exp:free` пробовали
+       первым, но каталог OpenRouter уже не отдаёт эту модель, "No endpoints found",
+       2026-09-06) — для рутинного тестирования интервью, не тратит платные токены.
+       Бесплатный каталог OpenRouter меняется — если снова 404/429 на upstream, проверь
+       живой список `GET /api/v1/models` и подставь другой `:free`-слаг.
      - `anthropic_api` — `AnthropicAPILiveControlLLM`, прямой Anthropic Messages API
        (сам api.anthropic.com или купленный прокси через `ANTHROPIC_BASE_URL`) — для
        демо, платный, поэтому не включается по умолчанию в деплое.
