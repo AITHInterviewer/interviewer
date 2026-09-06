@@ -3,9 +3,7 @@
 # по имени (postgres/redis/minio/livekit-server), см. include: в корневом docker-compose.yml.
 #
 # ВНИМАНИЕ: livekit-server и livekit-egress настроены в dev-режиме с фиксированными
-# ключами (devkey/secret) — годится для локальной разработки и CI, НЕ для прода. Egress
-# ни разу не проверялся вживую (нет реальной WebRTC-комнаты с записью в этом проекте
-# на момент написания) — конфиг собран по документации LiveKit, не протестирован.
+# ключами (devkey/secret) — годится для локальной разработки и CI, НЕ для прода.
 
 services:
   postgres:
@@ -142,8 +140,11 @@ services:
     image: livekit/egress:latest
     environment:
       - EGRESS_CONFIG_BODY=${EGRESS_CONFIG_BODY:-}
+    # ./infra/livekit-egress-config.yaml, не ./livekit-egress-config.yaml — та же причина,
+    # что у livekit.yaml чуть выше в этом файле: относительные пути в volumes резолвятся от
+    # --project-directory (корень репо), не от папки этого compose-файла.
     volumes:
-      - ./livekit-egress-config.yaml:/etc/egress.yaml:ro
+      - ./infra/livekit-egress-config.yaml:/etc/egress.yaml:ro
     command: ["--config", "/etc/egress.yaml"]
     depends_on:
       - redis

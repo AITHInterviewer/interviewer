@@ -311,8 +311,10 @@ jobs:
       - name: Build and (re)start infra + backend + frontend
         # livekit-server теперь тоже здесь — см. шаг "Reserve livekit UDP port range"
         # выше про обход конфликта его фиксированного UDP-диапазона с Windows/Docker
-        # Desktop. livekit-egress по-прежнему не включаю: непроверенный вживую сервис
-        # (см. infra/README.md), не стоит усложнять ради него резолюцию путей.
+        # Desktop. livekit-egress тоже включён — backend/app/services/livekit_egress.py
+        # реально дёргает Egress API (см. interview_event_service.py), без запущенного
+        # egress-контейнера запись интервью тихо не работала бы (EgressError гасится, но
+        # никакого файла не появится).
         # Explicit `down` before `up`, not `up --force-recreate`: force-recreate can start
         # the replacement container before Docker has fully released the old one's port
         # binding, producing "port is already allocated" (observed on minio:9000/tcp) —
@@ -326,7 +328,7 @@ jobs:
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
             up -d --build `
-            postgres redis minio livekit-server backend frontend nginx
+            postgres redis minio livekit-server livekit-egress backend frontend nginx
           # livekit-server отдельно, с --force-recreate: он читает infra/livekit.yaml
           # через bind-mount — Compose не пересоздаёт контейнер только из-за того, что
           # ИЗМЕНИЛОСЬ СОДЕРЖИМОЕ файла на хосте (сама конфигурация сервиса в compose не
