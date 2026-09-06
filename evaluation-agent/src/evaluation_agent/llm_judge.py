@@ -62,8 +62,7 @@ class QuestionToScore:
 
 
 class LLMJudge(Protocol):
-    async def judge(self, question: QuestionToScore) -> QuestionJudgment:
-        ...
+    async def judge(self, question: QuestionToScore) -> QuestionJudgment: ...
 
 
 class DummyGPTJudge:
@@ -154,16 +153,16 @@ class ClaudeAgentSDKJudge:
     def _build_prompt(self, question: QuestionToScore) -> str:
         return f"""Вакансия: {question.vacancy.title} ({question.vacancy.grade})
 Описание вакансии: {question.vacancy.description}
-Обязательные навыки: {', '.join(question.vacancy.required_skills)}
-Желательные навыки: {', '.join(question.vacancy.nice_to_have_skills)}
+Обязательные навыки: {", ".join(question.vacancy.required_skills)}
+Желательные навыки: {", ".join(question.vacancy.nice_to_have_skills)}
 
 Вопрос: {question.text}
-Зачем задан (intent): {question.intent or 'не указано'}
+Зачем задан (intent): {question.intent or "не указано"}
 Формат ответа: {question.format}
 Сложность: {question.difficulty}
-Проверяемые навыки: {', '.join(question.skill_tags)}
+Проверяемые навыки: {", ".join(question.skill_tags)}
 Эталонный ответ: {question.reference_answer}
-Ответ дан с подсказкой: {'да' if question.answered_with_hint else 'нет'}
+Ответ дан с подсказкой: {"да" if question.answered_with_hint else "нет"}
 
 Транскрипт ответа кандидата:
 ---
@@ -211,9 +210,7 @@ class ClaudeAgentSDKJudge:
             await client.disconnect()
 
         if result is None:
-            raise RuntimeError(
-                "Claude Agent SDK did not return ResultMessage — check `claude login`."
-            )
+            raise RuntimeError("Claude Agent SDK did not return ResultMessage — check `claude login`.")
         if result.is_error:
             raise RuntimeError(f"Claude Agent SDK returned error: {result.subtype}")
 
@@ -226,11 +223,14 @@ class ClaudeAgentSDKJudge:
 class KimiJudge:
     """Kimi evaluator via Moonshot's OpenAI-compatible Chat Completions API."""
 
-    _API_URL = "https://api.moonshot.ai/v1/chat/completions"
+    _DEFAULT_API_URL = "https://api.moonshot.ai/v1/chat/completions"
 
     def __init__(self, model: str | None = None, api_key: str | None = None) -> None:
         self.model = model or settings.kimi_model
         self.api_key = api_key or settings.moonshot_api_key
+        # Переопределяется, если ключ выдан прокси/агрегатором (как ANTHROPIC_BASE_URL
+        # у live-agent): официальные ключи .ai/.cn между собой несовместимы.
+        self.api_url = settings.kimi_base_url or self._DEFAULT_API_URL
 
     async def judge(self, question: QuestionToScore) -> QuestionJudgment:
         if not self.api_key:
@@ -255,7 +255,7 @@ class KimiJudge:
         }
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
-                self._API_URL,
+                self.api_url,
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json=payload,
             )
@@ -281,6 +281,5 @@ def get_judge() -> LLMJudge:
             return DummyGPTJudge()
         case provider:
             raise ValueError(
-                f"Unsupported EVALUATION_LLM_PROVIDER={provider!r}. "
-                "Use 'claude', 'kimi', or 'dummygpt'."
+                f"Unsupported EVALUATION_LLM_PROVIDER={provider!r}. Use 'claude', 'kimi', or 'dummygpt'."
             )

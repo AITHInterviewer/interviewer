@@ -15,6 +15,20 @@ services:
       timeout: 5s
       retries: 12
 
+  redis:
+    # LiveEventConsumer (app/services/live_event_consumer.py) читает события live-agent
+    # из Redis Stream — с evaluation-контуром это runtime-зависимость backend'а, не только
+    # celery. Без сервиса бэкенд не падает, но каждую секунду логает retry и
+    # completed-интервью не доезжают до evaluation_job.
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   minio:
     # Resume upload (backend/app/services/storage.py) needs a real S3-compatible store even
     # in the lightweight dev baseline — it's a real feature now, not experimental, and
@@ -60,6 +74,8 @@ services:
       - ${CLAUDE_CONFIG_DIR:-~/.claude}:/root/.claude:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       minio:
         condition: service_healthy

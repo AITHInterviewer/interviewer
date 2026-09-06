@@ -87,5 +87,9 @@ class EvaluationJobService:
         interview = await self.session.get(Interview, job.interview_id)
         if interview is not None:
             interview.status = interview_status
+            if interview_status == "processing_failed":
+                # Дедицированного product_state для провала нет (см. frontend/lib/pipeline.ts) —
+                # честнее «Ответы отправлены», чем вечное «Готовим отчёт».
+                interview.product_state = "submitted"
 
         await self.session.commit()

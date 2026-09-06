@@ -37,6 +37,18 @@ def _difficulty(value: str) -> Difficulty:
         return Difficulty.BASELINE
 
 
+def _report_model_version() -> str:
+    """Реальная версия модели в отчёте: у каждого провайдера своё поле, иначе отчёт
+    фактически от Kimi отображался бы как Claude (settings.llm_model)."""
+    match settings.evaluation_llm_provider:
+        case "kimi":
+            return settings.kimi_model
+        case "dummygpt":
+            return "dummygpt"
+        case _:
+            return settings.llm_model
+
+
 def _build_summary(
     verdict_value: str,
     skill_verdicts: list,
@@ -113,8 +125,7 @@ async def process_job(
                     "question_id": question["question_id"],
                     "skill_scores": [score.model_dump(mode="json") for score in judgment.skill_scores],
                     "quotes": [
-                        {"text": quote, "question_id": question["question_id"]}
-                        for quote in judgment.quotes
+                        {"text": quote, "question_id": question["question_id"]} for quote in judgment.quotes
                     ],
                     "confidence": judgment.confidence,
                     "answered_with_hint": question.get("answered_with_hint", False),
@@ -159,16 +170,14 @@ async def process_job(
             "risks": [f"Не подтверждён навык: {tag}" for tag in unconfirmed],
             "summary_intro": summary_intro,
             "summary_conclusion": summary_conclusion,
-            "model_version": settings.llm_model,
+            "model_version": _report_model_version(),
             "prompt_version": settings.prompt_version,
             "generated_at": datetime.now(UTC).isoformat(),
         }
 
         await backend.post_evaluation(interview_id, payload)
         await backend.complete_evaluation_job(job_id)
-        logger.info(
-            "Evaluation completed for interview %s (verdict=%s)", interview_id, verdict_value.value
-        )
+        logger.info("Evaluation completed for interview %s (verdict=%s)", interview_id, verdict_value.value)
     except Exception:
         logger.exception("Job %s failed", job_id)
         try:
@@ -195,9 +204,7 @@ async def run_worker() -> None:
 
     async with BackendClient() as backend:
         judge = get_judge()
-        logger.info(
-            "Worker started. Polling backend every %s seconds.", settings.poll_interval_seconds
-        )
+        logger.info("Worker started. Polling backend every %s seconds.", settings.poll_interval_seconds)
 
         while not stop_event.is_set():
             job: dict[str, Any] | None = None

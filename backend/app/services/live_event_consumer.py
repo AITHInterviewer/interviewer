@@ -78,7 +78,12 @@ class LiveEventConsumer:
                 logger.exception("Could not resume pending live events; retrying")
                 await asyncio.sleep(1)
                 continue
-            if not pending:
+            # redis-py возвращает [(stream, [])] — список со стримом и ПУСТЫМ списком
+            # сообщений, а не пустой список/None: `if not pending` здесь никогда не
+            # срабатывает, консьюмер бесконечно крутит resume-цикл и НИКОГДА не доходит
+            # до основного чтения ">" (найдено вживую 2026-09-06: lag рос, события не
+            # консьюмировались, ошибок в логах нет — cmd=xreadgroup с idle=0 в CLIENT LIST).
+            if not pending or all(not messages for _stream, messages in pending):
                 break
             for _stream, messages in pending:
                 for entry_id, fields in messages:
@@ -92,6 +97,10 @@ class LiveEventConsumer:
                     count=10,
                     block=1000,
                 )
+                # По таймауту block redis-py возвращает None, а не пустой список —
+                # итерироваться по нему нельзя.
+                if not entries:
+                    continue
                 for _stream, messages in entries:
                     for entry_id, fields in messages:
                         await self.process_entry(entry_id, fields)

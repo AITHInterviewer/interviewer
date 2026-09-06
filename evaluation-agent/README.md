@@ -44,6 +44,10 @@ ruff check src/ tests/
 
 - `claude` — значение по умолчанию; использует Claude Agent SDK и `LLM_MODEL`.
 - `kimi` — использует Moonshot API с `MOONSHOT_API_KEY` и `KIMI_MODEL` (по умолчанию `kimi-k2.6`).
+  Ключи официальных платформ .ai/.cn между собой НЕ взаимозаменяемы, а ключи Kimi for Coding
+  (консоль kimi.ai/code) вообще не принимает официальный api.moonshot.ai — им нужен
+  `KIMI_BASE_URL=https://api.kimi.com/coding/v1/chat/completions` и `KIMI_MODEL=kimi-for-coding`
+  (проверено 2026-09-06; доступные модели на KFC: `kimi-for-coding`, `kimi-for-coding-highspeed`, `k3`).
 - `dummygpt` — всегда создаёт детерминированный mock review по эталону и транскрипту; API-ключ не нужен.
 
 Для Docker Compose используйте `BACKEND_URL=http://backend:8000`; при локальном запуске
