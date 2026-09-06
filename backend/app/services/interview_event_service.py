@@ -30,6 +30,7 @@ from app.models.interview_event import InterviewEvent
 from app.models.question import Question
 from app.models.vacancy import Vacancy
 from app.services.evaluation_service import EvaluationError, EvaluationService
+from app.services.livekit_egress import EgressError, stop_recording
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,12 @@ class InterviewEventService:
         interview.status = "completed"
         interview.product_state = "report_processing"
         await self.session.commit()
+
+        if interview.recording_egress_id is not None:
+            try:
+                await stop_recording(interview.recording_egress_id)
+            except EgressError:
+                logger.exception("livekit_egress: не удалось остановить запись интервью %s", interview_id)
 
         vacancy = await self.session.get(Vacancy, interview.vacancy_id)
         if vacancy is None:

@@ -290,6 +290,14 @@ export default function VacancyCandidatePage() {
             {error ? <p className="form-error">{error}</p> : null}
             {status ? <p className="success-message">{status}</p> : null}
 
+            {interview.recording_url && !processing ? (
+              <section className="interview-recording">
+                <h2>Запись интервью</h2>
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption -- расшифровка уже есть текстом ниже, отдельных субтитров к видео нет */}
+                <video controls src={interview.recording_url} />
+              </section>
+            ) : null}
+
             <section className="report-summary">
               <div>
                 <h2>

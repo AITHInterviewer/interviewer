@@ -298,6 +298,7 @@ export type Interview = {
   created_at: string;
   product_state?: InterviewProductState;
   report_json?: InterviewReport | null;
+  recording_url?: string | null;
   recruiter_decision?: RecruiterDecision;
   rubric_version_id?: string | null;
 };

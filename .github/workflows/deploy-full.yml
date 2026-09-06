@@ -184,6 +184,8 @@ jobs:
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret
           LIVEKIT_WS_URL=wss://ainterviewer.duckdns.org:12345
+          LIVEKIT_API_URL=ws://livekit-server:7880
+          RECORDINGS_S3_BUCKET=ainterviewer-recordings
           PUBLIC_FRONTEND_URL=https://ainterviewer.duckdns.org:12345
           OPENROUTER_MODEL=minimax/minimax-m3:free
           '@

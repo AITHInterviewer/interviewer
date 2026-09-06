@@ -18,6 +18,7 @@ class InterviewResponse(BaseModel):
     completed_at: datetime | None
     product_state: str = "invited"
     report_json: dict | None = None
+    recording_url: str | None = None
     recruiter_decision: str = "awaiting"
     rubric_version_id: UUID | None = None
 

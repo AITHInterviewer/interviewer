@@ -627,6 +627,10 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .skeleton-table .skeleton-row:first-child { border-top: 0; }
 .skeleton-text { display: grid; gap: 10px; padding: 18px 0; }
 
+.interview-recording { display: grid; gap: 10px; }
+.interview-recording h2 { margin: 0; }
+.interview-recording video { width: 100%; max-height: 480px; border-radius: var(--radius-panel); background: #000; }
+
 /* Отчёт: сводка наблюдений и карта требований */
 .report-summary { display: grid; gap: 18px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); }
 .report-summary h2 { margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }

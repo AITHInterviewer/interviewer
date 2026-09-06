@@ -45,6 +45,8 @@ class Interview(Base):
         ForeignKey("rubric_version.id"), nullable=True
     )
     report_json: Mapped[dict | None] = mapped_column(_jsonb, nullable=True)
+    recording_egress_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recording_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     recruiter_decision: Mapped[str] = mapped_column(
         Text, nullable=False, default="awaiting", server_default="awaiting"
     )

@@ -7,9 +7,10 @@
 
 ✅ `docker compose config` проходит без ошибок из корня репозитория (реально
 проверено — нашла и починила там же реальную YAML-опечатку в `LIVEKIT_KEYS`).
-⚠️ `livekit-egress-config.yaml` создан по документации LiveKit, ни разу не проверялся
-вживую (нет реальной WebRTC-комнаты с записью в этом проекте на момент написания).
-Бакет `ainterviewer-recordings` в MinIO конфиг не создаёт сам — см. TODO в файле.
+✅ `livekit-egress-config.yaml` теперь реально триггерится: `backend/app/services/livekit_egress.py`
+запускает Room Composite Egress при первом LiveKit-токене кандидата и останавливает его на
+`interview_completed` (см. `interview_event_service.py`). Бакет `ainterviewer-recordings`
+создаётся сам при первом запуске записи (`_ensure_recordings_bucket_sync`), руками не нужно.
 
 ## Что внутри
 

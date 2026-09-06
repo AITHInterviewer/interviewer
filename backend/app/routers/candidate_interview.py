@@ -5,14 +5,19 @@ WS control-канал — `interview_ws.py`; answer-upload — не реализ
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.services.interview_repository import build_consent_info, get_interview_by_access_token
+from app.services.livekit_egress import EgressError, recording_public_url, start_recording
 from app.services.livekit_tokens import LiveKitTokenResponse, issue_candidate_token
 from app.services.pilot_service import PilotError, PilotService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["candidate-interview"])
 
@@ -94,4 +99,17 @@ async def get_livekit_token(
         raise HTTPException(status_code=404, detail="interview not found")
     if interview.status == "completed":
         raise HTTPException(status_code=409, detail="interview already completed")
+
+    # Запись комнаты запускаем один раз, при первой выдаче токена (кандидат может
+    # переподключаться в рамках одного интервью — повторный старт egress не нужен).
+    if interview.recording_egress_id is None:
+        try:
+            egress_id = await start_recording(str(interview.id))
+        except EgressError:
+            logger.exception("livekit_egress: не удалось запустить запись интервью %s", interview.id)
+        else:
+            interview.recording_egress_id = egress_id
+            interview.recording_url = recording_public_url(str(interview.id))
+            await session.commit()
+
     return issue_candidate_token(str(interview.id))

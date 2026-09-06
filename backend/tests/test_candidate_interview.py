@@ -3,7 +3,19 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
+from app.routers import candidate_interview as candidate_interview_router
 from tests.conftest import seed_demo_interview
+
+
+@pytest.fixture(autouse=True)
+def _fake_start_recording(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LiveKit Egress недоступен в тестах — реальный сетевой вызов не нужен, эндпоинт
+    и так переживает EgressError (см. candidate_interview.py), но не должен бить по сети."""
+
+    async def fake_start_recording(interview_id: str) -> str:
+        return "fake-egress-id"
+
+    monkeypatch.setattr(candidate_interview_router, "start_recording", fake_start_recording)
 
 
 @pytest.mark.anyio

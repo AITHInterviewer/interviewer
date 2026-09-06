@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     s3_bucket: str = "interviews"
     s3_region: str = "us-east-1"
 
+    # Отдельный бакет под запись интервью (LiveKit Egress, см. livekit_egress.py) — тот же
+    # MinIO/креды, что s3_*, но другой бакет (infra/livekit-egress-config.yaml).
+    recordings_s3_bucket: str = "ainterviewer-recordings"
+
     # Media
     media_chunk_duration_seconds: int = Field(default=10, gt=0)
     max_upload_size_mb: int = Field(default=100, gt=0)
@@ -68,6 +72,12 @@ class Settings(BaseSettings):
     livekit_api_key: str = "devkey"
     livekit_api_secret: str = "secret"
     livekit_ws_url: str = "ws://localhost:3907"
+
+    # URL, по которому backend сам (сервер-сервер, не кандидатский браузер) обращается к
+    # LiveKit API (Egress и т.п.) — в деплое это internal docker-имя livekit-server, не
+    # публичный livekit_ws_url (тот идёт через nginx/TLS для браузера). ws:// тут ок:
+    # livekit-api сам нормализует ws->http/wss->https (см. twirp_client.py).
+    livekit_api_url: str = "ws://localhost:3907"
 
     # Публичный URL фронтенда — используется для сборки кандидатской ссылки
     # (`{public_frontend_url}/interview/{access_token}`, см. `interview_admin_service.py`),

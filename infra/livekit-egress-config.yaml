@@ -1,5 +1,7 @@
-# Конфиг livekit-egress — dev-заготовка, НЕ проверен вживую (см. предупреждение в
-# infra/README.md и docker-compose.yml). Собран по официальной документации LiveKit:
+# Конфиг livekit-egress. Триггерится теперь реально: `backend/app/services/livekit_egress.py`
+# вызывает Room Composite Egress API при выдаче первого LiveKit-токена кандидату (см.
+# `candidate_interview.py`) и останавливает запись на `interview_completed` (см.
+# `interview_event_service.py`). Собран по официальной документации LiveKit:
 # https://docs.livekit.io/home/egress/overview/
 #
 # api_key/api_secret совпадают с dev-ключами livekit-server (LIVEKIT_KEYS=devkey: secret).
@@ -19,5 +21,6 @@ s3:
   force_path_style: true
   region: us-east-1
 
-# TODO: bucket ainterviewer-recordings нужно создать в MinIO при первом поднятии
-# инфраструктуры (mc mb или через консоль на :9001) — автосоздания в этом конфиге нет.
+# Бакет ainterviewer-recordings создавать руками не нужно — livekit_egress.py сам делает
+# head_bucket/create_bucket перед стартом записи (тот же паттерн, что storage.py::upload_resume
+# для бакета резюме), т.к. ни egress, ни этот конфиг сами бакет не создают.
