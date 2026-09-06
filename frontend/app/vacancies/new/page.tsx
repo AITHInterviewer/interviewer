@@ -165,6 +165,10 @@ export default function NewVacancyPage() {
 
   async function handleSendToExpert() {
     setError(null);
+    if (!title.trim()) {
+      setError("Укажите название вакансии — подсказка: его можно взять из заголовка описания.");
+      return;
+    }
     const unnamed = requirements.some((item) => item.checked && !item.name.trim());
     if (unnamed) {
       setError("У проверяемого требования пустое название — заполните или снимите галочку.");
