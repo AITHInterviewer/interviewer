@@ -644,6 +644,24 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .report-narrative dd { margin: 0; }
 .skill-verdict { margin-top: 10px; display: grid; gap: 6px; }
 .skill-verdict ul { margin: 0; padding: 0 0 0 18px; display: grid; gap: 4px; }
+.skill-verdict p { margin: 0; }
+
+/* «Насколько хорошо ответил»: балл 1-5 крупной плашкой в тон вердикта */
+.score-chip { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: var(--radius-pill); font-size: var(--text-meta); font-weight: 600; font-variant-numeric: tabular-nums; border: 1px solid var(--border-strong); color: var(--ink-secondary); }
+.score-chip[data-tone="positive"] { border-color: var(--positive); background: var(--positive-soft); color: var(--positive); }
+.score-chip[data-tone="warning"] { border-color: var(--warning); background: var(--warning-soft); color: var(--warning); }
+.score-chip[data-tone="danger"] { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+
+.score-tally { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.score-tally li { display: inline-flex; align-items: baseline; gap: 5px; padding: 4px 10px; border-radius: var(--radius-pill); font-size: var(--text-meta); border: 1px solid var(--border-strong); color: var(--ink-tertiary); }
+.score-tally li strong { font-size: var(--text-body); }
+.score-tally li[data-tone="positive"] { border-color: var(--positive); background: var(--positive-soft); color: var(--positive); }
+.score-tally li[data-tone="warning"] { border-color: var(--warning); background: var(--warning-soft); color: var(--warning); }
+.score-tally li[data-tone="danger"] { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+
+.requirement-row__verdict { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.question-score { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.question-score p { flex-basis: 100%; margin: 0; }
 
 /* Отчёт: сводка наблюдений и карта требований */
 .report-summary { display: grid; gap: 18px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); }

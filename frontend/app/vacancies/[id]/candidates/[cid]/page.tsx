@@ -37,9 +37,13 @@ import {
   buildRequirementMap,
   CONCLUSION_LABEL,
   COVERAGE_LABEL,
+  DIFFICULTY_LABEL,
   isReportProcessing,
   mandatorySummary,
   requirementConclusion,
+  requiredSkillTally,
+  SCORE_ANCHOR,
+  skillVerdictFor,
   uncoveredRequirements,
   type RequirementCoverage,
 } from "@/lib/report";
@@ -74,9 +78,9 @@ const VERDICT_LABEL: Record<"fits" | "not_fits" | "needs_review", string> = {
 };
 
 function verdictTone(verdict: "fits" | "not_fits" | "needs_review"): StatusTone {
-  if (verdict === "fits") return "neutral";
-  if (verdict === "not_fits") return "insufficient";
-  return "unchecked";
+  if (verdict === "fits") return "positive";
+  if (verdict === "not_fits") return "danger";
+  return "warning";
 }
 
 const SKILL_CLASS_LABEL: Record<SkillClass, string> = {
@@ -87,8 +91,9 @@ const SKILL_CLASS_LABEL: Record<SkillClass, string> = {
 };
 
 function skillClassTone(skillClass: SkillClass): StatusTone {
-  if (skillClass === "pass") return "neutral";
-  if (skillClass === "fail") return "insufficient";
+  if (skillClass === "pass") return "positive";
+  if (skillClass === "fail") return "danger";
+  if (skillClass === "ambiguous") return "warning";
   return "unchecked";
 }
 
@@ -348,6 +353,30 @@ export default function VacancyCandidatePage() {
                     ? "Интервью завершено, отчёт собирается"
                     : `Это разбор ответов системой, а не решение о найме. ${reportLabel(interview)}`}
                 </p>
+                {!processing && interview.report_json ? (
+                  (() => {
+                    const tally = requiredSkillTally(interview.report_json);
+                    if (tally.total === 0) return null;
+                    return (
+                      <ul className="score-tally">
+                        <li data-tone="positive">
+                          <strong>{tally.pass}</strong> подтверждено
+                        </li>
+                        <li data-tone="warning">
+                          <strong>{tally.ambiguous}</strong> требует проверки
+                        </li>
+                        <li data-tone="danger">
+                          <strong>{tally.fail}</strong> не подтверждено
+                        </li>
+                        {tally.untested > 0 ? (
+                          <li data-tone="neutral">
+                            <strong>{tally.untested}</strong> не проверено
+                          </li>
+                        ) : null}
+                      </ul>
+                    );
+                  })()
+                ) : null}
                 {!processing && interview.report_json && interview.report_json.verdict_reasoning.length > 0 ? (
                   <ul className="verdict-reasoning">
                     {interview.report_json.verdict_reasoning.map((line, index) => (
@@ -403,6 +432,15 @@ export default function VacancyCandidatePage() {
                     <dt>Не закрыл ни один вопрос</dt>
                     <dd>{uncovered.length === 0 ? "таких требований нет" : uncovered.map((row) => row.skill).join(", ")}</dd>
                   </div>
+                  {interview.report_json ? (
+                    <div>
+                      <dt>Отчёт сформирован</dt>
+                      <dd>
+                        {new Date(interview.report_json.generated_at).toLocaleString("ru-RU")}
+                        <span className="muted-copy"> · модель {interview.report_json.model}</span>
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
               )}
             </section>
@@ -457,7 +495,28 @@ export default function VacancyCandidatePage() {
                             : " · вопроса нет"}
                         </span>
                       </span>
-                      <StatusPill tone={coverageTone(row.coverage)}>{COVERAGE_LABEL[row.coverage]}</StatusPill>
+                      {(() => {
+                        const sv = processing ? null : skillVerdictFor(interview.report_json, row.skill);
+                        if (!sv) {
+                          return (
+                            <StatusPill tone={coverageTone(row.coverage)}>
+                              {COVERAGE_LABEL[row.coverage]}
+                            </StatusPill>
+                          );
+                        }
+                        return (
+                          <span className="requirement-row__verdict">
+                            {sv.effective_score ? (
+                              <span className="score-chip" data-tone={skillClassTone(sv.skill_class)}>
+                                {sv.effective_score}/5
+                              </span>
+                            ) : null}
+                            <StatusPill tone={skillClassTone(sv.skill_class)}>
+                              {SKILL_CLASS_LABEL[sv.skill_class]}
+                            </StatusPill>
+                          </span>
+                        );
+                      })()}
                     </button>
                   ))
                 )}
@@ -488,6 +547,12 @@ export default function VacancyCandidatePage() {
                               {SKILL_CLASS_LABEL[sv.skill_class]}
                               {sv.mastery_level ? ` · ${MASTERY_LABEL[sv.mastery_level]}` : ""}
                             </StatusPill>
+                            {sv.effective_score ? (
+                              <p className="muted-copy">
+                                Балл за навык: {sv.effective_score}/5 — {SCORE_ANCHOR[sv.effective_score as 1 | 2 | 3 | 4 | 5]}.
+                                {sv.stretch_bonus ? " Справился и с вопросом со звёздочкой." : ""}
+                              </p>
+                            ) : null}
                             {sv.reasoning.length > 0 ? (
                               <ul>
                                 {sv.reasoning.map((line, index) => (
@@ -519,11 +584,16 @@ export default function VacancyCandidatePage() {
                             );
                             if (!scored) return null;
                             return (
-                              <p className="muted-copy">
-                                Оценка модели: {scored.score}/5
-                                {scored.answered_with_hint ? " (с подсказкой)" : ""}
-                                {scored.rationale ? ` — ${scored.rationale}` : ""}
-                              </p>
+                              <div className="question-score">
+                                <span className="score-chip" data-tone={scored.score >= 3 ? "positive" : scored.score === 2 ? "warning" : "danger"}>
+                                  {scored.score}/5
+                                </span>
+                                <span className="muted-copy">
+                                  {SCORE_ANCHOR[scored.score as 1 | 2 | 3 | 4 | 5]} · {DIFFICULTY_LABEL[scored.difficulty]}
+                                  {scored.answered_with_hint ? " · отвечал с подсказкой" : ""}
+                                </span>
+                                {scored.rationale ? <p className="muted-copy">{scored.rationale}</p> : null}
+                              </div>
                             );
                           })()}
                         </div>

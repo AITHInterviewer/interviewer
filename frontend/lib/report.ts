@@ -1,4 +1,11 @@
-import type { Interview, InterviewAnswer, Question, VacancyDetail } from "@/lib/api";
+import type {
+  Interview,
+  InterviewAnswer,
+  InterviewReport,
+  Question,
+  QuestionDifficulty,
+  VacancyDetail,
+} from "@/lib/api";
 
 /**
  * Наличие ответа по требованию — это сбор данных, не вердикт по навыку.
@@ -128,4 +135,47 @@ export function uncoveredRequirements(rows: RequirementRow[]): RequirementRow[] 
 /** Отчёт ещё собирается: цифры покрытия нельзя читать как итоговый пробел. */
 export function isReportProcessing(interview: Pick<Interview, "product_state">): boolean {
   return interview.product_state === "report_processing";
+}
+
+/**
+ * Якоря шкалы 1-5 (см. backend/app/prompts/evaluation_answer_score.txt) — короткие
+ * подписи для интерфейса. «Как хорошо ответил» показываем этими словами, не голым числом.
+ */
+export const SCORE_ANCHOR: Record<1 | 2 | 3 | 4 | 5, string> = {
+  1: "не раскрыл",
+  2: "упустил важное",
+  3: "ответил как ожидалось",
+  4: "чуть глубже эталона",
+  5: "глубокое понимание",
+};
+
+export const DIFFICULTY_LABEL: Record<QuestionDifficulty, string> = {
+  baseline: "базовый вопрос",
+  stretch: "вопрос со звёздочкой",
+};
+
+/** Разбор по навыку из report_json для строки требования. */
+export function skillVerdictFor(report: InterviewReport | null | undefined, skill: string) {
+  const needle = skill.trim().toLowerCase();
+  return report?.skill_verdicts.find((row) => row.skill_tag.trim().toLowerCase() === needle) ?? null;
+}
+
+/**
+ * Свод по обязательным навыкам: сколько подтверждено / требует проверки / не подтверждено.
+ * Это и есть ответ на «насколько хорошо кандидат ответил», одной строкой.
+ */
+export function requiredSkillTally(report: InterviewReport | null | undefined): {
+  pass: number;
+  ambiguous: number;
+  fail: number;
+  untested: number;
+  total: number;
+} {
+  const tally = { pass: 0, ambiguous: 0, fail: 0, untested: 0, total: 0 };
+  for (const verdict of report?.skill_verdicts ?? []) {
+    if (!verdict.required) continue;
+    tally.total += 1;
+    tally[verdict.skill_class] += 1;
+  }
+  return tally;
 }

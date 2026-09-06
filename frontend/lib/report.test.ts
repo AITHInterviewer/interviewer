@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { InterviewAnswer, Question } from "@/lib/api";
+import type { InterviewAnswer, InterviewReport, Question } from "@/lib/api";
 import {
   buildRequirementMap,
   isReportProcessing,
   mandatorySummary,
+  requiredSkillTally,
   requirementConclusion,
+  skillVerdictFor,
   uncoveredRequirements,
 } from "@/lib/report";
 
@@ -99,6 +101,53 @@ describe("requirementConclusion", () => {
     expect(requirementConclusion(rows[0])).toBe("unavailable");
     expect(requirementConclusion(rows[0], undefined)).toBe("unavailable");
     expect(requirementConclusion(rows[0], {})).toBe("unavailable");
+  });
+});
+
+function report(skillVerdicts: InterviewReport["skill_verdicts"]): InterviewReport {
+  return {
+    generated_at: "2026-09-06T10:00:00Z",
+    model: "test/model",
+    verdict: "needs_review",
+    verdict_reasoning: [],
+    skill_verdicts: skillVerdicts,
+    per_question: [],
+    summary: "",
+    strengths: "",
+    weaknesses: "",
+  };
+}
+
+function verdict(
+  skill_tag: string,
+  skill_class: InterviewReport["skill_verdicts"][number]["skill_class"],
+  required: boolean,
+): InterviewReport["skill_verdicts"][number] {
+  return { skill_tag, required, skill_class, effective_score: 3, stretch_bonus: false, reasoning: [], mastery_level: 2 };
+}
+
+describe("requiredSkillTally", () => {
+  it("считает только обязательные навыки по классам", () => {
+    const data = report([
+      verdict("Python", "pass", true),
+      verdict("SQL", "ambiguous", true),
+      verdict("Celery", "untested", true),
+      verdict("Docker", "fail", false),
+    ]);
+    expect(requiredSkillTally(data)).toEqual({ pass: 1, ambiguous: 1, fail: 0, untested: 1, total: 3 });
+  });
+
+  it("без отчёта — нули", () => {
+    expect(requiredSkillTally(null)).toEqual({ pass: 0, ambiguous: 0, fail: 0, untested: 0, total: 0 });
+  });
+});
+
+describe("skillVerdictFor", () => {
+  it("находит навык без учёта регистра и пробелов", () => {
+    const data = report([verdict("Python", "pass", true)]);
+    expect(skillVerdictFor(data, " python ")?.skill_class).toBe("pass");
+    expect(skillVerdictFor(data, "Go")).toBeNull();
+    expect(skillVerdictFor(null, "Python")).toBeNull();
   });
 });
 
