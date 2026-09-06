@@ -286,16 +286,47 @@ jobs:
         run: |
           $env:TLS_DOMAIN = "ainterviewer.duckdns.org"
           docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml run --rm acme
-          if ($LASTEXITCODE -ne 0) {
-            if ((Test-Path infra/tls/fullchain.pem) -and (Test-Path infra/tls/domain.key)) {
-              Write-Output "WARNING: acme.sh failed (see log above, e.g. rate limit) - continuing with the existing cert already on disk"
+          $acmeOk = ($LASTEXITCODE -eq 0)
+
+          function Get-CertIssuer([string]$RelPath) {
+            if (-not (Test-Path $RelPath)) { return "" }
+            $tlsPath = (Resolve-Path infra/tls).Path
+            $inside = ($RelPath -replace '\\', '/')
+            if ($inside.StartsWith("infra/tls/")) { $inside = $inside.Substring("infra/tls/".Length) }
+            docker run --rm -v "${tlsPath}:/out" alpine/openssl x509 -in "/out/$inside" -noout -issuer 2>$null
+          }
+
+          if (-not $acmeOk) {
+            $domain = $env:TLS_DOMAIN
+            $leCandidates = @(
+              @{ Full = "infra/tls/${domain}_ecc/fullchain.cer"; Key = "infra/tls/${domain}_ecc/${domain}.key" },
+              @{ Full = "infra/tls/${domain}/fullchain.cer"; Key = "infra/tls/${domain}/${domain}.key" }
+            )
+            foreach ($item in $leCandidates) {
+              $issuer = Get-CertIssuer $item.Full
+              if ($issuer -match "Let's Encrypt") {
+                Copy-Item $item.Full "infra/tls/fullchain.pem" -Force
+                Copy-Item $item.Key "infra/tls/domain.key" -Force
+                Write-Output "Reinstalled Let's Encrypt cert from $($item.Full) after acme --issue failed (rate limit). Issuer: $issuer"
+                $acmeOk = $true
+                break
+              }
+            }
+          }
+
+          if (-not $acmeOk) {
+            $diskIssuer = Get-CertIssuer "infra/tls/fullchain.pem"
+            if ($diskIssuer -match "Let's Encrypt") {
+              Write-Output "Keeping existing Let's Encrypt cert on disk. Issuer: $diskIssuer"
+            } elseif ((Test-Path infra/tls/fullchain.pem) -and (Test-Path infra/tls/domain.key)) {
+              Write-Output "WARNING: acme.sh failed and the cert on disk is not Let's Encrypt ($diskIssuer). Browsers will warn until a successful Let's Encrypt run. Rate limit retry after 2026-09-07 04:19 UTC."
             } else {
               # Реальный инцидент (2026-09-05): попали в rate limit Let's Encrypt (5
               # certs/168h) как раз когда infra/tls был пуст (см. фикс checkout clean: false
               # выше — до него git clean стирал сертификат на каждом прогоне). Без файла на
               # диске nginx/livekit-server вообще не стартуют (не 502 на один location, а
               # падение всего контейнера) — весь сайт лежит до истечения rate limit (может
-              # быть больше суток).Self-signed — временный аварийный fallback ТОЛЬКО чтобы
+              # быть больше суток). Self-signed — временный аварийный fallback ТОЛЬКО чтобы
               # сайт не лежал: браузер покажет предупреждение о недоверенном сертификате
               # (кандидату придётся один раз кликнуть "продолжить"), TURN/TLS с ним не
               # заработает (см. коммит с self-signed TURN — браузеры валидируют его строже).
