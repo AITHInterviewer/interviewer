@@ -170,26 +170,26 @@ describe("skillVerdictFor", () => {
     expect(skillVerdictFor(null, "Python")).toBeNull();
   });
 
-  it("отдаёт лучший балл и обоснования в формате «Вопрос N (score/100)»", () => {
+  it("отдаёт лучший уровень и обоснования в формате «Вопрос N (уровень/3)»", () => {
     const data = report({
       confirmed: ["Python"],
       skillScores: [
-        { skill_tag: "Python", score: 88, rationale: "event loop" },
-        { skill_tag: "Python", score: 95, rationale: "процесс-пул" },
+        { skill_tag: "Python", score: 2, rationale: "event loop" },
+        { skill_tag: "Python", score: 3, rationale: "процесс-пул" },
       ],
     });
     const sv = skillVerdictFor(data, "Python", [{ id: "q1", order: 2 }]);
     expect(sv?.skill_class).toBe("pass");
-    expect(sv?.best_score).toBe(95);
+    expect(sv?.best_score).toBe(3);
     expect(sv?.reasoning_lines).toEqual([
-      "Вопрос 2 (88/100): event loop",
-      "Вопрос 2 (95/100): процесс-пул",
+      "Вопрос 2 (2/3): event loop",
+      "Вопрос 2 (3/3): процесс-пул",
     ]);
   });
 
   it("без списка вопросов обходится без номера", () => {
-    const data = report({ skillScores: [{ skill_tag: "Python", score: 70, rationale: "ок" }] });
-    expect(skillVerdictFor(data, "Python")?.reasoning_lines).toEqual(["70/100: ок"]);
+    const data = report({ skillScores: [{ skill_tag: "Python", score: 2, rationale: "ок" }] });
+    expect(skillVerdictFor(data, "Python")?.reasoning_lines).toEqual(["2/3: ок"]);
   });
 });
 

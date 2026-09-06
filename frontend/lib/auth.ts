@@ -20,6 +20,7 @@ import {
   getInterviewEvents,
   reevaluateInterview,
   getManagerCandidate,
+  returnManagerCandidate,
   getVacancy,
   grantManagerOpinion,
   handoffToManager,
@@ -421,6 +422,10 @@ export async function loadManagerCandidates() {
 
 export async function loadManagerCandidate(interviewId: string) {
   return getManagerCandidate(requireToken(), interviewId);
+}
+
+export async function returnManagedCandidate(interviewId: string) {
+  return returnManagerCandidate(requireToken(), interviewId);
 }
 
 export async function loadExpertQueue() {

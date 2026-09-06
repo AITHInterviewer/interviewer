@@ -264,7 +264,7 @@ export type SkillClass = "fail" | "ambiguous" | "pass" | "untested";
 
 export type SkillScoreEntry = {
   skill_tag: string;
-  score: number; // 0-100
+  score: number; // 0-3
   rationale: string;
 };
 
@@ -284,6 +284,11 @@ export type InterviewReport = {
   prompt_version: string | null;
   verdict: "fits" | "not_fits" | "needs_review";
   overall_score: number | null; // 0-100
+  question_score?: number | null;
+  skill_score?: number | null;
+  max_score?: number | null;
+  score_percent?: number | null;
+  skill_levels?: Array<{ skill_tag: string; level: 0 | 1 | 2 | 3 }>;
   per_question: PerQuestionReport[];
   confirmed_skills: string[];
   unconfirmed_skills: string[];
@@ -553,6 +558,10 @@ export function listManagerCandidates(token: string) {
 
 export function getManagerCandidate(token: string, interviewId: string) {
   return request<ManagerCandidate>(`/api/v1/manager/candidates/${interviewId}`, { token });
+}
+
+export function returnManagerCandidate(token: string, interviewId: string) {
+  return request<Interview>(`/api/v1/manager/candidates/${interviewId}/return`, { method: "POST", token });
 }
 
 export function fetchExpertQueue(token: string) {

@@ -156,6 +156,7 @@ blockquote { margin: 10px 0; padding: 0; border: 0; color: var(--ink); font-size
 .vacancy-info-card__meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--ink-secondary); font-size: var(--text-meta); }
 .vacancy-info-card__body { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
 .vacancy-info-card__description { margin: 0; font-size: var(--text-meta); color: var(--ink-secondary); }
+.vacancy-score-range { color: var(--ink-tertiary); font-size: var(--text-meta); }
 .vacancy-info-card__skills { display: flex; flex-wrap: wrap; align-items: flex-start; align-content: flex-start; gap: 6px; max-width: 320px; }
 @media (max-width: 720px) {
   .vacancy-info-card__body { grid-template-columns: 1fr; }

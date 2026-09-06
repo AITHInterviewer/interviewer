@@ -24,17 +24,9 @@ from typing import Any
 from evaluation_agent.backend_client import BackendClient
 from evaluation_agent.config import settings
 from evaluation_agent.llm_judge import LLMJudge, QuestionToScore, VacancyContext, get_judge
-from evaluation_agent.schema import Difficulty, QuestionScore
-from evaluation_agent.verdict import aggregate_skills, compute_verdict
+from evaluation_agent.scoring import calculate_interview_score
 
 logger = logging.getLogger(__name__)
-
-
-def _difficulty(value: str) -> Difficulty:
-    try:
-        return Difficulty(value)
-    except ValueError:
-        return Difficulty.BASELINE
 
 
 def _report_model_version() -> str:
@@ -95,7 +87,7 @@ async def process_job(
         )
 
         per_question: list[dict[str, Any]] = []
-        question_scores: list[QuestionScore] = []
+        skill_scores_by_question: dict[str, list[tuple[str, int]]] = {}
         contradictions: list[dict[str, Any]] = []
 
         for question in interview_input.get("questions", []):
@@ -134,34 +126,30 @@ async def process_job(
             )
 
             for score in judgment.skill_scores:
-                question_scores.append(
-                    QuestionScore(
-                        skill_tag=score.skill_tag,
-                        score=score.score,
-                        difficulty=_difficulty(question["difficulty"]),
-                        answered_with_hint=question.get("answered_with_hint", False),
-                    )
-                )
-
-        required_skills = set(vacancy_context.required_skills)
-        skill_verdicts = aggregate_skills(question_scores, required_skills)
-        verdict_value = compute_verdict(skill_verdicts, has_contradictions=bool(contradictions))
-
-        confirmed = [v.skill_tag for v in skill_verdicts if v.skill_class.value == "pass"]
-        unconfirmed = [v.skill_tag for v in skill_verdicts if v.skill_class.value != "pass"]
-
-        scored_effective = [v.effective_score for v in skill_verdicts if v.effective_score is not None]
-        overall_score = round(sum(scored_effective) / len(scored_effective)) if scored_effective else None
-
-        summary_intro, summary_conclusion = _build_summary(
-            verdict_value.value,
-            skill_verdicts,
-            interview_input.get("interview", {}).get("candidate_name"),
+                skill_scores_by_question.setdefault(question["question_id"], []).append((score.skill_tag, score.score))
+        score = calculate_interview_score(
+            question_ids=[question["question_id"] for question in interview_input.get("questions", [])],
+            skill_scores_by_question=skill_scores_by_question,
+            required_skills=vacancy_context.required_skills,
+            nice_to_have_skills=vacancy_context.nice_to_have_skills,
+            has_contradictions=bool(contradictions),
         )
+        verdict_value = score.verdict
+
+        confirmed = [item["skill_tag"] for item in score.skill_levels if item["level"] >= 2]
+        unconfirmed = [item["skill_tag"] for item in score.skill_levels if item["level"] < 2]
+        candidate_name = interview_input.get("interview", {}).get("candidate_name") or "Кандидат"
+        summary_intro = f"{candidate_name}: {score.score_percent}% от шкалы вакансии."
+        summary_conclusion = "Итог учитывает ответы на вопросы и взвешенную матрицу навыков."
 
         payload: dict[str, Any] = {
             "per_question": per_question,
-            "overall_score": overall_score,
+            "overall_score": score.score_percent,
+            "question_score": score.question_score,
+            "skill_score": score.skill_score,
+            "max_score": score.max_score,
+            "score_percent": score.score_percent,
+            "skill_levels": score.skill_levels,
             "verdict": verdict_value.value,
             "confirmed_skills": confirmed,
             "unconfirmed_skills": unconfirmed,

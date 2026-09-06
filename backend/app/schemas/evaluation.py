@@ -17,7 +17,7 @@ from app.schemas.interview import InterviewEventResponse, InterviewResponse
 
 class SkillScore(BaseModel):
     skill_tag: str
-    score: int = Field(..., ge=0, le=100)
+    score: int = Field(..., ge=0, le=3)
     rationale: str
 
 
@@ -101,6 +101,11 @@ class EvaluationJobFailRequest(BaseModel):
 class EvaluationCreateRequest(BaseModel):
     per_question: list[PerQuestionEvaluation]
     overall_score: int | None = Field(None, ge=0, le=100)
+    question_score: float | None = Field(None, ge=0)
+    skill_score: float | None = Field(None, ge=0)
+    max_score: float | None = Field(None, ge=0)
+    score_percent: int | None = Field(None, ge=0, le=100)
+    skill_levels: list[dict] = Field(default_factory=list)
     verdict: str
     confirmed_skills: list[str] = Field(default_factory=list)
     unconfirmed_skills: list[str] = Field(default_factory=list)

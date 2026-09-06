@@ -36,7 +36,7 @@ class CloseBody(BaseModel):
 
 class HandoffBody(BaseModel):
     to_manager_id: UUID
-    summary: str = Field(min_length=1)
+    summary: str = ""
 
 
 class OpinionBody(BaseModel):
@@ -193,6 +193,19 @@ async def manager_candidate(
     if match is None:
         raise HTTPException(status_code=404, detail="Candidate not found.")
     return _manager_item(match)
+
+
+@router.post("/manager/candidates/{interview_id}/return")
+async def return_to_recruiter(
+    interview_id: UUID,
+    actor: Annotated[InternalUser, Depends(require_manager)],
+    service: Annotated[PilotService, Depends(get_pilot)],
+) -> dict[str, Any]:
+    try:
+        interview = await service.return_from_manager(interview_id, actor.id)
+    except PilotError as exc:
+        _raise(exc)
+    return InterviewResponse.model_validate(interview).model_dump(mode="json")
 
 
 @router.get("/expert/queue")

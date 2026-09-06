@@ -2,6 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { Check, Copy } from "@phosphor-icons/react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
@@ -10,27 +11,21 @@ import { ScreenState } from "@/components/chrome/ScreenState";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/overlay";
 import type {
-  ClarificationRequest,
   Interview,
   InterviewEventsResponse,
   SkillClass,
   StaffManager,
   VacancyDetail,
 } from "@/lib/api";
-import { ApiError } from "@/lib/api";
 import {
-  closeManagedClarification,
-  grantManagedOpinion,
   handoffManagedInterview,
-  loadClarifications,
   loadHiringManagers,
   loadInterview,
   loadInterviewEvents,
   loadVacancy,
   reevaluateManagedInterview,
-  requestManagedAudit,
-  requestManagedExtra,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { interviewStageLabel } from "@/lib/pipeline";
@@ -40,26 +35,15 @@ import {
   COVERAGE_LABEL,
   DIFFICULTY_LABEL,
   isReportProcessing,
-  mandatorySummary,
   requirementConclusion,
   requiredSkillTally,
   scoreTone,
   skillVerdictFor,
-  uncoveredRequirements,
   type RequirementCoverage,
 } from "@/lib/report";
 import { buildNav, vacancyBreadcrumbs } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
-const OPEN_CLARIFICATION = new Set(["requested", "received", "in_progress"]);
-
-function extraLink(accessToken: string, clarificationId: string): string {
-  if (typeof window === "undefined") {
-    return `/i/${accessToken}/extra/${clarificationId}`;
-  }
-  return `${window.location.origin}/i/${accessToken}/extra/${clarificationId}`;
-}
-
 function reportLabel(interview: Interview): string {
   if (interview.product_state === "report_ready") return "Отчёт готов: решение за вами.";
   return "Отчёт готовится. Обычно это занимает около часа после сдачи.";
@@ -73,15 +57,21 @@ function coverageTone(coverage: RequirementCoverage): StatusTone {
 }
 
 const VERDICT_LABEL: Record<"fits" | "not_fits" | "needs_review", string> = {
-  fits: "Подходит по обязательным навыкам",
-  not_fits: "Не подходит по обязательным навыкам",
-  needs_review: "Нужна доп. проверка",
+  fits: "Проходит",
+  not_fits: "Не проходит",
+  needs_review: "Нуждается в доп. проверке",
 };
 
 function verdictTone(verdict: "fits" | "not_fits" | "needs_review"): StatusTone {
   if (verdict === "fits") return "positive";
   if (verdict === "not_fits") return "danger";
   return "warning";
+}
+
+/** Очковые суммы отчёта — float: целые как есть, дробные до сотых (5.3333… -> 5.33). */
+function formatPoints(value: number | null | undefined): string | null {
+  if (value == null) return null;
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
 const SKILL_CLASS_LABEL: Record<SkillClass, string> = {
@@ -98,6 +88,20 @@ function skillClassTone(skillClass: SkillClass): StatusTone {
   return "unchecked";
 }
 
+function skillLevelTone(level: number): "positive" | "warning" | "danger" {
+  if (level >= 3) return "positive";
+  if (level >= 1) return "warning";
+  return "danger";
+}
+
+function skillLevel(report: Interview["report_json"], skill: string): number | null {
+  return report?.skill_levels?.find((item) => item.skill_tag.trim().toLowerCase() === skill.trim().toLowerCase())?.level ?? null;
+}
+
+function hasSkillMatrix(report: Interview["report_json"]): boolean {
+  return Boolean(report?.skill_levels?.length);
+}
+
 const SECURITY_SIGNAL_LABEL: Record<string, string> = {
   "security:tab_hidden": "Свернул вкладку/окно",
   "security:tab_visible": "Вернулся во вкладку",
@@ -109,14 +113,6 @@ function securitySignalLabel(eventType: string): string {
   return SECURITY_SIGNAL_LABEL[eventType] ?? eventType.replace("security:", "");
 }
 
-/** Статус уточнения словами: коды open/closed в интерфейс не выносим. */
-function clarificationStatusLabel(status: string): string {
-  if (status === "open") return "ждёт ответа";
-  if (status === "closed") return "закрыт";
-  if (status === "answered") return "кандидат ответил";
-  return status;
-}
-
 export default function VacancyCandidatePage() {
   const params = useParams<{ id: string; cid: string }>();
   const { landing, loading } = useProtectedLanding();
@@ -124,37 +120,34 @@ export default function VacancyCandidatePage() {
 
   const [interview, setInterview] = useState<Interview | null>(null);
   const [events, setEvents] = useState<InterviewEventsResponse | null>(null);
-  const [clarifications, setClarifications] = useState<ClarificationRequest[]>([]);
   const [managers, setManagers] = useState<StaffManager[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pageLoading, setPageLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [managerId, setManagerId] = useState("");
-  const [summary, setSummary] = useState("");
-  const [closeReason, setCloseReason] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+  const [finalInviteOpen, setFinalInviteOpen] = useState(false);
+  const [finalInviteCopied, setFinalInviteCopied] = useState(false);
 
   const requirements = useMemo(
     () => (vacancy ? buildRequirementMap(vacancy, vacancy.questions, events?.answers ?? []) : []),
     [events, vacancy],
   );
-  const mandatory = mandatorySummary(requirements);
-  const uncovered = uncoveredRequirements(requirements);
+  // В шкалу входят только оцениваемые вопросы: warmup/closing без skill_tag дают 0 баллов
+  // и в знаменатель не идут (8 из 9, а не 8 из 12).
+  const assessedQuestionCount = useMemo(
+    () => (vacancy?.questions ?? []).filter((question) => question.role === "assessment").length,
+    [vacancy],
+  );
   const selected =
     requirements.find((row) => row.skill === selectedSkill) ?? requirements[0] ?? null;
   const processing = interview ? isReportProcessing(interview) : false;
-  const unansweredMandatory = requirements.filter((row) => row.mandatory && row.coverage !== "answered");
   const securitySignals = useMemo(
     () => (events?.events ?? []).filter((row) => row.event_type.startsWith("security:")),
     [events],
   );
-
-  async function refreshClarifications() {
-    const response = await loadClarifications(params.cid);
-    setClarifications(response.items);
-  }
 
   useEffect(() => {
     if (!landing) {
@@ -169,8 +162,7 @@ export default function VacancyCandidatePage() {
           return;
         }
         setInterview(item);
-        const [clarificationResponse, managerResponse, eventsPayload, vacancyDetail] = await Promise.all([
-          loadClarifications(params.cid),
+        const [managerResponse, eventsPayload, vacancyDetail] = await Promise.all([
           canManage ? loadHiringManagers() : Promise.resolve({ items: [] as StaffManager[] }),
           loadInterviewEvents(params.cid).catch(() => null),
           loadVacancy(params.id).catch(() => null),
@@ -178,7 +170,6 @@ export default function VacancyCandidatePage() {
         if (cancelled) {
           return;
         }
-        setClarifications(clarificationResponse.items);
         setManagers(managerResponse.items);
         setEvents(eventsPayload);
         setVacancy(vacancyDetail);
@@ -199,98 +190,37 @@ export default function VacancyCandidatePage() {
     };
   }, [landing, params.cid, params.id, canManage]);
 
-  const openClarifications = clarifications.filter((item) => OPEN_CLARIFICATION.has(item.status));
-  const handoffBlocked = openClarifications.length > 0;
-  const extras = clarifications.filter((item) => item.type === "extra");
-  const audits = clarifications.filter((item) => item.type === "expert_audit");
-
-  async function handleExtra() {
-    setBusy(true);
-    setError(null);
-    try {
-      const item = await requestManagedExtra(params.cid);
-      await refreshClarifications();
-      if (interview) {
-        setStatus(`Запросили доп. ответ. Ссылка: ${extraLink(interview.access_token, item.id)}. Отправьте её сами.`);
-      } else {
-        setStatus("Запросили доп. ответ. Отправьте ссылку сами.");
-      }
-    } catch (caughtError) {
-      setError(normalizeError(caughtError, "Не удалось запросить доп. ответ."));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleAudit() {
-    setBusy(true);
-    setError(null);
-    try {
-      await requestManagedAudit(params.cid);
-      await refreshClarifications();
-      setStatus("Запросили аудит эксперта.");
-    } catch (caughtError) {
-      setError(normalizeError(caughtError, "Не удалось запросить аудит."));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleClose(clarificationId: string) {
-    if (!closeReason.trim()) {
-      setError("Чтобы закрыть уточнение, напишите причину.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await closeManagedClarification(params.cid, clarificationId, closeReason.trim());
-      await refreshClarifications();
-      setCloseReason("");
-      setStatus("Уточнение закрыто.");
-    } catch (caughtError) {
-      setError(normalizeError(caughtError, "Не удалось закрыть уточнение."));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleHandoff() {
-    if (!managerId.trim() || !summary.trim()) {
-      setError("Нужны менеджер и короткое саммари.");
+    if (!managerId.trim()) {
+      setError("Выберите менеджера.");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      await handoffManagedInterview(params.cid, { to_manager_id: managerId.trim(), summary: summary.trim() });
+      await handoffManagedInterview(params.cid, { to_manager_id: managerId.trim(), summary: "" });
       setInterview((current) => (current ? { ...current, recruiter_decision: "handed_off" } : current));
       setStatus("Передано менеджеру.");
     } catch (caughtError) {
-      if (caughtError instanceof ApiError && caughtError.status === 409) {
-        setError("Сначала закройте открытые уточнения — иначе передать нельзя.");
-      } else {
-        setError(normalizeError(caughtError, "Не удалось передать менеджеру."));
-      }
+      setError(normalizeError(caughtError, "Не удалось передать менеджеру."));
     } finally {
       setBusy(false);
     }
   }
 
-  async function handleOpinion() {
-    if (!managerId.trim()) {
-      setError("Выберите менеджера, чтобы запросить мнение.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
+  function finalInviteMessage(): string {
+    const name = interview?.candidate_name ? `, ${interview.candidate_name}` : "";
+    const title = vacancy ? ` на позицию «${vacancy.title}»` : "";
+    return `Здравствуйте${name}! Приглашаем вас на финальное интервью${title}. Рекрутер свяжется с вами, чтобы согласовать удобное время.`;
+  }
+
+  async function copyFinalInviteMessage() {
     try {
-      await grantManagedOpinion(params.cid, managerId.trim());
-      setStatus("Менеджеру открыли доступ к мнению, без передачи кандидата.");
-    } catch (caughtError) {
-      setError(normalizeError(caughtError, "Не удалось открыть мнение менеджеру."));
-    } finally {
-      setBusy(false);
+      await navigator.clipboard?.writeText(finalInviteMessage());
+      setFinalInviteCopied(true);
+      setTimeout(() => setFinalInviteCopied(false), 1500);
+    } catch {
+      // Текст остаётся доступен для ручного копирования.
     }
   }
 
@@ -346,7 +276,6 @@ export default function VacancyCandidatePage() {
             {interview.recording_url && !processing ? (
               <section className="interview-recording">
                 <h2>Запись интервью</h2>
-                {/* eslint-disable-next-line jsx-a11y/media-has-caption -- расшифровка уже есть текстом ниже, отдельных субтитров к видео нет */}
                 <video controls src={interview.recording_url} />
               </section>
             ) : null}
@@ -440,32 +369,24 @@ export default function VacancyCandidatePage() {
                   </dl>
                 ) : null}
               </div>
-              {!processing && unansweredMandatory.length > 0 ? (
-                <p className="report-gap">
-                  По требованию{" "}
-                  {unansweredMandatory.map((row) => `«${row.skill}»`).join(", ")} ответ не получен.
-                  Можно задать доп. вопрос или запросить аудит.
-                </p>
-              ) : null}
               {processing ? null : (
                 <dl className="report-figures">
                   <div>
-                    <dt>Обязательные требования</dt>
+                    <dt>Баллы за вопросы</dt>
+                    <dd>{formatPoints(interview.report_json?.question_score) ?? "—"} из {assessedQuestionCount * 3}</dd>
+                  </div>
+                  <div>
+                    <dt>Баллы за навыки</dt>
                     <dd>
-                      По обязательным требованиям есть ответы: {mandatory.answered} из {mandatory.total}. Это
-                      не подтверждение навыка.
+                      {formatPoints(interview.report_json?.skill_score) ?? "—"} из{" "}
+                      {interview.report_json?.max_score != null && interview.report_json?.question_score != null
+                        ? formatPoints(interview.report_json.max_score - assessedQuestionCount * 3)
+                        : "—"}
                     </dd>
                   </div>
                   <div>
-                    <dt>Ответов с расшифровкой</dt>
-                    <dd>
-                      {events?.answers.filter((item) => item.transcript_text).length ?? 0} из{" "}
-                      {vacancy?.questions.length ?? 0}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Не закрыл ни один вопрос</dt>
-                    <dd>{uncovered.length === 0 ? "таких требований нет" : uncovered.map((row) => row.skill).join(", ")}</dd>
+                    <dt>Совместимость с вакансией</dt>
+                    <dd>{interview.report_json?.score_percent ?? interview.report_json?.overall_score ?? "—"}%</dd>
                   </div>
                   {interview.report_json ? (
                     <div>
@@ -483,8 +404,8 @@ export default function VacancyCandidatePage() {
             </section>
 
             {securitySignals.length > 0 ? (
-              <section className="security-block">
-                <h2>Безопасность</h2>
+              <details className="security-block">
+                <summary>Безопасность: {securitySignals.length} технических сигнала</summary>
                 <p className="muted-copy">
                   Что мы можем выяснить технически — не признак нарушения, просто сырые сигналы:
                   переключал ли вкладку, пропадала ли картинка с камеры.
@@ -497,7 +418,7 @@ export default function VacancyCandidatePage() {
                     </li>
                   ))}
                 </ul>
-              </section>
+              </details>
             ) : null}
 
             <section className="requirement-map">
@@ -543,9 +464,9 @@ export default function VacancyCandidatePage() {
                         }
                         return (
                           <span className="requirement-row__verdict">
-                            {sv.best_score != null ? (
-                              <span className="score-chip" data-tone={scoreTone(sv.best_score)}>
-                                {sv.best_score}/100
+                            {skillLevel(interview.report_json, row.skill) != null ? (
+                              <span className="score-chip" data-tone={skillLevelTone(skillLevel(interview.report_json, row.skill)!)}>
+                                Уровень {skillLevel(interview.report_json, row.skill)}/3
                               </span>
                             ) : null}
                             <StatusPill tone={skillClassTone(sv.skill_class)}>
@@ -582,7 +503,11 @@ export default function VacancyCandidatePage() {
                               {SKILL_CLASS_LABEL[sv.skill_class]}
                             </StatusPill>
                             {sv.best_score != null ? (
-                              <p className="muted-copy">Лучший балл по навыку: {sv.best_score}/100.</p>
+                              <p className="muted-copy">
+                                {hasSkillMatrix(interview.report_json)
+                                  ? `Лучший уровень по ответу: ${sv.best_score}/3.`
+                                  : `Лучший балл по навыку: ${sv.best_score}/100.`}
+                              </p>
                             ) : null}
                             {sv.reasoning_lines.length > 0 ? (
                               <ul>
@@ -620,9 +545,9 @@ export default function VacancyCandidatePage() {
                                   <span
                                     key={skillScore.skill_tag}
                                     className="score-chip"
-                                    data-tone={scoreTone(skillScore.score)}
+                                    data-tone={hasSkillMatrix(interview.report_json) ? skillLevelTone(skillScore.score) : scoreTone(skillScore.score)}
                                   >
-                                    {skillScore.skill_tag}: {skillScore.score}/100
+                                    {skillScore.skill_tag}: {skillScore.score}/{hasSkillMatrix(interview.report_json) ? "3" : "100"}
                                   </span>
                                 ))}
                                 <span className="muted-copy">
@@ -665,61 +590,9 @@ export default function VacancyCandidatePage() {
 
             {canManage ? (
               <section className="plain-section">
-                <h2>Уточнения</h2>
-                <div className="form-actions">
-                  <Button type="button" variant="secondary" disabled={busy} onClick={() => void handleExtra()}>
-                    Запросить доп. ответ
-                  </Button>
-                  <Button type="button" variant="secondary" disabled={busy} onClick={() => void handleAudit()}>
-                    Запросить аудит
-                  </Button>
-                </div>
-                {extras.length > 0 ? (
-                  <ul className="stack-list">
-                    {extras.map((item) => (
-                      <li key={item.id}>
-                        Доп. вопрос: {clarificationStatusLabel(item.status)} ·{" "}
-                        {extraLink(interview.access_token, item.id)}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                {audits.length > 0 ? (
-                  <ul className="stack-list">
-                    {audits.map((item) => (
-                      <li key={item.id}>
-                        Аудит эксперта: {clarificationStatusLabel(item.status)}
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-                {openClarifications.length > 0 ? (
-                  <div>
-                    {openClarifications.map((item) => (
-                      <p key={item.id}>
-                        {item.type === "extra" ? "Доп. вопрос" : "Аудит эксперта"} ждёт ответа
-                        <button className="text-button" type="button" onClick={() => void handleClose(item.id)}>
-                          Закрыть с причиной
-                        </button>
-                      </p>
-                    ))}
-                    <label>
-                      Причина закрытия
-                      <input value={closeReason} onChange={(event) => setCloseReason(event.target.value)} />
-                    </label>
-                  </div>
-                ) : (
-                  <p>Открытых уточнений нет.</p>
-                )}
-              </section>
-            ) : null}
-
-            {canManage ? (
-              <section className="plain-section">
                 <h2>Решение</h2>
                 <p className="muted-copy">
-                  Система собирает наблюдения, решение принимает человек. Передача менеджеру
-                  открывает ему карточку и ваш комментарий.
+                  Решение основывается на пороге 60% от максимального балла вакансии.
                 </p>
                 <div className="form-surface">
                 <label>
@@ -733,30 +606,27 @@ export default function VacancyCandidatePage() {
                     ))}
                   </select>
                 </label>
-                <label>
-                  Что рассказать менеджеру
-                  <textarea value={summary} onChange={(event) => setSummary(event.target.value)} />
-                </label>
                 </div>
                 <div className="form-actions">
-                  <Button type="button" disabled={busy || handoffBlocked} onClick={() => void handleHandoff()}>
+                  <Button type="button" disabled={busy} onClick={() => void handleHandoff()}>
                     Передать менеджеру
                   </Button>
-                  <Button type="button" variant="secondary" disabled={busy} onClick={() => void handleOpinion()}>
-                    Спросить мнение менеджера
-                  </Button>
-                  <Button type="button" variant="secondary" disabled>
-                    Не продолжаем
+                  <Button type="button" variant="secondary" disabled={interview.recruiter_decision !== "awaiting"} onClick={() => setFinalInviteOpen(true)}>
+                    Пригласить на финальное интервью
                   </Button>
                 </div>
-                {handoffBlocked ? (
-                  <p className="disabled-hint">Сначала закройте открытые уточнения.</p>
-                ) : null}
-                <p className="disabled-hint">
-                  «Не продолжаем» появится после пилота: пока решение об отказе фиксируется вне системы.
-                </p>
               </section>
             ) : null}
+            <Modal open={finalInviteOpen} title="Приглашение на финальное интервью" onClose={() => setFinalInviteOpen(false)}>
+              <div className="form-surface">
+                <div className="invite-message" aria-label="Сообщение для кандидата">
+                  <button type="button" className="invite-message__copy" aria-label="Скопировать сообщение" onClick={() => void copyFinalInviteMessage()}>
+                    {finalInviteCopied ? <Check size={16} /> : <Copy size={16} />}
+                  </button>
+                  <pre>{finalInviteMessage()}</pre>
+                </div>
+              </div>
+            </Modal>
           </>
         ) : null}
       </div>

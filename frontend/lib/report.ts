@@ -128,6 +128,12 @@ export function mandatorySummary(rows: RequirementRow[]): { answered: number; to
   };
 }
 
+/** Фиксированная шкала вакансии: она не меняется от качества ответов кандидата. */
+export function vacancyScoreRange(vacancy: Pick<VacancyDetail, "required_skills" | "nice_to_have_skills">, questionCount: number) {
+  const maximum = questionCount * 3 + vacancy.required_skills.length * 2 + vacancy.nice_to_have_skills.length * 0.5;
+  return { minimum: 0, maximum, threshold: maximum * 0.6 };
+}
+
 /** Требования, которые не закрывает ни один вопрос комплекта: дыра калибровки. */
 export function uncoveredRequirements(rows: RequirementRow[]): RequirementRow[] {
   return rows.filter((row) => row.coverage === "not-covered");
@@ -159,10 +165,10 @@ function normalizeSkill(skill: string): string {
 
 /**
  * Разбор навыка из report_json агента. Авторитетная классификация — списки
- * confirmed/unconfirmed_skills (их считает verdict.py по всем ответам); баллы и
- * обоснования берём из per_question[].skill_scores. reasoning_lines строим в формате
- * бывшего skill_verdicts.reasoning («Вопрос N (score/100): rationale») — порядок вопроса
- * берём из questions, потому что в per_question лежит только question_id.
+ * confirmed/unconfirmed_skills (их считает scoring.py по всем ответам); уровни и
+ * обоснования берём из per_question[].skill_scores (шкала 0–3). reasoning_lines строим
+ * в формате бывшего skill_verdicts.reasoning («Вопрос N (уровень/3): rationale») —
+ * порядок вопроса берём из questions, потому что в per_question лежит только question_id.
  * null — навыка нет в отчёте (страница показывает тогда пилюлю покрытия).
  */
 export function skillVerdictFor(
@@ -190,7 +196,7 @@ export function skillVerdictFor(
     best_score: entries.length > 0 ? Math.max(...entries.map((entry) => entry.score)) : null,
     reasoning_lines: entries.map((entry) => {
       const order = orderById.get(entry.question_id);
-      const prefix = order != null ? `Вопрос ${order} (${entry.score}/100)` : `${entry.score}/100`;
+      const prefix = order != null ? `Вопрос ${order} (${entry.score}/3)` : `${entry.score}/3`;
       return entry.rationale ? `${prefix}: ${entry.rationale}` : prefix;
     }),
   };

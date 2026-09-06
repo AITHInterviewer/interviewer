@@ -33,6 +33,7 @@ import {
 import { normalizeError } from "@/lib/errors";
 import { buildNav, gradeLabel, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
 import { groupInterviews, interviewColumn, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
+import { vacancyScoreRange } from "@/lib/report";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
@@ -429,6 +430,14 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                   </div>
                 ) : null}
               </div>
+              {(() => {
+                const scoreRange = vacancyScoreRange(vacancy, vacancy.questions.length);
+                return (
+                  <p className="vacancy-score-range">
+                    Шкала интервью: {scoreRange.minimum}–{scoreRange.maximum} балла. Проходной порог: больше {scoreRange.threshold} ({"60%"}).
+                  </p>
+                );
+              })()}
               </div>
 
               <div className="vacancy-info-card__invite">

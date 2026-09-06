@@ -90,7 +90,7 @@ async def test_dummy_judge_scores_overlap() -> None:
     result = await judge.judge(question)
     assert len(result.skill_scores) == 1
     assert result.skill_scores[0].skill_tag == "Python"
-    assert 60 <= result.skill_scores[0].score <= 100
+    assert result.skill_scores[0].score == 3  # полное перекрытие эталона — максимум шкалы 0-3
     assert result.report is not None
     assert 0.0 <= result.confidence <= 1.0
 
@@ -206,7 +206,8 @@ async def test_process_job_skips_question_without_transcript() -> None:
     await process_job({"id": job_id, "interview_id": interview_id}, backend, judge)
 
     assert backend.posted is not None
-    assert backend.posted["verdict"] == "needs_review"  # required skill untested
+    # Обязательный навык без единого ответа -> 0% взвешенной шкалы -> not_fits
+    assert backend.posted["verdict"] == "not_fits"
     assert backend.posted["per_question"] == []
     assert backend.completed_job_id == job_id
 

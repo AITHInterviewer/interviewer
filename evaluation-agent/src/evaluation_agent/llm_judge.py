@@ -27,15 +27,15 @@ logger = logging.getLogger(__name__)
 
 class SkillScoreResult(BaseModel):
     skill_tag: str
-    score: int = Field(..., ge=0, le=100)
-    rationale: str
+    score: int = Field(..., ge=0, le=3)
+    rationale: str = Field(description="Краткое обоснование уровня в 1–2 предложениях: главный аргумент, почему поставлен именно такой уровень. Без пересказа ответа.")
 
 
 class QuestionJudgment(BaseModel):
     skill_scores: list[SkillScoreResult]
     quotes: list[str] = Field(default_factory=list)
     confidence: float = Field(..., ge=0.0, le=1.0)
-    report: str | None = None
+    report: str | None = Field(default=None, description="Краткий разбор ответа: что удалось, где пробелы, рекомендация.")
 
 
 @dataclass(frozen=True)
@@ -85,14 +85,12 @@ class DummyGPTJudge:
         matched = len(ref_words & trans_words)
         ratio = matched / len(ref_words)
         if ratio >= 0.8:
-            return 90
-        if ratio >= 0.6:
-            return 70
-        if ratio >= 0.4:
-            return 50
+            return 3
+        if ratio >= 0.5:
+            return 2
         if ratio >= 0.2:
-            return 30
-        return 10
+            return 1
+        return 0
 
     def _quote(self, transcript: str, reference: str) -> list[str]:
         sentences = [s.strip() for s in re.split(r"[.!?]\s+", transcript) if s.strip()]
@@ -106,12 +104,12 @@ class DummyGPTJudge:
         score = self._score_by_overlap(question.reference_answer, question.transcript)
         quotes = self._quote(question.transcript, question.reference_answer)
         rationale = (
-            f"DummyGPT mock review: overlap-based score {score}/100 "
+            f"DummyGPT mock review: overlap-based score {score}/3 "
             f"(hint={'yes' if question.answered_with_hint else 'no'})."
         )
-        if score >= 60:
+        if score >= 2:
             report = "Ответ покрывает основные пункты эталона."
-        elif score >= 40:
+        elif score >= 1:
             report = "Ответ частично покрывает эталон; есть пробелы."
         else:
             report = "Ответ не покрывает эталон; требуется дополнительная проверка."
@@ -121,7 +119,7 @@ class DummyGPTJudge:
                 for tag in question.skill_tags
             ],
             quotes=quotes,
-            confidence=round(score / 100, 2),
+        confidence=round(score / 3, 2),
             report=report,
         )
 
@@ -138,14 +136,20 @@ class ClaudeAgentSDKJudge:
 
     _SYSTEM_PROMPT = """Ты — опытный технический интервьюер. Оцени ответ кандидата на вопрос собеседования.
 
-Для каждого проверяемого навыка выставь балл 0–100 по шкале:
-- 0–20: неверно / не по теме
-- 21–40: очень слабо
-- 41–60: неполно / неуверенно
-- 61–80: корректно и уверенно
-- 81–100: отлично
+Для каждого проверяемого навыка выставь уровень 0–3:
+- 0: навыка не видно в ответе
+- 1: базовый уровень
+- 2: средний уровень
+- 3: продвинутый уровень
 
-Верни строго JSON, соответствующий предоставленной схеме. Для каждого навыка дай rationale. Добавь report — краткий разбор ответа (что удалось, где пробелы, рекомендация). Приведи 1–2 цитаты из транскрипта, подтверждающие оценку."""
+Оцени относительно грейда вакансии: продвинутый уровень для junior соответствует
+базовому уровню для middle, а продвинутый для middle — базовому для senior. Не
+завышай уровень только из-за терминов без объяснения механики.
+
+Верни строго JSON, соответствующий предоставленной схеме. Для каждого навыка дай
+rationale — 1–2 предложения с главным аргументом для поставленного уровня, не
+пересказывай ответ. Добавь report — краткий разбор ответа (что удалось, где пробелы,
+рекомендация). Приведи 1–2 цитаты из транскрипта, подтверждающие оценку."""
 
     def __init__(self, model: str | None = None) -> None:
         self.model = model or settings.llm_model
@@ -243,6 +247,9 @@ class KimiJudge:
                 {"role": "system", "content": ClaudeAgentSDKJudge._SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
+            # Оценка должна быть воспроизводимой: без явной температуры провайдер
+            # сэмплирует, и уровни «прыгают» между прогонами одного интервью.
+            "temperature": 0,
             "thinking": {"type": "disabled"},
             "response_format": {
                 "type": "json_schema",

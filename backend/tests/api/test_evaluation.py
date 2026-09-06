@@ -68,7 +68,7 @@ async def test_create_evaluation_persists_result_and_completes_interview(
             {
                 "question_id": str(uuid4()),
                 "skill_scores": [
-                    {"skill_tag": "Python", "score": 80, "rationale": "good"}
+                    {"skill_tag": "Python", "score": 2, "rationale": "good"}
                 ],
                 "quotes": [],
                 "confidence": 0.9,
@@ -127,7 +127,7 @@ async def test_get_evaluation_returns_saved_report(
             {
                 "question_id": str(uuid4()),
                 "skill_scores": [
-                    {"skill_tag": "Python", "score": 80, "rationale": "good"}
+                    {"skill_tag": "Python", "score": 2, "rationale": "good"}
                 ],
                 "quotes": [],
                 "confidence": 0.9,
@@ -163,3 +163,63 @@ async def test_get_evaluation_returns_saved_report(
     data = get_response.json()
     assert data["per_question"][0]["report"] == "Per-question report text."
     assert data["verdict"] == "fits"
+
+
+@pytest.mark.anyio
+async def test_repeated_evaluation_upserts_instead_of_unique_violation(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Повторный прогон (reevaluate/retry failed-джобы) присылает отчёт заново:
+    строка evaluation на интервью одна — перезаписываем, а не падаем с 500."""
+    interview = await seed_demo_interview(db_session)
+    payload = {
+        "per_question": [
+            {
+                "question_id": str(uuid4()),
+                "skill_scores": [
+                    {"skill_tag": "Python", "score": 2, "rationale": "good"}
+                ],
+                "quotes": [],
+                "confidence": 0.9,
+                "answered_with_hint": False,
+                "report": "Первый прогон.",
+            }
+        ],
+        "overall_score": 80,
+        "verdict": "fits",
+        "confirmed_skills": ["Python"],
+        "unconfirmed_skills": [],
+        "contradictions_found": [],
+        "strengths": [],
+        "risks": [],
+        "summary_intro": "intro v1",
+        "summary_conclusion": "conclusion",
+        "model_version": "claude-test",
+        "prompt_version": "v1",
+        "generated_at": datetime.now(UTC).isoformat(),
+    }
+    first = await client.post(
+        f"/api/v1/interviews/{interview.id}/evaluation",
+        headers={"X-Service-Token": SERVICE_TOKEN},
+        json=payload,
+    )
+    assert first.status_code == 200
+
+    rerun = {**payload, "summary_intro": "intro v2", "verdict": "needs_review"}
+    second = await client.post(
+        f"/api/v1/interviews/{interview.id}/evaluation",
+        headers={"X-Service-Token": SERVICE_TOKEN},
+        json=rerun,
+    )
+    assert second.status_code == 200
+
+    from app.models.evaluation import Evaluation
+
+    rows = (
+        (await db_session.execute(select(Evaluation).where(Evaluation.interview_id == interview.id)))
+        .scalars()
+        .all()
+    )
+    assert len(rows) == 1
+    assert rows[0].summary_intro == "intro v2"
+    assert rows[0].verdict == "needs_review"

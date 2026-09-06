@@ -111,23 +111,31 @@ class EvaluationService:
         if interview is None:
             raise ValueError("Interview not found")
 
-        evaluation = Evaluation(
-            interview_id=interview_id,
-            per_question=[item.model_dump(mode="json") for item in request.per_question],
-            overall_score=request.overall_score,
-            verdict=request.verdict,
-            confirmed_skills=list(request.confirmed_skills),
-            unconfirmed_skills=list(request.unconfirmed_skills),
-            contradictions_found=[item.model_dump(mode="json") for item in request.contradictions_found],
-            strengths=list(request.strengths),
-            risks=list(request.risks),
-            summary_intro=request.summary_intro,
-            summary_conclusion=request.summary_conclusion,
-            model_version=request.model_version,
-            prompt_version=request.prompt_version,
-            generated_at=request.generated_at,
-        )
-        self.session.add(evaluation)
+        # Upsert: повторный прогон (reevaluate/retry после failed-джобы) присылает
+        # отчёт заново — evaluation на интервью один (unique evaluation_interview_id_key),
+        # перезаписываем строку, а не падаем с UniqueViolationError.
+        evaluation = await self.get_evaluation(interview_id)
+        fields = {
+            "per_question": [item.model_dump(mode="json") for item in request.per_question],
+            "overall_score": request.overall_score,
+            "verdict": request.verdict,
+            "confirmed_skills": list(request.confirmed_skills),
+            "unconfirmed_skills": list(request.unconfirmed_skills),
+            "contradictions_found": [item.model_dump(mode="json") for item in request.contradictions_found],
+            "strengths": list(request.strengths),
+            "risks": list(request.risks),
+            "summary_intro": request.summary_intro,
+            "summary_conclusion": request.summary_conclusion,
+            "model_version": request.model_version,
+            "prompt_version": request.prompt_version,
+            "generated_at": request.generated_at,
+        }
+        if evaluation is None:
+            evaluation = Evaluation(interview_id=interview_id, **fields)
+            self.session.add(evaluation)
+        else:
+            for name, value in fields.items():
+                setattr(evaluation, name, value)
 
         # Продуктовая ось (009): тот же контракт, что давал бывший синхронный
         # `_complete_interview` из main — `report_json` на интервью + "report_ready"
