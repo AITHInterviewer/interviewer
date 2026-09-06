@@ -36,6 +36,8 @@ p { text-wrap: pretty; }
 .vacancy-title-input:hover { border-bottom-color: var(--border-strong); }
 .vacancy-title-input:focus { border-bottom-color: var(--accent); outline: none; }
 .vacancy-title-input:focus-visible { outline: none; box-shadow: none; }
+.vacancy-title-input[data-invalid="true"] { border-bottom-color: var(--danger); }
+.vacancy-title-error { margin: -4px 0 14px; }
 .vacancy-grade-select { align-self: center; flex: 0 0 auto; min-height: var(--control-h); padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-raised); color: var(--ink); font-size: var(--text-body); }
 .vacancy-assignees-trigger { display: inline-flex; align-items: center; flex: 0 0 auto; margin-left: auto; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius-pill); }
 .vacancy-assignees-trigger:hover .avatar { box-shadow: 0 0 0 2px var(--accent); }
@@ -552,6 +554,7 @@ input:hover, textarea:hover { border-color: var(--border-strong); }
 .account-trigger__name { font-size: var(--text-meta); color: var(--ink); }
 .account-trigger__roles { font-size: var(--text-mono); color: var(--ink-tertiary); }
 .tag { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--ink-secondary); font-size: var(--text-meta); }
+.skill-tag-field { display: grid; gap: 7px; color: var(--ink-secondary); font-size: var(--text-body); }
 .skill-tag-input { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: var(--control-h); padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); }
 .skill-tag-input:focus-within { border-color: var(--border-strong); }
 .skill-tag__remove { display: inline-grid; place-items: center; margin-left: 2px; border: 0; background: transparent; color: inherit; font-size: inherit; line-height: 1; cursor: pointer; }

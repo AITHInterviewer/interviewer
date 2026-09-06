@@ -41,6 +41,7 @@ export default function NewVacancyPage() {
     currentUser?.roles.includes("hiring_manager") ? currentUser.id : null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [titleError, setTitleError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -75,6 +76,14 @@ export default function NewVacancyPage() {
     event.preventDefault();
     setError(null);
 
+    if (!title.trim()) {
+      setTitleError("Название вакансии обязательно — укажите, на кого нанимаете.");
+      return;
+    }
+    if (!description.trim()) {
+      setError("Добавьте описание вакансии.");
+      return;
+    }
     if (requiredSkills.length < MIN_REQUIRED_SKILLS) {
       setError(`Укажите хотя бы ${MIN_REQUIRED_SKILLS} обязательных навыка.`);
       return;
@@ -123,10 +132,16 @@ export default function NewVacancyPage() {
               <input
                 className="vacancy-title-input"
                 value={title}
-                onChange={(event) => setTitle(event.target.value)}
+                onChange={(event) => {
+                  setTitle(event.target.value);
+                  if (titleError) {
+                    setTitleError(null);
+                  }
+                }}
                 placeholder="Название вакансии"
                 aria-label="Название вакансии"
-                required
+                aria-invalid={titleError ? "true" : undefined}
+                data-invalid={titleError ? "true" : undefined}
               />
               <select
                 className="vacancy-grade-select"
@@ -182,10 +197,12 @@ export default function NewVacancyPage() {
           }
         />
 
-        <form className="form-surface form-panel" onSubmit={handleSubmit}>
+        {titleError ? <p className="form-error vacancy-title-error">{titleError}</p> : null}
+
+        <form className="form-surface form-panel" onSubmit={handleSubmit} noValidate>
           <label>
             Описание
-            <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
+            <textarea value={description} onChange={(event) => setDescription(event.target.value)} />
           </label>
           <div className="skills-columns">
             <SkillTagInput
