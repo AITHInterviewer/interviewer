@@ -13,7 +13,12 @@ from uuid import UUID
 import pytest
 
 from app.services.interview_event_service import InterviewEventService
-from app.services.vacancy_llm_service import GeneratedQuestion, GeneratedQuestionSet, VacancyLLMService
+from app.services.vacancy_llm_service import (
+    GeneratedQuestion,
+    GeneratedQuestionSet,
+    QuestionGenerationError,
+    VacancyLLMService,
+)
 from tests.conftest import create_internal_user, login, register_recruiter
 
 
@@ -125,6 +130,28 @@ async def test_expert_cannot_generate_questions(client, monkeypatch: pytest.Monk
     )
 
     assert response.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_question_generation_failure_returns_a_readable_gateway_error(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def fail_generation(self, vacancy):
+        raise QuestionGenerationError("OPENROUTER_API_KEY is missing")
+
+    monkeypatch.setattr(VacancyLLMService, "generate_questions", fail_generation)
+    recruiter_token = await register_recruiter(client)
+    vacancy = await _create_vacancy(client, recruiter_token)
+
+    response = await client.post(
+        f"/api/v1/vacancies/{vacancy['id']}/questions/generate",
+        headers={"Authorization": f"Bearer {recruiter_token}"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "Не удалось сгенерировать вопросы. Проверьте подключение к модели и повторите."
+    )
 
 
 @pytest.mark.anyio

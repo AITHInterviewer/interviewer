@@ -244,6 +244,11 @@ async def generate_questions(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found.") from exc
     except VacancyLockedError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vacancy is already ready.") from exc
+    except QuestionGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Не удалось сгенерировать вопросы. Проверьте подключение к модели и повторите.",
+        ) from exc
     return GenerateQuestionsResponse(questions=[QuestionResponse.model_validate(q) for q in questions])
 
 
