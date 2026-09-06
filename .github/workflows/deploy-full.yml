@@ -215,16 +215,16 @@ jobs:
           '@
 
       - name: Write live-agent/.env
-        # LLM_PROVIDER=mistral — временная проба (2026-09-06): Claude Agent SDK CLI даёт
-        # 5-19с на ход (харнесс-накладные расходы, см. live-agent/CLAUDE.md п.8 и
-        # llm_client.py), при требовании 2-3с это неприемлемо. MISTRAL_API_KEY — секрет
-        # репозитория, не хардкодим значение в workflow.
+        # LLM_PROVIDER=mistral пробовали 2026-09-06 (см. llm_client.py, CLAUDE.md п.8) —
+        # откачено обратно: бесплатный ключ Mistral вернул 429 Too Many Requests на КАЖДЫЙ
+        # вызов с первой же попытки (нулевая квота/неактивированный аккаунт, не всплеск
+        # нагрузки) — бот всю сессию молчал. MISTRAL_API_KEY — секрет репозитория, не
+        # хардкодим значение в workflow; оставлен закомментированным до следующей попытки.
         env:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: |
           Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
           LLM_MODEL=claude-haiku-4-5
-          LLM_PROVIDER=mistral
           MISTRAL_MODEL=mistral-small-latest
           STT_BASE_URL=http://stt:8000/v1
           TTS_BASE_URL=http://tts:8080
