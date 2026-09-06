@@ -623,3 +623,7 @@ export function getInterview(token: string, interviewId: string) {
 export function getInterviewEvents(token: string, interviewId: string) {
   return request<InterviewEventsResponse>(`/api/v1/interviews/${interviewId}/events`, { token });
 }
+
+export function reevaluateInterview(token: string, interviewId: string) {
+  return request<Interview>(`/api/v1/interviews/${interviewId}/reevaluate`, { method: "POST", token });
+}

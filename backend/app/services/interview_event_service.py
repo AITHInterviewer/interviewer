@@ -164,6 +164,24 @@ class InterviewEventService:
             except EgressError:
                 logger.exception("livekit_egress: не удалось остановить запись интервью %s", interview_id)
 
+        await self._run_evaluation(interview)
+
+    async def reevaluate(self, interview_id: uuid.UUID | str) -> Interview | None:
+        """Повторный разбор для интервью, застрявшего в `report_processing` (LLM-вызов
+        упал — 429 бесплатного тира и т.п., см. `_run_evaluation`). Рекрутёр дёргает это
+        кнопкой с карточки кандидата. Только для уже завершённых интервью."""
+        interview_id = uuid.UUID(str(interview_id))
+        interview = await self.session.get(Interview, interview_id)
+        if interview is None or interview.status != "completed":
+            return interview
+        interview.product_state = "report_processing"
+        await self.session.commit()
+        await self._run_evaluation(interview)
+        return interview
+
+    async def _run_evaluation(self, interview: Interview) -> None:
+        """Собирает `report_json` и переводит интервью в `report_ready`. При падении
+        LLM-вызова интервью остаётся в `report_processing` (повтор — через `reevaluate`)."""
         vacancy = await self.session.get(Vacancy, interview.vacancy_id)
         if vacancy is None:
             return
@@ -173,7 +191,7 @@ class InterviewEventService:
                     select(Question).where(
                         or_(
                             Question.vacancy_id == interview.vacancy_id,
-                            Question.interview_id == interview_id,
+                            Question.interview_id == interview.id,
                         )
                     )
                 )
@@ -182,7 +200,7 @@ class InterviewEventService:
             .all()
         )
         answers = (
-            (await self.session.execute(select(Answer).where(Answer.interview_id == interview_id)))
+            (await self.session.execute(select(Answer).where(Answer.interview_id == interview.id)))
             .scalars()
             .all()
         )
@@ -190,7 +208,7 @@ class InterviewEventService:
         try:
             report = await EvaluationService().evaluate_interview(vacancy, list(questions), list(answers))
         except EvaluationError:
-            logger.exception("evaluation_service: не удалось оценить интервью %s", interview_id)
+            logger.exception("evaluation_service: не удалось оценить интервью %s", interview.id)
             return
 
         interview.report_json = report

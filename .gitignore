@@ -47,3 +47,6 @@ htmlcov/
 live-agent/out/*.jsonl
 live-agent/out/*.mp3
 admin-credentials.local.md
+
+# graphify knowledge graph (generated locally, no API cost to regenerate)
+graphify-out/

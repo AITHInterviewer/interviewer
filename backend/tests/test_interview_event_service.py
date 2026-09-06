@@ -13,6 +13,7 @@ from app.models.answer import Answer
 from app.models.interview_event import InterviewEvent
 from app.models.question import Question
 from app.services import interview_event_service as interview_event_service_module
+from app.services.evaluation_service import EvaluationError
 from app.services.interview_event_service import InterviewEventService
 from tests.conftest import seed_demo_interview
 
@@ -303,3 +304,38 @@ async def test_interview_completed_twice_does_not_rerun_evaluation(
     await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
 
     assert calls == 1
+
+
+class _FailingThenOkEvaluationService(_FakeEvaluationService):
+    """Первый вызов имитирует упавший LLM (report остаётся пустым), второй — успех."""
+
+    attempts = 0
+
+    async def evaluate_interview(self, vacancy, questions, answers):  # noqa: ANN001
+        type(self).attempts += 1
+        if type(self).attempts == 1:
+            raise EvaluationError("429")
+        return await super().evaluate_interview(vacancy, questions, answers)
+
+
+@pytest.mark.anyio
+async def test_reevaluate_recovers_interview_stuck_in_report_processing(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _FailingThenOkEvaluationService.attempts = 0
+    monkeypatch.setattr(
+        interview_event_service_module, "EvaluationService", _FailingThenOkEvaluationService
+    )
+
+    interview = await seed_demo_interview(db_session, question_count=1)
+    service = InterviewEventService(db_session)
+
+    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
+    await db_session.refresh(interview)
+    assert interview.product_state == "report_processing"
+    assert interview.report_json is None
+
+    await service.reevaluate(interview.id)
+    await db_session.refresh(interview)
+    assert interview.product_state == "report_ready"
+    assert interview.report_json["verdict"] == "fits"

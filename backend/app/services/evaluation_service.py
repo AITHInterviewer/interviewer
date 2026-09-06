@@ -1,10 +1,10 @@
 """LLM-разбор ответов кандидата -> отчёт по интервью (report_json).
 
-Один LLM-вызов на ответ (тот же OpenRouter-паттерн, что `vacancy_llm_service.py`): даём
-модели transcript_text ответа и reference_answer/intent вопроса, просим оценку 1-5 по
-фиксированным якорям (см. `app/prompts/evaluation_answer_score.txt`) и флаг «отвечал с
-подсказкой». Дальше — уже готовое правило агрегации (`evaluation_verdict`), плюс один
-дополнительный LLM-вызов, который сводит уже выставленные оценки в summary/strengths/
+Один LLM-вызов на ответ (тот же клиент, что `vacancy_llm_service.py` — `app/services/llm.py`,
+Anthropic Messages API): даём модели transcript_text ответа и reference_answer/intent
+вопроса, просим оценку 1-5 по фиксированным якорям (см. `app/prompts/evaluation_answer_score.txt`)
+и флаг «отвечал с подсказкой». Дальше — уже готовое правило агрегации (`evaluation_verdict`),
+плюс один дополнительный LLM-вызов, который сводит уже выставленные оценки в summary/strengths/
 weaknesses (см. `app/prompts/evaluation_summary.txt`) — не придумывает новых фактов, только
 обобщает то, что уже посчитано.
 
@@ -17,10 +17,8 @@ async batch-контур (`evaluation-agent/src/evaluation_agent/worker.py`) н�
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 
-import httpx
 from pydantic import BaseModel, Field
 
 from app.models.answer import Answer
@@ -33,9 +31,7 @@ from app.services.evaluation_verdict import (
     aggregate_skills,
     compute_verdict,
 )
-
-DEFAULT_MODEL = "google/gemini-2.5-flash"
-BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+from app.services.llm import AnthropicJSONClient, LLMError
 
 _SKILL_CLASS_LABEL = {
     "fail": "не подтверждён",
@@ -99,40 +95,14 @@ def _mastery_level(effective_score: int | None) -> int | None:
 
 
 class EvaluationService:
-    # api_key не читается в конструкторе — тот же найденный ранее баг с eager-чтением
-    # OPENROUTER_API_KEY в vacancy_llm_service.py, см. комментарий там.
     def __init__(self, model: str | None = None, api_key: str | None = None) -> None:
-        self.model = model or os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
-        self._api_key = api_key
-        self._client = httpx.AsyncClient(timeout=60.0)
+        self._llm = AnthropicJSONClient(model=model, api_key=api_key)
 
     async def _complete(self, system_prompt: str, user_prompt: str) -> str:
-        api_key = self._api_key or os.environ.get("OPENROUTER_API_KEY")
-        if not api_key:
-            raise EvaluationError("OPENROUTER_API_KEY не задан — оценка недоступна.")
         try:
-            response = await self._client.post(
-                BASE_URL,
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": self.model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "response_format": {"type": "json_object"},
-                    "temperature": 0.2,
-                },
-            )
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise EvaluationError(f"OpenRouter недоступен: {exc}") from exc
-
-        payload = response.json()
-        try:
-            return payload["choices"][0]["message"]["content"]
-        except (KeyError, IndexError) as exc:
-            raise EvaluationError(f"OpenRouter вернул неожиданный ответ: {payload}") from exc
+            return await self._llm.complete(system_prompt, user_prompt, temperature=0.2)
+        except LLMError as exc:
+            raise EvaluationError(str(exc)) from exc
 
     async def _score_answer(self, question: Question, answer: Answer) -> _AnswerScore:
         user_prompt = (
@@ -243,7 +213,7 @@ class EvaluationService:
 
         return {
             "generated_at": datetime.now(UTC).isoformat(),
-            "model": self.model,
+            "model": self._llm.model,
             "verdict": verdict.value,
             "verdict_reasoning": verdict_reasoning,
             "skill_verdicts": skill_verdicts,
