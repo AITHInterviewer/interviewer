@@ -171,6 +171,8 @@ class PilotService:
         self, interview_id: UUID, recruiter_id: UUID, to_manager_id: UUID, summary: str
     ) -> Handoff:
         interview = await self._interview(interview_id)
+        if interview.recruiter_decision == "rejected":
+            raise PilotError(409, "Candidate already rejected.")
         if await self.open_clarifications(interview_id):
             raise PilotError(409, "Close open clarifications before handoff.")
         existing = await self.session.execute(select(Handoff).where(Handoff.interview_id == interview_id))
@@ -191,7 +193,8 @@ class PilotService:
     async def grant_opinion(
         self, interview_id: UUID, recruiter_id: UUID, manager_id: UUID
     ) -> ManagerOpinionGrant:
-        await self._interview(interview_id)
+        interview = await self._interview(interview_id)
+        interview.recruiter_decision = "opinion_asked"
         row = ManagerOpinionGrant(
             interview_id=interview_id,
             manager_id=manager_id,
@@ -201,6 +204,13 @@ class PilotService:
         await self.session.commit()
         await self.session.refresh(row)
         return row
+
+    async def reject(self, interview_id: UUID) -> Interview:
+        interview = await self._interview(interview_id)
+        interview.recruiter_decision = "rejected"
+        await self.session.commit()
+        await self.session.refresh(interview)
+        return interview
 
     async def manager_can_view(self, interview_id: UUID, manager_id: UUID) -> bool:
         handoff = await self.session.execute(

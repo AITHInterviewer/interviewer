@@ -22,16 +22,18 @@ import type {
   VacancyDetail,
 } from "@/lib/api";
 import {
+  grantManagedOpinion,
   handoffManagedInterview,
   loadHiringManagers,
   loadInterview,
   loadInterviewEvents,
   loadVacancy,
   reevaluateManagedInterview,
+  rejectManagedInterview,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { useToast } from "@/lib/toast";
-import { interviewStageLabel } from "@/lib/pipeline";
+import { interviewMark } from "@/lib/pipeline";
 import {
   buildRequirementMap,
   COVERAGE_LABEL,
@@ -351,6 +353,41 @@ export default function VacancyCandidatePage() {
     }
   }
 
+  async function handleAskOpinion() {
+    if (!managerId.trim()) {
+      pushToast("warning", "Выберите менеджера.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await grantManagedOpinion(params.cid, managerId.trim());
+      setInterview((current) =>
+        current ? { ...current, recruiter_decision: "opinion_asked" } : current,
+      );
+      pushToast("success", "Запросили мнение менеджера.");
+    } catch (caughtError) {
+      pushToast("error", normalizeError(caughtError, "Не удалось запросить мнение."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleReject() {
+    if (!window.confirm("Отметить кандидата как «Не прошёл»?")) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await rejectManagedInterview(params.cid);
+      setInterview((current) => (current ? { ...current, recruiter_decision: "rejected" } : current));
+      pushToast("success", "Кандидат отмечен как не прошедший.");
+    } catch (caughtError) {
+      pushToast("error", normalizeError(caughtError, "Не удалось отметить кандидата."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function finalInviteMessage(): string {
     const name = interview?.candidate_name ? `, ${interview.candidate_name}` : "";
     const title = vacancy ? ` на позицию «${vacancy.title}»` : "";
@@ -410,7 +447,9 @@ export default function VacancyCandidatePage() {
                   : [{ label: "Вакансии", href: "/vacancies" }]
               }
               title={interview.candidate_name ?? "Кандидат без имени"}
-              description={interviewStageLabel(interview)}
+              description={
+                <StatusPill tone={interviewMark(interview).tone}>{interviewMark(interview).label}</StatusPill>
+              }
             />
             {error ? <p className="form-error">{error}</p> : null}
 
@@ -922,8 +961,43 @@ export default function VacancyCandidatePage() {
                     >
                       Пригласить на финал
                     </Button>
-                    <Button type="button" disabled={busy || !managerId.trim()} onClick={() => void handleHandoff()}>
+                    <Button
+                      type="button"
+                      disabled={
+                        busy ||
+                        !managerId.trim() ||
+                        (interview.recruiter_decision != null &&
+                          interview.recruiter_decision !== "awaiting" &&
+                          interview.recruiter_decision !== "opinion_asked")
+                      }
+                      onClick={() => void handleHandoff()}
+                    >
                       Передать менеджеру
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={
+                        busy ||
+                        !managerId.trim() ||
+                        Boolean(interview.recruiter_decision && interview.recruiter_decision !== "awaiting")
+                      }
+                      onClick={() => void handleAskOpinion()}
+                    >
+                      Спросить мнение
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={
+                        busy ||
+                        (interview.recruiter_decision != null &&
+                          interview.recruiter_decision !== "awaiting" &&
+                          interview.recruiter_decision !== "opinion_asked")
+                      }
+                      onClick={() => void handleReject()}
+                    >
+                      Не продолжаем
                     </Button>
                   </>
                 )}

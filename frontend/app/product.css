@@ -77,7 +77,7 @@ p { text-wrap: pretty; }
 .vacancy-state { display: flex; align-items: center; gap: 8px; margin-right: auto; font-size: var(--text-meta); }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--positive); }
 .board-toolbar__ats { color: var(--ink-tertiary); font-size: var(--text-meta); }
-.kanban { display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); min-height: 520px; overflow-x: auto; border: 1px solid var(--border); border-radius: 0 0 var(--radius-panel) var(--radius-panel); background: var(--surface); }
+.kanban { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); min-height: 520px; overflow-x: auto; border: 1px solid var(--border); border-radius: 0 0 var(--radius-panel) var(--radius-panel); background: var(--surface); }
 .kanban-column { min-width: 220px; padding: 14px; }
 .kanban-column + .kanban-column { border-left: 1px solid var(--border); }
 .kanban-column__header { display: flex; align-items: center; justify-content: space-between; padding: 2px 2px 12px; }
@@ -87,10 +87,11 @@ p { text-wrap: pretty; }
 .candidate-card { min-height: 110px; padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-raised); transition: border-color var(--ease), transform var(--ease); }
 .candidate-card--interactive { width: 100%; text-align: left; text-decoration: none; color: inherit; }
 .candidate-card--interactive:hover { border-color: var(--accent); transform: translateY(-1px); }
-.candidate-card__top { display: flex; justify-content: space-between; gap: 10px; }
-.candidate-card strong { font-size: var(--text-body); }
+.candidate-card__top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.candidate-card strong { flex: 1; min-width: 0; font-size: var(--text-body); }
 .candidate-card p { margin-top: 12px; color: var(--ink); font-size: var(--text-meta); }
 .candidate-card__meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; color: var(--ink-tertiary); font-size: var(--text-body); }
+.candidate-card__action { margin-left: auto; display: flex; color: var(--ink-tertiary); }
 .candidate-card[data-tone="positive"] p { color: var(--positive); }
 .candidate-card[data-tone="warning"] p { color: var(--warning); }
 .candidate-card[data-tone="danger"] p { color: var(--danger); }
@@ -406,7 +407,7 @@ input:hover, textarea:hover { border-color: var(--border-strong); }
   .login-grid { grid-template-columns: 1fr; }
   .board-toolbar { align-items: flex-start; flex-direction: column; gap: 10px; padding: 14px; }
   .board-toolbar__ats { display: none; }
-  .kanban { grid-template-columns: repeat(5, 240px); }
+  .kanban { grid-template-columns: repeat(4, 240px); }
   .system-proposal, .decision-bar, .meeting-decision, .recalculate-row { align-items: flex-start; flex-direction: column; }
   .proposal-count { width: 100%; padding: 12px 0 0; border-top: 1px solid var(--border-strong); border-left: 0; }
   .report-glance, .rules-row { grid-template-columns: 1fr; }
@@ -473,6 +474,7 @@ input:hover, textarea:hover { border-color: var(--border-strong); }
 .vacancies-table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); border-radius: var(--radius-panel); overflow: hidden; background: var(--surface-raised); }
 .vacancies-table th, .vacancies-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); text-align: left; font-size: var(--text-body); }
 .vacancies-table th { color: var(--ink-tertiary); font-weight: 600; background: var(--surface-muted); }
+.vacancies-table th button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: inherit; cursor: pointer; }
 .section-divider { margin: 30px 0; border: none; border-top: 1px solid var(--border); }
 .vacancy-dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .stat-tile { display: grid; gap: 4px; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); text-align: left; }
@@ -489,6 +491,8 @@ input:hover, textarea:hover { border-color: var(--border-strong); }
 .vacancy-card__next-step { color: var(--ink-secondary); font-size: var(--text-meta); }
 .vacancy-card__candidates { color: var(--ink-tertiary); font-size: var(--text-meta); }
 .vacancy-card__created { color: var(--ink-tertiary); font-size: var(--text-meta); }
+.board-tabs { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.board-tabs .tabs { margin-bottom: 0; }
 .tabs { display: flex; gap: 4px; margin-bottom: 18px; }
 .candidates-table-section { display: grid; gap: 14px; }
 .tabs button { min-height: 32px; padding: 0 14px; border: 1px solid transparent; border-radius: var(--radius-pill); background: transparent; color: var(--ink-secondary); font-size: var(--text-meta); }
@@ -617,7 +621,7 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .workspace-subnav a[data-active="true"], .workspace-subnav span[data-active], .workspace-subnav button[data-active] { border-color: transparent; background: var(--surface-selected); color: var(--accent); }
 .workspace-subnav button:disabled { opacity: .5; cursor: default; }
 .workspace-subnav button:not(:disabled):hover { border-color: var(--border-strong); color: var(--ink); }
-.kanban { display: grid; grid-template-columns: repeat(5, minmax(180px, 1fr)); gap: 12px; overflow-x: auto; }
+.kanban { display: grid; grid-template-columns: repeat(4, minmax(220px, 1fr)); gap: 12px; overflow-x: auto; }
 .kanban__col { min-height: 240px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
 .kanban__col h2 { margin-bottom: 10px; font-size: var(--text-meta); color: var(--ink-secondary); }
 .queue-list { display: grid; gap: 10px; }

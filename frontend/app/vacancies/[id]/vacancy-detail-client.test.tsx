@@ -59,6 +59,23 @@ const baseVacancy = {
   questions: [],
 };
 
+const sampleQuestion = {
+  id: "q1",
+  vacancy_id: "v1",
+  interview_id: null,
+  text: "Explain GIL",
+  order: 0,
+  skill_tag: ["python"],
+  intent: "assess",
+  reference_answer: "...",
+  format: "voice" as const,
+  role: "assessment" as const,
+  difficulty: "baseline" as const,
+  estimated_duration_sec: 120,
+  stimulus: null,
+  source: "base_generated" as const,
+};
+
 const createdInvite = {
   interview: {
     id: "i1",
@@ -88,6 +105,7 @@ async function openInviteFormAndAttachResume() {
 
 describe("VacancyDetailClient", () => {
   beforeEach(() => {
+    window.localStorage.removeItem("recruiter-board-view");
     vi.mocked(loadLanding).mockResolvedValue({
       session: { token: "token", user: { id: "1", name: "Recruiter", email: "r@example.com", roles: ["recruiter"] } },
       landing: {
@@ -149,24 +167,7 @@ describe("VacancyDetailClient", () => {
     vi.mocked(loadVacancy).mockResolvedValue({
       ...baseVacancy,
       status: "active",
-      questions: [
-        {
-          id: "q1",
-          vacancy_id: "v1",
-          interview_id: null,
-          text: "Explain GIL",
-          order: 0,
-          skill_tag: ["python"],
-          intent: "assess",
-          reference_answer: "...",
-          format: "voice",
-          role: "assessment",
-          difficulty: "baseline",
-          estimated_duration_sec: 120,
-          stimulus: null,
-          source: "base_generated",
-        },
-      ],
+      questions: [sampleQuestion],
     });
     vi.mocked(loadInterviews).mockResolvedValue({
       items: [
@@ -188,8 +189,104 @@ describe("VacancyDetailClient", () => {
     expect(await screen.findByText("Сейчас в этой стадии никого нет")).toBeInTheDocument();
     expect(screen.queryByText("Никого не пригласили")).not.toBeInTheDocument();
     expect(screen.queryByText("Никого ещё не приглашали")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /открыть lida/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /открыть отчёт: lida/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /приостановить/i })).toBeInTheDocument();
+  });
+
+  it("hides the candidates tab and shows kanban/list switches on the dashboard", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({
+      ...baseVacancy,
+      status: "active",
+      questions: [sampleQuestion],
+    });
+
+    renderClient("v1");
+
+    await screen.findByRole("heading", { name: /backend developer/i });
+    expect(screen.queryByRole("tab", { name: /кандидаты/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Канбан" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Список" })).toBeInTheDocument();
+  });
+
+  it("shows a waiting-decision pill in the list instead of a dash-only status", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({
+      ...baseVacancy,
+      status: "active",
+      questions: [sampleQuestion],
+    });
+    vi.mocked(loadInterviews).mockResolvedValue({
+      items: [
+        {
+          id: "i1",
+          vacancy_id: "v1",
+          candidate_name: "Lida",
+          resume_file_url: "",
+          access_token: "t",
+          status: "completed",
+          created_at: "2026-01-01T00:00:00Z",
+          product_state: "report_ready",
+          recruiter_decision: "awaiting",
+        },
+      ],
+    });
+
+    renderClient("v1");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Список" }));
+    expect(await screen.findByText("Ждёт решения")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Метка" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /балл/i })).toBeInTheDocument();
+    const row = screen.getByRole("link", { name: "Lida" }).closest("tr");
+    expect(row).toHaveTextContent("Отчёт");
+    expect(row).toHaveTextContent("Ждёт решения");
+    expect(row?.querySelector("td:nth-child(3)")?.textContent).not.toBe("—");
+    expect(row?.querySelector("td:nth-child(4)")?.textContent).toBe("—");
+  });
+
+  it("shows compatibility percent with a % sign in the list score column", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({
+      ...baseVacancy,
+      status: "active",
+      questions: [sampleQuestion],
+    });
+    vi.mocked(loadInterviews).mockResolvedValue({
+      items: [
+        {
+          id: "i1",
+          vacancy_id: "v1",
+          candidate_name: "Lida",
+          resume_file_url: "",
+          access_token: "t",
+          status: "completed",
+          created_at: "2026-01-01T00:00:00Z",
+          product_state: "report_ready",
+          recruiter_decision: "awaiting",
+          report_json: {
+            generated_at: "2026-09-06T10:00:00Z",
+            model_version: "test/model",
+            prompt_version: "v1",
+            verdict: "fits",
+            overall_score: 50,
+            score_percent: 78,
+            per_question: [],
+            confirmed_skills: [],
+            unconfirmed_skills: [],
+            contradictions_found: [],
+            strengths: [],
+            risks: [],
+            summary_intro: null,
+            summary_conclusion: null,
+          },
+        },
+      ],
+    });
+
+    renderClient("v1");
+
+    expect(await screen.findByText("78%")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Список" }));
+    const row = (await screen.findByRole("link", { name: "Lida" })).closest("tr");
+    expect(row?.querySelector("td:nth-child(4)")?.textContent).toBe("78%");
   });
 
   it("shows a ready-to-send message with the invite link after creating an interview", async () => {

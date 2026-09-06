@@ -223,3 +223,109 @@ async def test_request_changes_from_calibration(client, monkeypatch: pytest.Monk
     assert response.status_code == 200
     assert response.json()["status"] == "changes_requested"
     assert response.json()["owner_next"] == "recruiter"
+
+
+async def _ready_interview(client, monkeypatch: pytest.MonkeyPatch) -> tuple[str, dict, dict, dict]:
+    _patch_llm(monkeypatch)
+    _patch_storage(monkeypatch)
+    recruiter_token = await register_recruiter(client)
+    await create_internal_user(
+        client, recruiter_token, email="combo@example.com", roles=["recruiter", "expert"]
+    )
+    combo_token = await login(client, "combo@example.com")
+    manager = await create_internal_user(
+        client, recruiter_token, email="manager@example.com", roles=["hiring_manager"]
+    )
+    vacancy = await _create_vacancy(client, combo_token)
+    await _activate(client, combo_token, vacancy["id"])
+    interview = await _create_interview(client, combo_token, vacancy["id"])
+    return combo_token, manager, vacancy, interview
+
+
+@pytest.mark.anyio
+async def test_grant_opinion_sets_decision(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    combo_token, manager, vacancy, interview = await _ready_interview(client, monkeypatch)
+    interview_id = interview["interview"]["id"]
+
+    grant = await client.post(
+        f"/api/v1/interviews/{interview_id}/opinion-grant",
+        headers={"Authorization": f"Bearer {combo_token}"},
+        json={"manager_id": manager["id"]},
+    )
+    assert grant.status_code == 200
+
+    listed = await client.get(
+        f"/api/v1/vacancies/{vacancy['id']}/interviews",
+        headers={"Authorization": f"Bearer {combo_token}"},
+    )
+    assert listed.status_code == 200
+    match = next(item for item in listed.json()["items"] if item["id"] == interview_id)
+    assert match["recruiter_decision"] == "opinion_asked"
+
+
+@pytest.mark.anyio
+async def test_reject_sets_decision(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    combo_token, _manager, vacancy, interview = await _ready_interview(client, monkeypatch)
+    interview_id = interview["interview"]["id"]
+
+    rejected = await client.post(
+        f"/api/v1/interviews/{interview_id}/reject",
+        headers={"Authorization": f"Bearer {combo_token}"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["recruiter_decision"] == "rejected"
+
+    listed = await client.get(
+        f"/api/v1/vacancies/{vacancy['id']}/interviews",
+        headers={"Authorization": f"Bearer {combo_token}"},
+    )
+    assert listed.status_code == 200
+    match = next(item for item in listed.json()["items"] if item["id"] == interview_id)
+    assert match["recruiter_decision"] == "rejected"
+
+
+@pytest.mark.anyio
+async def test_handoff_after_rejected_is_409(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    combo_token, manager, _vacancy, interview = await _ready_interview(client, monkeypatch)
+    interview_id = interview["interview"]["id"]
+
+    rejected = await client.post(
+        f"/api/v1/interviews/{interview_id}/reject",
+        headers={"Authorization": f"Bearer {combo_token}"},
+    )
+    assert rejected.status_code == 200
+
+    handoff = await client.post(
+        f"/api/v1/interviews/{interview_id}/handoff",
+        headers={"Authorization": f"Bearer {combo_token}"},
+        json={"to_manager_id": manager["id"], "summary": "Ready for review"},
+    )
+    assert handoff.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_handoff_after_opinion_asked_is_200(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    combo_token, manager, vacancy, interview = await _ready_interview(client, monkeypatch)
+    interview_id = interview["interview"]["id"]
+
+    grant = await client.post(
+        f"/api/v1/interviews/{interview_id}/opinion-grant",
+        headers={"Authorization": f"Bearer {combo_token}"},
+        json={"manager_id": manager["id"]},
+    )
+    assert grant.status_code == 200
+
+    handoff = await client.post(
+        f"/api/v1/interviews/{interview_id}/handoff",
+        headers={"Authorization": f"Bearer {combo_token}"},
+        json={"to_manager_id": manager["id"], "summary": "Ready for review"},
+    )
+    assert handoff.status_code == 200
+
+    listed = await client.get(
+        f"/api/v1/vacancies/{vacancy['id']}/interviews",
+        headers={"Authorization": f"Bearer {combo_token}"},
+    )
+    assert listed.status_code == 200
+    match = next(item for item in listed.json()["items"] if item["id"] == interview_id)
+    assert match["recruiter_decision"] == "handed_off"

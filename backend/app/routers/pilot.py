@@ -127,6 +127,19 @@ async def opinion_grant(
     return {"id": str(row.id)}
 
 
+@router.post("/interviews/{interview_id}/reject")
+async def reject_interview(
+    interview_id: UUID,
+    _: Annotated[InternalUser, Depends(require_recruiter)],
+    service: Annotated[PilotService, Depends(get_pilot)],
+) -> dict[str, Any]:
+    try:
+        interview = await service.reject(interview_id)
+    except PilotError as exc:
+        _raise(exc)
+    return InterviewResponse.model_validate(interview).model_dump(mode="json")
+
+
 def _manager_item(row: dict) -> dict[str, Any]:
     return {
         "interview": InterviewResponse.model_validate(row["interview"]).model_dump(mode="json"),

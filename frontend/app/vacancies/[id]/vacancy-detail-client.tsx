@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Copy, Paperclip, X } from "@phosphor-icons/react";
+import { Check, Copy, FileText, List, Paperclip, SquaresFour, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -31,28 +31,41 @@ import {
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
 import { buildNav, gradeLabel, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
-import { groupInterviews, interviewColumn, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
-import { vacancyScoreRange, interviewScore, isReportProcessing } from "@/lib/report";
+import {
+  formatRankingScore,
+  groupInterviews,
+  interviewColumn,
+  interviewMark,
+  rankingScore,
+  sortByRanking,
+  KANBAN_COLUMNS,
+  type KanbanColumnId,
+} from "@/lib/pipeline";
+import { vacancyScoreRange } from "@/lib/report";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
 const LOCKED_STATUSES = new Set(["approved", "active", "paused", "archived", "ready"]);
 
 /** Пустая колонка говорит, чего в ней ждать, а не молчит белым полем. */
-const COLUMN_EMPTY: Record<string, string> = {
+const COLUMN_EMPTY: Record<KanbanColumnId, string> = {
   invited: "Никого ещё не приглашали",
-  live: "Сейчас никто не отвечает",
-  action: "Ничего не ждёт вашего вмешательства",
-  decide: "Готовых отчётов нет",
-  done: "Решений пока не было",
+  interviewed: "Никто ещё не закончил",
+  evaluated: "Готовых отчётов нет",
+  done: "Пока никого не закрыли",
 };
 const STAGE_EMPTY_NOW = "Сейчас в этой стадии никого нет";
+const BOARD_VIEW_KEY = "recruiter-board-view";
 
-function emptyColumnCopy(columnId: string, totalInterviews: number): string {
+function emptyColumnCopy(columnId: KanbanColumnId, totalInterviews: number): string {
   if (columnId === "invited" && totalInterviews > 0) {
     return STAGE_EMPTY_NOW;
   }
   return COLUMN_EMPTY[columnId];
+}
+
+function columnTitle(columnId: KanbanColumnId): string {
+  return KANBAN_COLUMNS.find((column) => column.id === columnId)?.title ?? columnId;
 }
 
 const HIRING_MANAGER_AREA = "area.hiring_manager_review";
@@ -103,7 +116,9 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
   const [invitedCandidateName, setInvitedCandidateName] = useState("");
   const [inviteMessageCopied, setInviteMessageCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "questions" | "candidates" | null>(null);
+  const [activeTab, setActiveTab] = useState<"dashboard" | "questions" | null>(null);
+  const [boardView, setBoardView] = useState<"kanban" | "list">("kanban");
+  const [scoreSort, setScoreSort] = useState<"asc" | "desc">("desc");
   const [candidateSearch, setCandidateSearch] = useState("");
   const [candidateStageFilter, setCandidateStageFilter] = useState("all");
 
@@ -173,6 +188,27 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landing, vacancyId, showAnonymized, canManage]);
 
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(BOARD_VIEW_KEY);
+      if (stored === "kanban" || stored === "list") {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setBoardView(stored);
+      }
+    } catch {
+      // localStorage может быть недоступен — остаёмся на канбане.
+    }
+  }, []);
+
+  function handleBoardView(next: "kanban" | "list") {
+    setBoardView(next);
+    try {
+      window.localStorage.setItem(BOARD_VIEW_KEY, next);
+    } catch {
+      // Вид всё равно меняется в этой сессии.
+    }
+  }
+
   const grouped = useMemo(() => groupInterviews(interviews), [interviews]);
   const filteredCandidates = useMemo(() => {
     const needle = candidateSearch.trim().toLowerCase();
@@ -183,6 +219,13 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
       return matchesStage && matchesSearch;
     });
   }, [interviews, candidateSearch, candidateStageFilter]);
+  const listedCandidates = useMemo(() => {
+    const ranked = sortByRanking(filteredCandidates);
+    if (scoreSort === "desc") return ranked;
+    const scored = ranked.filter((item) => rankingScore(item) != null);
+    const rest = ranked.filter((item) => rankingScore(item) == null);
+    return [...scored.reverse(), ...rest];
+  }, [filteredCandidates, scoreSort]);
   const canInvite = vacancy?.status === "active";
   const showPause = canManage && vacancy?.status === "active";
   const showResume = canManage && vacancy?.status === "paused";
@@ -458,31 +501,47 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
               {actionError ? <p className="form-error">{actionError}</p> : null}
             </section>
 
-            <div className="tabs" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                data-active={effectiveTab === "questions" ? "true" : undefined}
-                onClick={() => setActiveTab("questions")}
-              >
-                Вопросы
-              </button>
-              <button
-                type="button"
-                role="tab"
-                data-active={effectiveTab === "dashboard" ? "true" : undefined}
-                onClick={() => setActiveTab("dashboard")}
-              >
-                Дашборд
-              </button>
-              <button
-                type="button"
-                role="tab"
-                data-active={effectiveTab === "candidates" ? "true" : undefined}
-                onClick={() => setActiveTab("candidates")}
-              >
-                Кандидаты
-              </button>
+            <div className="board-tabs">
+              <div className="tabs" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  data-active={effectiveTab === "questions" ? "true" : undefined}
+                  onClick={() => setActiveTab("questions")}
+                >
+                  Вопросы
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  data-active={effectiveTab === "dashboard" ? "true" : undefined}
+                  onClick={() => setActiveTab("dashboard")}
+                >
+                  Дашборд
+                </button>
+              </div>
+              {effectiveTab === "dashboard" && vacancy.questions.length > 0 && !showAnonymized ? (
+                <span className="density-switch">
+                  <button
+                    type="button"
+                    title="Канбан"
+                    aria-label="Канбан"
+                    data-active={boardView === "kanban" ? "true" : undefined}
+                    onClick={() => handleBoardView("kanban")}
+                  >
+                    <SquaresFour size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Список"
+                    aria-label="Список"
+                    data-active={boardView === "list" ? "true" : undefined}
+                    onClick={() => handleBoardView("list")}
+                  >
+                    <List size={16} />
+                  </button>
+                </span>
+              ) : null}
             </div>
 
             {effectiveTab === "questions" ? (
@@ -504,98 +563,6 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                   </Button>
                 }
               />
-            ) : effectiveTab === "candidates" ? (
-              <section className="candidates-table-section">
-                <Toolbar>
-                  <SearchField
-                    className="search-field--grow"
-                    label="Поиск по имени кандидата"
-                    placeholder="Поиск кандидата"
-                    value={candidateSearch}
-                    onChange={setCandidateSearch}
-                  />
-                  <SelectField
-                    label="Стадия"
-                    value={candidateStageFilter}
-                    onChange={setCandidateStageFilter}
-                    options={[
-                      { value: "all", label: "Любая стадия" },
-                      ...KANBAN_COLUMNS.map((column) => ({ value: column.id, label: column.title })),
-                    ]}
-                  />
-                </Toolbar>
-                {interviewsLoading ? (
-                  <ScreenState kind="loading" title="Загрузка" text="Загружаем кандидатов…" />
-                ) : interviewsError ? (
-                  <ScreenState
-                    kind="error"
-                    title="Не удалось загрузить интервью"
-                    text={interviewsError}
-                    action={
-                      <Button type="button" variant="secondary" onClick={() => void refreshInterviews()}>
-                        Повторить
-                      </Button>
-                    }
-                  />
-                ) : filteredCandidates.length === 0 ? (
-                  <ScreenState
-                    kind="empty"
-                    title="Никого не нашли"
-                    text="Снимите фильтры или измените поиск."
-                  />
-                ) : (
-                  <table className="vacancies-table">
-                    <thead>
-                      <tr>
-                        <th>Имя</th>
-                        <th>Стадия</th>
-                        <th>Оценка</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredCandidates.map((interview) => {
-                        const name = interview.candidate_name ?? "Без имени";
-                        const score = interviewScore(interview);
-                        return (
-                          <tr key={interview.id}>
-                            <td>{name}</td>
-                            <td>{interviewStageLabel(interview)}</td>
-                            <td>
-                              {score ? (
-                                <span className="candidate-score">
-                                  {score.percent != null ? (
-                                    <>
-                                      <i data-tone={score.verdict ?? "none"} />
-                                      <b className="candidate-score__value" data-tone={score.verdict ?? "none"}>
-                                        {score.percent}%
-                                      </b>
-                                    </>
-                                  ) : (
-                                    <span className="muted-copy">—</span>
-                                  )}
-                                </span>
-                              ) : (
-                                <span className="muted-copy">
-                                  {isReportProcessing(interview) ? "Отчёт готовится" : "—"}
-                                </span>
-                              )}
-                            </td>
-                            <td>
-                              <Link
-                                href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
-                                aria-label={`Открыть ${name}`}
-                              >
-                                Открыть
-                              </Link>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </section>
             ) : showAnonymized ? (
               <section className="plain-section">
                 <h2>Сводка без имён</h2>
@@ -637,7 +604,81 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                   />
                 ) : null}
 
-                {!interviewsLoading && !interviewsError ? (
+                {!interviewsLoading && !interviewsError && boardView === "list" ? (
+                  <section className="candidates-table-section">
+                    <Toolbar>
+                      <SearchField
+                        className="search-field--grow"
+                        label="Поиск по имени кандидата"
+                        placeholder="Поиск кандидата"
+                        value={candidateSearch}
+                        onChange={setCandidateSearch}
+                      />
+                      <SelectField
+                        label="Стадия"
+                        value={candidateStageFilter}
+                        onChange={setCandidateStageFilter}
+                        options={[
+                          { value: "all", label: "Любая стадия" },
+                          ...KANBAN_COLUMNS.map((column) => ({ value: column.id, label: column.title })),
+                        ]}
+                      />
+                    </Toolbar>
+                    {listedCandidates.length === 0 ? (
+                      <ScreenState
+                        kind="empty"
+                        title="Никого не нашли"
+                        text="Снимите фильтры или измените поиск."
+                      />
+                    ) : (
+                      <table className="vacancies-table">
+                        <thead>
+                          <tr>
+                            <th>Имя</th>
+                            <th>Стадия</th>
+                            <th>Метка</th>
+                            <th>
+                              <button
+                                type="button"
+                                onClick={() => setScoreSort((current) => (current === "desc" ? "asc" : "desc"))}
+                              >
+                                Балл {scoreSort === "desc" ? "↓" : "↑"}
+                              </button>
+                            </th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {listedCandidates.map((interview) => {
+                            const name = interview.candidate_name ?? "Без имени";
+                            const mark = interviewMark(interview);
+                            const score = rankingScore(interview);
+                            const reportHref = `/vacancies/${vacancyId}/candidates/${interview.id}`;
+                            return (
+                              <tr key={interview.id}>
+                                <td>
+                                  <Link href={reportHref}>{name}</Link>
+                                </td>
+                                <td>{columnTitle(interviewColumn(interview))}</td>
+                                <td>
+                                  <StatusPill tone={mark.tone}>{mark.label}</StatusPill>
+                                </td>
+                                <td>{score != null ? `${formatRankingScore(score)}%` : "—"}</td>
+                                <td>
+                                  <Link href={reportHref} aria-label={`Открыть отчёт: ${name}`}>
+                                    <FileText size={16} />
+                                  </Link>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </section>
+                ) : null}
+
+                {!interviewsLoading && !interviewsError && boardView === "kanban" ? (
                   <>
                     <section className="kanban" aria-label="Кандидаты по этапам">
                       {KANBAN_COLUMNS.map((column) => {
@@ -656,27 +697,15 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                               ) : (
                                 items.map((interview) => {
                                   const name = interview.candidate_name ?? "Без имени";
-                                  const score = interviewScore(interview);
+                                  const mark = interviewMark(interview);
                                   return (
                                     <CandidateCard
                                       key={interview.id}
                                       name={name}
-                                      stage={interviewStageLabel(interview)}
+                                      mark={<StatusPill tone={mark.tone}>{mark.label}</StatusPill>}
+                                      score={rankingScore(interview)}
                                       href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
-                                      action="Открыть"
-                                      status={
-                                        score?.percent != null ? (
-                                          <span className="candidate-score">
-                                            <i data-tone={score.verdict ?? "none"} />
-                                            <b
-                                              className="candidate-score__value"
-                                              data-tone={score.verdict ?? "none"}
-                                            >
-                                              {score.percent}%
-                                            </b>
-                                          </span>
-                                        ) : undefined
-                                      }
+                                      action={`Открыть отчёт: ${name}`}
                                     />
                                   );
                                 })
