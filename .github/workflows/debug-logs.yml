@@ -92,26 +92,43 @@ jobs:
               return [ev.frame async for ev in tts.synthesize(PHRASE)]
 
 
-          async def probe_stt(frames: list) -> None:
-              """Тот же класс и параметры, что боевой путь — _OpenRouterSTT шлёт
-              response_format=json вместо verbose_json, который OpenRouter отбивает 400."""
-              stt = _OpenRouterSTT(
+          # id моделей для проверки STT — тем же _OpenRouterSTT (боевой путь:
+          # /audio/transcriptions + response_format=json). Список правится здесь, чтобы
+          # подобрать модель, которая И принимается OpenRouter, И проходит pre-flight
+          # проверку баланса (для дорогих аудио-моделей нужно >= $0.50 на счету).
+          STT_MODELS = [
+              m.strip()
+              for m in (
+                  os.environ.get("STT_PROBE_MODELS")
+                  or f"{os.environ.get('STT_MODEL', 'whisper-1')},mistralai/voxtral-small-24b-2507-stt"
+              ).split(",")
+              if m.strip()
+          ]
+
+
+          async def probe_stt(frames: list, model: str, *, with_prompt: bool) -> None:
+              kwargs = dict(
                   base_url=os.environ["STT_BASE_URL"],
                   api_key=os.environ["STT_API_KEY"],
-                  model=os.environ.get("STT_MODEL", "whisper-1"),
+                  model=model,
                   language=os.environ.get("STT_LANGUAGE", "ru"),
               )
+              if with_prompt:
+                  kwargs["prompt"] = "Kafka, RabbitMQ, idempotency, dead-letter queue"
+              stt = _OpenRouterSTT(**kwargs)
+              tag = f"{model} (prompt={'on' if with_prompt else 'off'})"
               try:
                   ev = await stt.recognize(frames)
               except Exception as exc:
-                  print(f"STT FAILED: {type(exc).__name__}: {exc}")
+                  print(f"STT {tag} FAILED: {type(exc).__name__}: {exc}")
               else:
-                  print(f"STT OK: {ev.alternatives[0].text!r}")
+                  print(f"STT {tag} OK: {ev.alternatives[0].text!r}")
 
 
           async def main() -> None:
               for name in ("TTS_BASE_URL", "TTS_MODEL", "TTS_VOICE", "STT_BASE_URL", "STT_MODEL"):
                   print(f"{name:13}=", os.environ.get(name))
+              print("STT_MODELS   =", STT_MODELS)
               try:
                   frames = await probe_tts()
               except Exception as exc:
@@ -119,6 +136,8 @@ jobs:
                   return
               total = sum(f.samples_per_channel for f in frames)
               print(f"TTS OK: {len(frames)} frames, {total} samples")
-              await probe_stt(frames)
+              for model in STT_MODELS:
+                  await probe_stt(frames, model, with_prompt=False)
+                  await probe_stt(frames, model, with_prompt=True)
           asyncio.run(main())
           PY

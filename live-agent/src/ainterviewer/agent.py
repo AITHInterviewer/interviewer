@@ -235,7 +235,7 @@ class _OpenRouterSTT(lk_openai.STT):
         }
         if lang:
             request["language"] = lang
-        if is_given(self._opts.prompt):
+        if is_given(self._opts.prompt) and self._opts.prompt:
             request["prompt"] = self._opts.prompt
         resp = await self._client.audio.transcriptions.create(**request)
         return lk_stt.SpeechEvent(
