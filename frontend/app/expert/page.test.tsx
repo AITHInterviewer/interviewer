@@ -69,7 +69,7 @@ describe("ExpertHomePage", () => {
 
     expect(await screen.findByRole("heading", { name: /вакансии на калибровке/i })).toBeInTheDocument();
     expect(screen.getByText(/backend developer/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /проверить комплект/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /проверить требования/i })).toHaveAttribute(
       "href",
       "/vacancies/v1/rubric",
     );

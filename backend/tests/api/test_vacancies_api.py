@@ -14,23 +14,43 @@ from tests.conftest import create_internal_user, login, register_recruiter
 
 
 def _patch_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Комплект собирается из требований вакансии — по одному assessment-вопросу на
+    включённое требование, как того требует проверка покрытия в approve."""
+
     async def fake_generate_questions(self, vacancy) -> GeneratedQuestionSet:
+        checked = [item for item in (vacancy.requirements or []) if item.get("checked")]
+        names = [item["name"] for item in checked] or list(vacancy.required_skills)
         return GeneratedQuestionSet(
             questions=[
                 GeneratedQuestion(text="Разогрев", role="warmup", estimated_duration_sec=120),
-                GeneratedQuestion(
-                    text="Про индексы",
-                    role="assessment",
-                    skill_tag=["postgres"],
-                    intent="intent",
-                    reference_answer="reference",
-                    estimated_duration_sec=180,
-                ),
+                *[
+                    GeneratedQuestion(
+                        text=f"Вопрос про {name}",
+                        role="assessment",
+                        skill_tag=[name],
+                        intent="intent",
+                        reference_answer="reference",
+                        estimated_duration_sec=180,
+                    )
+                    for name in names
+                ],
                 GeneratedQuestion(text="Заключение", role="closing", estimated_duration_sec=120),
             ]
         )
 
     monkeypatch.setattr(VacancyLLMService, "generate_questions", fake_generate_questions)
+
+
+# Три включённых требования — минимум, с которым вакансию пускают к эксперту
+# (VacancyService.MIN_CHECKED_REQUIREMENTS).
+_REQUIREMENTS = [
+    {"id": "req_0", "name": "Python", "kind": "must", "level": "confident", "checked": True,
+     "evidence": "Опыт работы с Python", "source": "llm"},
+    {"id": "req_1", "name": "PostgreSQL", "kind": "must", "level": "expert", "checked": True,
+     "evidence": "PostgreSQL — проектирование схем", "source": "llm"},
+    {"id": "req_2", "name": "Docker", "kind": "must", "level": "basic", "checked": True,
+     "evidence": "Docker — контейнеризация", "source": "llm"},
+]
 
 
 def _patch_storage(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -48,6 +68,7 @@ async def _create_vacancy(client, token: str) -> dict:
             "description": "...",
             "grade": "middle",
             "required_skills": ["python"],
+            "requirements": _REQUIREMENTS,
         },
     )
     assert response.status_code == 201
@@ -116,19 +137,10 @@ async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.Monkey
 
     vacancy = await _create_vacancy(client, combo_token)
     vacancy_id = vacancy["id"]
-    assert vacancy["status"] == "draft"
-
-    generate_response = await client.post(
-        f"/api/v1/vacancies/{vacancy_id}/questions/generate",
-        headers={"Authorization": f"Bearer {combo_token}"},
-    )
-    assert generate_response.status_code == 200
-    assert len(generate_response.json()["questions"]) == 3
-
-    get_response = await client.get(
-        f"/api/v1/vacancies/{vacancy_id}", headers={"Authorization": f"Bearer {combo_token}"}
-    )
-    assert get_response.json()["status"] == "extracted"
+    # Вакансия создаётся сразу с требованиями — значит описание уже разобрано.
+    assert vacancy["status"] == "extracted"
+    assert [item["name"] for item in vacancy["requirements"]] == ["Python", "PostgreSQL", "Docker"]
+    assert vacancy["required_skills"] == ["Python", "PostgreSQL", "Docker"]
 
     send_response = await client.post(
         f"/api/v1/vacancies/{vacancy_id}/send-to-expert",
@@ -145,6 +157,12 @@ async def test_full_vacancy_to_interview_flow(client, monkeypatch: pytest.Monkey
     )
     assert approve_response.status_code == 200
     assert approve_response.json()["status"] == "active"
+    # Комплект собрался при одобрении: по вопросу на каждое требование + разогрев/закрытие.
+    approved_questions = approve_response.json()["questions"]
+    assert len(approved_questions) == 5
+    assert sorted(
+        tag for q in approved_questions if q["role"] == "assessment" for tag in q["skill_tag"]
+    ) == ["Docker", "PostgreSQL", "Python"]
 
     locked_response = await client.patch(
         f"/api/v1/vacancies/{vacancy_id}",

@@ -14,12 +14,20 @@ vi.mock("@/lib/auth", async () => {
   return {
     ...actual,
     loadLanding: vi.fn(),
+    loadInternalUsers: vi.fn(),
     createManagedVacancy: vi.fn(),
-    generateVacancyQuestions: vi.fn(),
+    extractVacancyRequirements: vi.fn(),
+    sendManagedVacancyToExpert: vi.fn(),
   };
 });
 
-import { createManagedVacancy, generateVacancyQuestions, loadLanding } from "@/lib/auth";
+import {
+  createManagedVacancy,
+  extractVacancyRequirements,
+  loadInternalUsers,
+  loadLanding,
+  sendManagedVacancyToExpert,
+} from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import { ToastProvider } from "@/lib/toast";
 import NewVacancyPage from "./page";
@@ -34,42 +42,64 @@ function renderPage() {
   );
 }
 
-const created = {
+const DESCRIPTION = "Middle+ Python Developer\nТребования: Python от 5 лет, PostgreSQL, Docker";
+
+function requirement(id: string, name: string, checked = true) {
+  return {
+    id,
+    name,
+    kind: "must" as const,
+    level: "confident" as const,
+    checked,
+    evidence: `«${name}»`,
+    source: "llm" as const,
+  };
+}
+
+const EXTRACTED = {
+  title: "Python Developer",
+  grade: "middle_plus",
+  description: DESCRIPTION,
+  description_file_name: null,
+  requirements: [
+    requirement("req_0", "Python"),
+    requirement("req_1", "PostgreSQL"),
+    requirement("req_2", "Docker"),
+    requirement("req_3", "gRPC", false),
+  ],
+  excluded: [{ text: "Удалённая работа", reason: "условия работы" }],
+  warnings: ["В заголовке Middle+, а Python требуется от 5 лет"],
+};
+
+const CREATED = {
   id: "v1",
   recruiter_id: "r1",
-  title: "Backend Developer",
-  description: "Build things",
-  grade: "middle",
-  required_skills: ["python", "sql"],
-  nice_to_have_skills: ["docker"],
+  title: "Python Developer",
+  description: DESCRIPTION,
+  grade: "middle_plus",
+  required_skills: ["Python", "PostgreSQL", "Docker", "gRPC"],
+  nice_to_have_skills: [],
+  requirements: EXTRACTED.requirements,
   status: "extracted" as const,
   created_at: "2026-01-01T00:00:00Z",
-  questions: [
-    {
-      id: "q1",
-      vacancy_id: "v1",
-      interview_id: null,
-      text: "Explain GIL",
-      order: 0,
-      skill_tag: ["python"],
-      intent: "assess",
-      reference_answer: "...",
-      format: "voice" as const,
-      role: "assessment" as const,
-      difficulty: "baseline" as const,
-      estimated_duration_sec: 120,
-      stimulus: null,
-      source: "base_generated" as const,
-    },
-  ],
+  questions: [],
 };
+
+async function extractFromPastedText() {
+  fireEvent.change(await screen.findByLabelText(/описание вакансии/i), {
+    target: { value: DESCRIPTION },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /извлечь требования/i }));
+}
 
 describe("NewVacancyPage", () => {
   beforeEach(() => {
     push.mockReset();
     replace.mockReset();
     vi.mocked(createManagedVacancy).mockReset();
-    vi.mocked(generateVacancyQuestions).mockReset();
+    vi.mocked(extractVacancyRequirements).mockReset();
+    vi.mocked(sendManagedVacancyToExpert).mockReset();
+    vi.mocked(loadInternalUsers).mockResolvedValue({ items: [] });
     vi.mocked(loadLanding).mockResolvedValue({
       session: { token: "token", user: { id: "1", name: "Recruiter", email: "r@example.com", roles: ["recruiter"] } },
       landing: {
@@ -97,55 +127,82 @@ describe("NewVacancyPage", () => {
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/vacancies"));
   });
 
-  it("creates a vacancy, generates questions and redirects to the vacancy page", async () => {
-    vi.mocked(createManagedVacancy).mockResolvedValue(created);
-    vi.mocked(generateVacancyQuestions).mockResolvedValue(created);
-
+  it("не даёт извлекать требования из пустого описания", async () => {
     renderPage();
 
-    fireEvent.change(await screen.findByLabelText(/название/i), { target: { value: "Backend Developer" } });
-    fireEvent.change(screen.getByLabelText(/описание/i), { target: { value: "Build things" } });
-    fireEvent.change(screen.getByLabelText(/грейд/i), { target: { value: "middle" } });
-    fireEvent.change(screen.getByLabelText(/обязательные навыки/i), { target: { value: "python, sql, docker," } });
-    fireEvent.change(screen.getByLabelText(/желательные навыки/i), { target: { value: "docker," } });
+    const button = await screen.findByRole("button", { name: /извлечь требования/i });
+    expect(button).toBeDisabled();
+    expect(screen.getByText(/вставьте описание или приложите pdf/i)).toBeInTheDocument();
+  });
 
-    fireEvent.submit(screen.getByRole("button", { name: /создать вакансию/i }).closest("form")!);
+  it("извлекает требования из вставленного текста и показывает предупреждения модели", async () => {
+    vi.mocked(extractVacancyRequirements).mockResolvedValue(EXTRACTED);
+
+    renderPage();
+    await extractFromPastedText();
+
+    await waitFor(() =>
+      expect(extractVacancyRequirements).toHaveBeenCalledWith({ description: DESCRIPTION }),
+    );
+    // Название и грейд подставились из описания — руками их не вводили.
+    expect(await screen.findByDisplayValue("Python Developer")).toBeInTheDocument();
+    expect(screen.getByText(/python требуется от 5 лет/i)).toBeInTheDocument();
+    // Отброшенное не потерялось.
+    expect(screen.getByText(/не вошло в требования — 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 из 4 проверяем на интервью/i)).toBeInTheDocument();
+  });
+
+  it("создаёт вакансию с требованиями и отправляет её эксперту", async () => {
+    vi.mocked(extractVacancyRequirements).mockResolvedValue(EXTRACTED);
+    vi.mocked(createManagedVacancy).mockResolvedValue(CREATED);
+    vi.mocked(sendManagedVacancyToExpert).mockResolvedValue(CREATED);
+
+    renderPage();
+    await extractFromPastedText();
+
+    fireEvent.click(await screen.findByRole("button", { name: /отправить эксперту/i }));
 
     await waitFor(() =>
       expect(createManagedVacancy).toHaveBeenCalledWith({
-        title: "Backend Developer",
-        description: "Build things",
-        grade: "middle",
-        requiredSkills: ["python", "sql", "docker"],
-        niceToHaveSkills: ["docker"],
+        title: "Python Developer",
+        description: DESCRIPTION,
+        grade: "middle_plus",
+        requiredSkills: [],
+        niceToHaveSkills: [],
+        requirements: EXTRACTED.requirements,
+        descriptionSource: "text",
+        descriptionFileName: null,
         expertId: null,
         hiringManagerId: null,
       }),
     );
-    await waitFor(() => expect(generateVacancyQuestions).toHaveBeenCalledWith("v1"));
-    expect(await screen.findByText(/backend developer.*создана, вопросы собраны/i)).toBeInTheDocument();
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/vacancies/v1"));
+    await waitFor(() => expect(sendManagedVacancyToExpert).toHaveBeenCalledWith("v1"));
+    expect(await screen.findByText(/ушла эксперту на калибровку/i)).toBeInTheDocument();
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/vacancies/v1/rubric"));
   });
 
-  it("sends the recruiter to the vacancy page with a toast when question generation fails", async () => {
-    vi.mocked(createManagedVacancy).mockResolvedValue(created);
-    vi.mocked(generateVacancyQuestions).mockRejectedValueOnce(new Error("generation failed"));
+  it("блокирует отправку, пока проверяемых требований меньше трёх", async () => {
+    vi.mocked(extractVacancyRequirements).mockResolvedValue({
+      ...EXTRACTED,
+      requirements: [requirement("req_0", "Python"), requirement("req_1", "PostgreSQL", false)],
+    });
 
     renderPage();
+    await extractFromPastedText();
 
-    fireEvent.change(await screen.findByLabelText(/название/i), { target: { value: "Backend Developer" } });
-    fireEvent.change(screen.getByLabelText(/описание/i), { target: { value: "Build things" } });
-    fireEvent.change(screen.getByLabelText(/грейд/i), { target: { value: "middle" } });
-    fireEvent.change(screen.getByLabelText(/обязательные навыки/i), { target: { value: "python, sql, docker," } });
-    fireEvent.change(screen.getByLabelText(/желательные навыки/i), { target: { value: "docker," } });
+    const send = await screen.findByRole("button", { name: /отправить эксперту/i });
+    expect(send).toBeDisabled();
+    expect(screen.getByText(/включите хотя бы 3 требования — сейчас 1/i)).toBeInTheDocument();
+    expect(createManagedVacancy).not.toHaveBeenCalled();
+  });
 
-    fireEvent.submit(screen.getByRole("button", { name: /создать вакансию/i }).closest("form")!);
+  it("объясняет скан по-человечески и не теряет описание", async () => {
+    vi.mocked(extractVacancyRequirements).mockRejectedValue(new Error("pdf_no_text_layer"));
 
-    expect(
-      await screen.findByText(/backend developer.*создана, но вопросы не собрались/i),
-    ).toBeInTheDocument();
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/vacancies/v1"));
-    expect(createManagedVacancy).toHaveBeenCalledTimes(1);
-    expect(generateVacancyQuestions).toHaveBeenCalledTimes(1);
+    renderPage();
+    await extractFromPastedText();
+
+    expect(await screen.findByText(/это скан: в файле нет текста/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/описание вакансии/i)).toHaveValue(DESCRIPTION);
   });
 });

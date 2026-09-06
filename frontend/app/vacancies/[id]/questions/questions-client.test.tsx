@@ -105,16 +105,15 @@ describe("VacancyQuestionsClient", () => {
     expect(screen.queryByRole("button", { name: /утвердить версию/i })).not.toBeInTheDocument();
   });
 
-  it("lets an expert approve the vacancy", async () => {
+  it("не даёт утверждать вакансию с экрана вопросов", async () => {
+    // Утверждение переехало на экран требований: эксперт одобряет список, а комплект —
+    // уже следствие (specs/010-vacancy-from-description).
     vi.mocked(loadLanding).mockResolvedValue(landingWithEdit());
-    vi.mocked(approveManagedVacancy).mockResolvedValue({ ...baseVacancy, status: "ready" });
 
     renderClient("v1");
 
-    const approveButton = await screen.findByRole("button", { name: /утвердить версию/i });
-    fireEvent.click(approveButton);
-
-    await waitFor(() => expect(approveManagedVacancy).toHaveBeenCalledWith("v1"));
-    await waitFor(() => expect(screen.getByText(/версия утверждена/i)).toBeInTheDocument());
+    expect(await screen.findByText(/explain gil/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /утвердить версию/i })).not.toBeInTheDocument();
+    expect(approveManagedVacancy).not.toHaveBeenCalled();
   });
 });

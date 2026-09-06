@@ -20,7 +20,6 @@ import { QuestionsPanel } from "@/components/vacancies/QuestionsPanel";
 import type { AnonymizedStats, InternalUser, Interview, VacancyDetail } from "@/lib/api";
 import {
   createManagedInterview,
-  generateVacancyQuestions,
   getSession,
   loadAnonymizedStats,
   loadInterviews,
@@ -99,7 +98,6 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const [interviewFormSubmitting, setInterviewFormSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
-  const [generating, setGenerating] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
@@ -301,21 +299,6 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     }
   }
 
-  async function handleGenerateQuestions() {
-    setGenerating(true);
-    setActionError(null);
-    try {
-      await generateVacancyQuestions(vacancyId);
-      // Эндпоинт возвращает только сгенерированные вопросы, не всю вакансию —
-      // перечитываем детали целиком, чтобы не разъезжались статус/грейд/т.д.
-      await refreshVacancy();
-    } catch (caughtError) {
-      setActionError(normalizeError(caughtError, "Не удалось собрать вопросы."));
-    } finally {
-      setGenerating(false);
-    }
-  }
-
   if (loading || !landing) {
     return (
       <main className="workspace">
@@ -505,13 +488,9 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
             {effectiveTab === "questions" ? (
               <QuestionsPanel
                 vacancyId={vacancyId}
-                vacancyStatus={vacancy.status}
-                requiredSkills={vacancy.required_skills}
                 questions={vacancy.questions}
                 canManage={canManageQuestions}
                 canEditContent={canEditQuestionContent}
-                generating={generating}
-                onGenerate={() => void handleGenerateQuestions()}
                 onQuestionsChanged={refreshVacancy}
               />
             ) : vacancy.questions.length === 0 ? (

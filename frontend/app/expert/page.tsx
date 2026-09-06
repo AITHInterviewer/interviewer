@@ -77,10 +77,12 @@ export default function ExpertHomePage() {
                         <strong>{vacancy.title}</strong>
                         <span className="muted-copy">{vacancy.grade}</span>
                       </div>
-                      <p className="muted-copy">Требований: {vacancy.required_skills.length}</p>
+                      <p className="muted-copy">
+                        Требований: {(vacancy.requirements ?? []).filter((item) => item.checked).length}
+                      </p>
                       <div className="form-actions">
                         <Button asChild>
-                          <Link href={`/vacancies/${vacancy.id}/rubric`}>Проверить комплект</Link>
+                          <Link href={`/vacancies/${vacancy.id}/rubric`}>Проверить требования</Link>
                         </Button>
                       </div>
                     </article>

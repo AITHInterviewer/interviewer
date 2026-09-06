@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
@@ -24,12 +25,6 @@ import { buildNav, GRADE_OPTIONS, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } fro
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 
-function splitSkills(value: string): string[] {
-  return value
-    .split(",")
-    .map((skill) => skill.trim())
-    .filter((skill) => skill.length > 0);
-}
 
 export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   const { landing, loading } = useProtectedLanding({ requiredArea: RECRUITER_AREA });
@@ -42,8 +37,6 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [grade, setGrade] = useState("");
-  const [requiredSkills, setRequiredSkills] = useState("");
-  const [niceToHaveSkills, setNiceToHaveSkills] = useState("");
   const [expertId, setExpertId] = useState<string | null>(null);
   const [hiringManagerId, setHiringManagerId] = useState<string | null>(null);
   const [users, setUsers] = useState<InternalUser[]>([]);
@@ -69,8 +62,6 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
         setTitle(detail.title);
         setDescription(detail.description);
         setGrade(detail.grade);
-        setRequiredSkills(detail.required_skills.join(", "));
-        setNiceToHaveSkills(detail.nice_to_have_skills.join(", "));
         setExpertId(detail.expert_id ?? null);
         setHiringManagerId(detail.hiring_manager_id ?? null);
       })
@@ -142,8 +133,6 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
         title,
         description,
         grade,
-        requiredSkills: splitSkills(requiredSkills),
-        niceToHaveSkills: splitSkills(niceToHaveSkills),
         expertId,
         hiringManagerId,
       });
@@ -245,22 +234,11 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
                 ))}
               </select>
             </label>
-            <label>
-              Обязательные навыки
-              <input
-                value={requiredSkills}
-                onChange={(event) => setRequiredSkills(event.target.value)}
-                placeholder="python, sql"
-              />
-            </label>
-            <label>
-              Желательные навыки
-              <input
-                value={niceToHaveSkills}
-                onChange={(event) => setNiceToHaveSkills(event.target.value)}
-                placeholder="docker, kubernetes"
-              />
-            </label>
+            {/* Состав требований живёт на своём экране — здесь его дублировать нельзя:
+                required_skills теперь производные от требований и перезапишутся. */}
+            <p className="disabled-hint">
+              Требования вакансии — на <Link href={`/vacancies/${vacancyId}/rubric`}>отдельном экране</Link>.
+            </p>
             <AssigneeField
               label="Эксперт"
               roleCode="expert"
