@@ -42,3 +42,8 @@ jobs:
           Show-Logs "livekit-server" @("--project-directory", ".", "-f", "docker-compose.dev.yml", "-f", "infra/docker-compose.yml") "livekit-server"
           Show-Logs "livekit-egress" @("--project-directory", ".", "-f", "docker-compose.dev.yml", "-f", "infra/docker-compose.yml") "livekit-egress"
           Show-Logs "live-agent" @("--project-directory", "live-agent", "-f", "live-agent/docker-compose.yml") "live-agent"
+          Show-Logs "stt" @("--project-directory", "live-agent", "-f", "live-agent/docker-compose.yml") "stt"
+          Show-Logs "tts" @("--project-directory", "live-agent", "-f", "live-agent/docker-compose.yml") "tts"
+
+          Write-Output "--- container status (live-agent stack) ---"
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -a
