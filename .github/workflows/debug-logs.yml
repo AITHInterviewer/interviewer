@@ -1,0 +1,44 @@
+# Read-only debug helper for the self-hosted deploy runner — dumps recent container logs
+# so we can diagnose a stuck/misbehaving live interview without SSHing into the runner
+# by hand. Never touches state (no `up`/`down`/`restart`), safe to run any time.
+name: debug container logs (self-hosted)
+
+on:
+  workflow_dispatch:
+    inputs:
+      grep:
+        description: "Optional text to filter log lines by (e.g. an interview id/access token)"
+        required: false
+        default: ""
+      tail:
+        description: "How many lines to tail per service before filtering"
+        required: false
+        default: "500"
+
+jobs:
+  logs:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout (for compose files only, no build)
+        uses: actions/checkout@v4
+
+      - name: Dump backend + live-agent + livekit-server + livekit-egress logs
+        shell: pwsh
+        run: |
+          $grep = "${{ github.event.inputs.grep }}"
+          $tail = "${{ github.event.inputs.tail }}"
+
+          function Show-Logs($label, $composeArgs, $service) {
+            Write-Output "--- $label ---"
+            $lines = docker compose @composeArgs logs --no-color --tail=$tail $service 2>&1
+            if ($grep) {
+              $lines | Select-String -SimpleMatch $grep
+            } else {
+              $lines
+            }
+          }
+
+          Show-Logs "backend" @("--project-directory", ".", "-f", "docker-compose.dev.yml", "-f", "infra/docker-compose.yml") "backend"
+          Show-Logs "livekit-server" @("--project-directory", ".", "-f", "docker-compose.dev.yml", "-f", "infra/docker-compose.yml") "livekit-server"
+          Show-Logs "livekit-egress" @("--project-directory", ".", "-f", "docker-compose.dev.yml", "-f", "infra/docker-compose.yml") "livekit-egress"
+          Show-Logs "live-agent" @("--project-directory", "live-agent", "-f", "live-agent/docker-compose.yml") "live-agent"
