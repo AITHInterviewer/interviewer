@@ -1,7 +1,7 @@
 """interview current_question_id/current_question_text
 
 Revision ID: 20260906_000005
-Revises: 20260906_000003
+Revises: 20260906_000004
 Create Date: 2026-09-06
 
 Персистентная база question_started для reconnect/перезагрузки страницы кандидата —
@@ -16,7 +16,7 @@ from alembic import op
 from sqlalchemy import inspect
 
 revision: str = "20260906_000005"
-down_revision: str | None = "20260906_000003"
+down_revision: str | None = "20260906_000004"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
