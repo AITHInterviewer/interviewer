@@ -44,13 +44,12 @@ function renderPage() {
 
 const DESCRIPTION = "Middle+ Python Developer\nТребования: Python от 5 лет, PostgreSQL, Docker";
 
-function requirement(id: string, name: string, checked = true) {
+function requirement(id: string, name: string) {
   return {
     id,
     name,
     kind: "must" as const,
     level: "confident" as const,
-    checked,
     evidence: `«${name}»`,
     source: "llm" as const,
   };
@@ -65,7 +64,6 @@ const EXTRACTED = {
     requirement("req_0", "Python"),
     requirement("req_1", "PostgreSQL"),
     requirement("req_2", "Docker"),
-    requirement("req_3", "gRPC", false),
   ],
   excluded: [{ text: "Удалённая работа", reason: "условия работы" }],
   warnings: ["В заголовке Middle+, а Python требуется от 5 лет"],
@@ -77,7 +75,7 @@ const CREATED = {
   title: "Python Developer",
   description: DESCRIPTION,
   grade: "middle_plus",
-  required_skills: ["Python", "PostgreSQL", "Docker", "gRPC"],
+  required_skills: ["Python", "PostgreSQL", "Docker"],
   nice_to_have_skills: [],
   requirements: EXTRACTED.requirements,
   status: "extracted" as const,
@@ -149,7 +147,9 @@ describe("NewVacancyPage", () => {
     expect(screen.getByText(/python требуется от 5 лет/i)).toBeInTheDocument();
     // Отброшенное не потерялось.
     expect(screen.getByText(/не вошло в требования — 1/i)).toBeInTheDocument();
-    expect(screen.getByText(/3 из 4 проверяем на интервью/i)).toBeInTheDocument();
+    // Отдельного «проверяем / не проверяем» больше нет — проверяются все требования.
+    expect(screen.getByText(/проверим все на интервью/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^не проверяем$/i })).not.toBeInTheDocument();
   });
 
   it("создаёт вакансию с требованиями и отправляет её эксперту", async () => {
@@ -181,10 +181,10 @@ describe("NewVacancyPage", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith("/vacancies/v1/rubric"));
   });
 
-  it("блокирует отправку, пока проверяемых требований меньше трёх", async () => {
+  it("блокирует отправку, пока требований меньше трёх", async () => {
     vi.mocked(extractVacancyRequirements).mockResolvedValue({
       ...EXTRACTED,
-      requirements: [requirement("req_0", "Python"), requirement("req_1", "PostgreSQL", false)],
+      requirements: [requirement("req_0", "Python"), requirement("req_1", "PostgreSQL")],
     });
 
     renderPage();
@@ -192,7 +192,7 @@ describe("NewVacancyPage", () => {
 
     const send = await screen.findByRole("button", { name: /отправить эксперту/i });
     expect(send).toBeDisabled();
-    expect(screen.getByText(/включите хотя бы 3 требования — сейчас 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/нужно хотя бы 3 требования — сейчас 2/i)).toBeInTheDocument();
     expect(createManagedVacancy).not.toHaveBeenCalled();
   });
 

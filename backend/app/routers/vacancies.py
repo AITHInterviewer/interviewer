@@ -48,6 +48,7 @@ from app.services.document_text import (
 from app.services.interview_admin_service import InterviewAdminService, VacancyNotReadyForInterviewError
 from app.services.vacancy_llm_service import QuestionGenerationError, RequirementExtractionError
 from app.services.vacancy_service import (
+    MAX_REQUIREMENTS,
     InvalidQuestionError,
     QuestionNotFoundError,
     RequirementCoverageError,
@@ -144,12 +145,18 @@ async def extract_requirements(
         grade=extracted.grade,
         description=text,
         description_file_name=file_name,
-        # id требования проставляет фронт — он же владеет списком до сохранения вакансии.
+        # Потолок держим и здесь: промпт просит не больше MAX_REQUIREMENTS, но модель
+        # эту просьбу регулярно игнорирует, а каждое лишнее требование — лишний вопрос
+        # в интервью. Срез — по порядку от модели, она ранжирует по важности сама.
         requirements=[
             {**item.model_dump(), "id": f"req_{index}", "source": "llm"}
-            for index, item in enumerate(extracted.requirements)
+            for index, item in enumerate(extracted.requirements[:MAX_REQUIREMENTS])
         ],
-        excluded=[item.model_dump() for item in extracted.excluded],
+        excluded=[item.model_dump() for item in extracted.excluded]
+        + [
+            {"text": item.name, "reason": "не помещается в одно интервью"}
+            for item in extracted.requirements[MAX_REQUIREMENTS:]
+        ],
         warnings=extracted.warnings,
     )
 

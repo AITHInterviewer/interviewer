@@ -17,6 +17,7 @@ from app.services.vacancy_llm_service import (
     ExtractedVacancy,
     VacancyLLMService,
 )
+from app.services.vacancy_service import MAX_REQUIREMENTS
 from tests.conftest import register_recruiter
 
 _DESCRIPTION = "Middle+ Python Developer\nТребования:\n● Опыт работы с Python от 5 лет;"
@@ -30,7 +31,7 @@ def _patch_extract(monkeypatch: pytest.MonkeyPatch) -> None:
             grade="middle_plus",
             requirements=[
                 ExtractedRequirement(
-                    name="Python", kind="must", level="expert", checked=True,
+                    name="Python", kind="must", level="expert",
                     evidence="Опыт работы с Python от 5 лет",
                 )
             ],
@@ -64,7 +65,6 @@ async def test_extract_from_pasted_text(client, monkeypatch: pytest.MonkeyPatch)
             "name": "Python",
             "kind": "must",
             "level": "expert",
-            "checked": True,
             "evidence": "Опыт работы с Python от 5 лет",
             "source": "llm",
         }
@@ -127,3 +127,39 @@ def test_pdf_without_text_layer_reads_as_empty() -> None:
 
     with pytest.raises(EmptyDocumentError):
         extract_pdf_text(buffer.getvalue())
+
+
+@pytest.mark.anyio
+async def test_extract_caps_requirements_and_moves_the_rest_to_excluded(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Модель регулярно игнорирует потолок в промпте — режем на сервере, а не в UI:
+    каждое лишнее требование это лишний вопрос в интервью."""
+
+    async def fake_extract(self, description: str) -> ExtractedVacancy:
+        return ExtractedVacancy(
+            title="Python Developer",
+            grade="middle",
+            requirements=[
+                ExtractedRequirement(name=f"Навык {i}", evidence=f"пункт {i}") for i in range(32)
+            ],
+        )
+
+    monkeypatch.setattr(VacancyLLMService, "extract_requirements", fake_extract)
+    token = await register_recruiter(client)
+
+    response = await client.post(
+        "/api/v1/vacancies/extract-requirements",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"description": _DESCRIPTION},
+    )
+
+    payload = response.json()
+    assert len(payload["requirements"]) == MAX_REQUIREMENTS
+    assert [item["name"] for item in payload["requirements"]][:2] == ["Навык 0", "Навык 1"]
+    # Отрезанное не исчезает — оно видно в «Не вошло».
+    assert len(payload["excluded"]) == 32 - MAX_REQUIREMENTS
+    assert payload["excluded"][0] == {
+        "text": f"Навык {MAX_REQUIREMENTS}",
+        "reason": "не помещается в одно интервью",
+    }

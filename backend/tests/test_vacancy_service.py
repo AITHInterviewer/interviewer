@@ -28,12 +28,12 @@ from app.services.vacancy_service import (
 def _requirements(*names: str) -> list[dict]:
     return [
         {"id": f"req_{i}", "name": name, "kind": "must", "level": "confident",
-         "checked": True, "evidence": f"«{name}»", "source": "llm"}
+         "evidence": f"«{name}»", "source": "llm"}
         for i, name in enumerate(names)
     ]
 
 
-# Минимальный набор, с которым вакансию пускают к эксперту.
+# Минимальный набор, с которым вакансию пускают к эксперту (MIN_REQUIREMENTS).
 _THREE = _requirements("Python", "PostgreSQL", "Docker")
 
 
@@ -61,9 +61,9 @@ class FakeVacancyLLMService:
         self.calls += 1
         if self._fixed is not None:
             return GeneratedQuestionSet(questions=self._fixed)
-        # По умолчанию — по вопросу на каждое включённое требование, иначе approve
-        # справедливо ругается на непокрытые требования.
-        names = [item["name"] for item in vacancy.requirements if item.get("checked")]
+        # По умолчанию — по вопросу на каждое требование, иначе approve справедливо
+        # ругается на непокрытые.
+        names = [item["name"] for item in vacancy.requirements]
         if not names:
             return GeneratedQuestionSet(questions=self.questions)
         return GeneratedQuestionSet(
@@ -161,7 +161,7 @@ async def test_generate_questions_replaces_base_generated_only(db_session: Async
 
 
 @pytest.mark.anyio
-async def test_send_to_expert_requires_enough_checked_requirements(db_session: AsyncSession) -> None:
+async def test_send_to_expert_requires_enough_requirements(db_session: AsyncSession) -> None:
     """Эксперту уходят требования, а не вопросы — поэтому гейт стоит на них."""
     recruiter = await _make_recruiter(db_session)
     service = _make_service(db_session)

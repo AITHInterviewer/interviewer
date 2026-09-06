@@ -15,7 +15,7 @@ from app.models.rubric_version import RubricVersion
 from app.models.vacancy import Vacancy
 from app.repositories.question_repository import QuestionRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.services.vacancy_llm_service import VacancyLLMService, checked_requirements
+from app.services.vacancy_llm_service import VacancyLLMService, vacancy_requirements
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class VacancyMissingQuestionsError(Exception):
 
 
 class VacancyMissingRequirementsError(Exception):
-    """Нечего калибровать: меньше MIN_CHECKED_REQUIREMENTS включённых требований."""
+    """Нечего калибровать: меньше MIN_REQUIREMENTS требований."""
 
 
 class RequirementCoverageError(Exception):
@@ -60,9 +60,12 @@ class RequirementCoverageError(Exception):
         super().__init__(f"Requirements without a question: {missing}")
 
 
-# Меньше трёх проверяемых требований — это не интервью, а разговор. Тот же порог, что
-# раньше стоял на «минимум 3 обязательных навыка» в форме создания вакансии.
-MIN_CHECKED_REQUIREMENTS = 3
+# Меньше трёх требований — это не интервью, а разговор. Тот же порог, что раньше стоял
+# на «минимум 3 обязательных навыка» в форме создания вакансии.
+MIN_REQUIREMENTS = 3
+# Потолок: на каждое требование генерится свой вопрос, а интервью рассчитано на 15–25 минут.
+# Дублирует правило в промпте — модель на него не всегда смотрит.
+MAX_REQUIREMENTS = 10
 
 
 class InvalidQuestionError(Exception):
@@ -412,7 +415,7 @@ class VacancyService:
         и дырка в комплекте молча доезжала до интервью."""
         generated = await self.llm_service.generate_questions(vacancy)
 
-        wanted = [item["name"] for item in checked_requirements(vacancy)]
+        wanted = [item["name"] for item in vacancy_requirements(vacancy)]
         if wanted:
             covered = {
                 tag.strip().lower()
@@ -450,7 +453,7 @@ class VacancyService:
             raise VacancyTransitionError
         # Раньше условием были готовые вопросы. Теперь эксперту уходят требования, а вопросы
         # собираются при одобрении, поэтому проверяем именно то, что он будет калибровать.
-        if len(checked_requirements(vacancy)) < MIN_CHECKED_REQUIREMENTS:
+        if len(vacancy_requirements(vacancy)) < MIN_REQUIREMENTS:
             raise VacancyMissingRequirementsError
         vacancy.status = "calibration"
         await self.vacancy_repository.commit()

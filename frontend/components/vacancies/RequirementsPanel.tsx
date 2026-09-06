@@ -17,11 +17,7 @@ const LEVEL_LABEL: Record<RequirementLevel, string> = {
 };
 // Разогрев + завершение: два коротких вопроса сверх требований.
 const WARMUP_CLOSING_MINUTES = 4;
-export const MIN_CHECKED_REQUIREMENTS = 3;
-
-export function checkedCount(requirements: Requirement[]): number {
-  return requirements.filter((item) => item.checked).length;
-}
+export const MIN_REQUIREMENTS = 3;
 
 /** «1 требование» / «3 требования» / «5 требований» — иначе счётчик читается как машинный. */
 export function requirementsLabel(count: number): string {
@@ -34,9 +30,7 @@ export function requirementsLabel(count: number): string {
 }
 
 export function estimateMinutes(requirements: Requirement[]): number {
-  const body = requirements
-    .filter((item) => item.checked)
-    .reduce((sum, item) => sum + LEVEL_MINUTES[item.level], 0);
+  const body = requirements.reduce((sum, item) => sum + LEVEL_MINUTES[item.level], 0);
   return body === 0 ? 0 : body + WARMUP_CLOSING_MINUTES;
 }
 
@@ -81,7 +75,6 @@ export function RequirementsPanel({
   // Ресинк выбранного не нужен: если требование удалили, `find` не находит его и выбор
   // сам падает на первое в списке.
   const selected = requirements.find((item) => item.id === selectedId) ?? requirements[0] ?? null;
-  const total = checkedCount(requirements);
   const minutes = estimateMinutes(requirements);
 
   function patch(id: string, changes: Partial<Requirement>) {
@@ -100,7 +93,6 @@ export function RequirementsPanel({
       name: "",
       kind: "must",
       level: "confident",
-      checked: true,
       evidence: "",
       source: "manual",
     };
@@ -112,9 +104,7 @@ export function RequirementsPanel({
     <section className="question-panel form-panel">
       <div className="question-panel__head">
         <h2>Требования</h2>
-        <span className="disabled-hint">
-          {total} из {requirements.length} проверяем на интервью
-        </span>
+        <span className="disabled-hint">Проверим все на интервью</span>
       </div>
 
       <div className="question-panel__layout">
@@ -125,7 +115,6 @@ export function RequirementsPanel({
               key={item.id}
               className="question-nav__item"
               data-active={item.id === selected?.id || undefined}
-              data-muted={!item.checked || undefined}
               onClick={() => setSelectedId(item.id)}
             >
               <span className="question-nav__number">{index + 1}</span>
@@ -152,9 +141,6 @@ export function RequirementsPanel({
                     {selected.kind === "must" ? "Обязательное" : "Желательное"}
                   </span>
                   <span className="status">{LEVEL_LABEL[selected.level]}</span>
-                  <span className="status" data-tone={selected.checked ? "positive" : undefined}>
-                    {selected.checked ? "Проверяем" : "Не проверяем"}
-                  </span>
                 </>
               ) : (
                 <>
@@ -186,23 +172,6 @@ export function RequirementsPanel({
                         {LEVEL_LABEL[level]}
                       </button>
                     ))}
-                  </span>
-
-                  <span className="density-switch" role="group" aria-label="Проверять на интервью">
-                    <button
-                      type="button"
-                      data-active={selected.checked || undefined}
-                      onClick={() => patch(selected.id, { checked: true })}
-                    >
-                      Проверяем
-                    </button>
-                    <button
-                      type="button"
-                      data-active={!selected.checked || undefined}
-                      onClick={() => patch(selected.id, { checked: false })}
-                    >
-                      Не проверяем
-                    </button>
                   </span>
 
                   <span className="question-detail__icon-actions">
@@ -249,7 +218,7 @@ export function RequirementsPanel({
         <span className="disabled-hint">
           {confirmDisabledReason
             ? confirmDisabledReason
-            : (confirmHint ?? `${requirementsLabel(total)} · ≈${minutes} мин интервью`)}
+            : (confirmHint ?? `${requirementsLabel(requirements.length)} · ≈${minutes} мин интервью`)}
         </span>
         <Button
           type="button"

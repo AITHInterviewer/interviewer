@@ -40,7 +40,7 @@ class Vacancy(Base):
     required_skills: Mapped[list[str]] = mapped_column(_text_array, nullable=False, default=list)
     nice_to_have_skills: Mapped[list[str]] = mapped_column(_text_array, nullable=False, default=list)
     # Требования, извлечённые LLM из описания (specs/010-vacancy-from-description).
-    # Список объектов {id, name, kind, level, checked, evidence, source} — плоский JSON,
+    # Список объектов {id, name, kind, level, evidence, source} — плоский JSON,
     # а не отдельная таблица: на пилоте требование живёт только внутри своей вакансии,
     # общего справочника нет. `required_skills`/`nice_to_have_skills` держим в синхроне
     # с этим списком — на них завязаны промпт вопросов, карточка вакансии и доска.

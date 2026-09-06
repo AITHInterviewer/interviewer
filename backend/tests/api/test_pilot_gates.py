@@ -10,11 +10,10 @@ from tests.conftest import create_internal_user, login, register_recruiter
 
 def _patch_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     """Комплект собирается из требований вакансии — по одному assessment-вопросу на
-    включённое требование, как того требует проверка покрытия в approve."""
+    требование, как того требует проверка покрытия в approve."""
 
     async def fake_generate_questions(self, vacancy) -> GeneratedQuestionSet:
-        checked = [item for item in (vacancy.requirements or []) if item.get("checked")]
-        names = [item["name"] for item in checked] or list(vacancy.required_skills)
+        names = [item["name"] for item in (vacancy.requirements or [])] or list(vacancy.required_skills)
         return GeneratedQuestionSet(
             questions=[
                 GeneratedQuestion(text="Разогрев", role="warmup", estimated_duration_sec=120),
@@ -36,14 +35,14 @@ def _patch_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(VacancyLLMService, "generate_questions", fake_generate_questions)
 
 
-# Три включённых требования — минимум, с которым вакансию пускают к эксперту
-# (VacancyService.MIN_CHECKED_REQUIREMENTS).
+# Три требования — минимум, с которым вакансию пускают к эксперту
+# (VacancyService.MIN_REQUIREMENTS).
 _REQUIREMENTS = [
-    {"id": "req_0", "name": "Python", "kind": "must", "level": "confident", "checked": True,
+    {"id": "req_0", "name": "Python", "kind": "must", "level": "confident",
      "evidence": "Опыт работы с Python", "source": "llm"},
-    {"id": "req_1", "name": "PostgreSQL", "kind": "must", "level": "expert", "checked": True,
+    {"id": "req_1", "name": "PostgreSQL", "kind": "must", "level": "expert",
      "evidence": "PostgreSQL — проектирование схем", "source": "llm"},
-    {"id": "req_2", "name": "Docker", "kind": "must", "level": "basic", "checked": True,
+    {"id": "req_2", "name": "Docker", "kind": "must", "level": "basic",
      "evidence": "Docker — контейнеризация", "source": "llm"},
 ]
 

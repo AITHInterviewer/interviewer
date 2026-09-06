@@ -39,8 +39,12 @@ p { text-wrap: pretty; }
 .vacancy-grade-select { align-self: center; flex: 0 0 auto; min-height: var(--control-h); padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-raised); color: var(--ink); font-size: var(--text-body); }
 .vacancy-assignees-trigger { display: inline-flex; align-items: center; flex: 0 0 auto; margin-left: auto; border: 0; background: transparent; cursor: pointer; border-radius: var(--radius-pill); }
 .vacancy-assignees-trigger:hover .avatar { box-shadow: 0 0 0 2px var(--accent); }
-.vacancy-assignees-trigger .avatar { width: 38px; height: 38px; flex-basis: 38px; font-size: var(--text-h2); }
-.vacancy-assignees-trigger .avatar-group__item { margin-left: -12px; }
+/* Инициалы мельче диаметра: при 18px двухбуквенные «АК» не помещались в видимую часть
+   кругляшка, перекрытого соседним. */
+.vacancy-assignees-trigger .avatar { width: 38px; height: 38px; flex-basis: 38px; font-size: var(--text-meta); }
+/* -8px, а не -12: при трёх назначенных с двухбуквенными инициалами соседний кругляшек
+   срезал текст. Сдвиг всё ещё читается как стопка. */
+.vacancy-assignees-trigger .avatar-group__item { margin-left: -8px; }
 .vacancy-assignees-trigger .avatar-group__item:first-child { margin-left: 0; }
 .avatar--placeholder { border: 1px dashed var(--border-strong); background: transparent; color: var(--ink-tertiary); }
 .vacancy-assignees-popover { display: grid; gap: 14px; font-size: var(--text-body); font-weight: 400; letter-spacing: normal; }
@@ -687,11 +691,6 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .vacancy-head-fields { grid-template-columns: minmax(0, 2fr) minmax(160px, 1fr); align-items: end; }
 .vacancy-head-fields select { min-height: var(--field-h); padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); color: var(--ink); font-size: var(--text-body); }
 
-.assignee-trigger { display: inline-flex; align-items: baseline; gap: 8px; min-height: var(--control-h); padding: 0 14px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--surface-raised); font-size: var(--text-meta); }
-.assignee-trigger:hover { border-color: var(--border-strong); }
-.assignee-trigger__role { color: var(--ink-tertiary); }
-.assignee-trigger__role::after { content: ":"; }
-.assignee-trigger__name { color: var(--ink); }
 
 /* Выключенное требование видно в списке, но приглушено — оно есть, но в интервью не идёт. */
 .question-nav__item[data-muted] .question-nav__text, .question-nav__item[data-muted] .question-nav__number { opacity: .5; }

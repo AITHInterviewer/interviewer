@@ -195,7 +195,6 @@ export type Requirement = {
   name: string;
   kind: RequirementKind;
   level: RequirementLevel;
-  checked: boolean;
   evidence: string;
   source: "llm" | "manual" | "edited";
 };

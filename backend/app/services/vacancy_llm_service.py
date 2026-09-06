@@ -39,7 +39,6 @@ class ExtractedRequirement(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     kind: str = "must"
     level: str = "confident"
-    checked: bool = False
     evidence: str = ""
 
 
@@ -89,14 +88,15 @@ _STT_TERMS_SYSTEM_PROMPT = load_prompt("vacancy_stt_terms.txt")
 _LEVEL_LABEL = {"basic": "basic", "confident": "confident", "expert": "expert"}
 
 
-def checked_requirements(vacancy: Vacancy) -> list[dict]:
-    """Требования, отмеченные «проверяем на интервью». Единственный источник правды и для
-    промпта вопросов, и для проверки покрытия при одобрении."""
-    return [item for item in (vacancy.requirements or []) if item.get("checked")]
+def vacancy_requirements(vacancy: Vacancy) -> list[dict]:
+    """Требования вакансии. Проверяются ВСЕ до единого — отдельного флага «проверяем»
+    нет: список и так ограничен сверху при извлечении (см. vacancy_requirements_extract.txt),
+    поэтому лишнему в нём взяться неоткуда."""
+    return list(vacancy.requirements or [])
 
 
 def _requirements_block(vacancy: Vacancy) -> str:
-    items = checked_requirements(vacancy)
+    items = vacancy_requirements(vacancy)
     if not items:
         # Вакансии, созданные до появления требований, всё ещё живут на плоских навыках.
         return "Требования:\n" + (

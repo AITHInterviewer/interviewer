@@ -11,9 +11,8 @@ import { ViewModeBanner } from "@/components/chrome/ViewModeBanner";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { SkeletonText } from "@/components/ui/skeleton";
 import {
-  checkedCount,
   estimateMinutes,
-  MIN_CHECKED_REQUIREMENTS,
+  MIN_REQUIREMENTS,
   RequirementsPanel,
   requirementsLabel,
 } from "@/components/vacancies/RequirementsPanel";
@@ -38,7 +37,7 @@ const APPROVABLE_STATUSES = new Set(["calibration", "pending_review"]);
 const APPROVE_ERRORS: Record<string, string> = {
   question_generation_failed:
     "Не удалось собрать вопросы. Требования сохранены — попробуйте ещё раз.",
-  not_enough_requirements: `Включите хотя бы ${MIN_CHECKED_REQUIREMENTS} требования, прежде чем отправлять эксперту.`,
+  not_enough_requirements: `Нужно хотя бы ${MIN_REQUIREMENTS} требования, прежде чем отправлять эксперту.`,
 };
 
 function explainApproveError(error: unknown): string {
@@ -118,9 +117,8 @@ function RubricInner() {
   const editable = EDITABLE_STATUSES.has(status) && (isExpert || isRecruiter);
   // Эксперт одобряет только на калибровке; до неё главное действие — отправить ему вакансию.
   const expertTurn = isExpert && APPROVABLE_STATUSES.has(status);
-  const checked = checkedCount(requirements);
   const minutes = estimateMinutes(requirements);
-  const notEnough = checked < MIN_CHECKED_REQUIREMENTS;
+  const notEnough = requirements.length < MIN_REQUIREMENTS;
 
   async function persistRequirements() {
     const updated = await updateManagedVacancy(vacancyId, { requirements });
@@ -217,14 +215,14 @@ function RubricInner() {
                 confirmLoadingLabel={expertTurn ? "Собираем вопросы…" : "Отправляем…"}
                 confirmHint={
                   expertTurn
-                    ? `${requirementsLabel(checked)} · ≈${minutes} мин интервью · после одобрения соберём вопросы и вакансия станет активной`
-                    : `${requirementsLabel(checked)} · ≈${minutes} мин интервью`
+                    ? `${requirementsLabel(requirements.length)} · ≈${minutes} мин интервью · после одобрения соберём вопросы и вакансия станет активной`
+                    : `${requirementsLabel(requirements.length)} · ≈${minutes} мин интервью`
                 }
                 confirmDisabledReason={
                   !editable
                     ? "Список зафиксирован — вакансия уже прошла калибровку"
                     : notEnough
-                      ? `Включите хотя бы ${MIN_CHECKED_REQUIREMENTS} требования — сейчас ${checked}`
+                      ? `Нужно хотя бы ${MIN_REQUIREMENTS} требования — сейчас ${requirements.length}`
                       : null
                 }
                 onConfirm={() => void (expertTurn ? handleApprove() : handleSendToExpert())}

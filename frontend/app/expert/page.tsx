@@ -78,7 +78,7 @@ export default function ExpertHomePage() {
                         <span className="muted-copy">{vacancy.grade}</span>
                       </div>
                       <p className="muted-copy">
-                        Требований: {(vacancy.requirements ?? []).filter((item) => item.checked).length}
+                        Требований: {(vacancy.requirements ?? []).length}
                       </p>
                       <div className="form-actions">
                         <Button asChild>

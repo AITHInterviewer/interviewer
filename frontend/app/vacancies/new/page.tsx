@@ -16,12 +16,9 @@ import {
   FileDrop,
   type FileDropState,
 } from "@/components/vacancies/FileDrop";
-import {
-  checkedCount,
-  MIN_CHECKED_REQUIREMENTS,
-  RequirementsPanel,
-} from "@/components/vacancies/RequirementsPanel";
+import { MIN_REQUIREMENTS, RequirementsPanel } from "@/components/vacancies/RequirementsPanel";
 import { DRAFT_FILE_KEY, readDraftFile } from "@/lib/vacancy-draft";
+import { AvatarGroup, type AvatarPerson } from "@/components/ui/avatar";
 import type { ExtractedRequirements, InternalUser, Requirement } from "@/lib/api";
 import {
   createManagedVacancy,
@@ -149,7 +146,16 @@ export default function NewVacancyPage() {
     );
   }
 
-  const assignedExpert = expertId ? users.find((user) => user.id === expertId) : null;
+  // Тот же триггер, что на странице вакансии: кругляшки + поповер, а не текстовая плашка.
+  const assignedPeople: AvatarPerson[] = [
+    ...(currentUser ? [{ name: currentUser.name, role: "Рекрутер" }] : []),
+    ...(expertId
+      ? [{ name: users.find((user) => user.id === expertId)?.name ?? "?", role: "Эксперт" }]
+      : []),
+    ...(hiringManagerId
+      ? [{ name: users.find((user) => user.id === hiringManagerId)?.name ?? "?", role: "Менеджер" }]
+      : []),
+  ];
 
   async function handleExtractText() {
     setError(null);
@@ -165,9 +171,8 @@ export default function NewVacancyPage() {
 
   async function handleSendToExpert() {
     setError(null);
-    const unnamed = requirements.some((item) => item.checked && !item.name.trim());
-    if (unnamed) {
-      setError("У проверяемого требования пустое название — заполните или снимите галочку.");
+    if (requirements.some((item) => !item.name.trim())) {
+      setError("У одного из требований пустое название — заполните его или удалите требование.");
       return;
     }
 
@@ -207,8 +212,7 @@ export default function NewVacancyPage() {
   }
 
   const canExtract = description.trim().length > 0 && !extracting;
-  const checked = checkedCount(requirements);
-  const notEnough = checked < MIN_CHECKED_REQUIREMENTS;
+  const notEnough = requirements.length < MIN_REQUIREMENTS;
 
   return (
     <AppShell nav={buildNav(landing)} title="Новая вакансия">
@@ -222,13 +226,14 @@ export default function NewVacancyPage() {
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="assignee-trigger"
-                  aria-label="Назначить людей на вакансию"
+                  className="vacancy-assignees-trigger"
+                  aria-label="Назначенные на вакансию"
                 >
-                  <span className="assignee-trigger__role">Эксперт</span>
-                  <span className="assignee-trigger__name">
-                    {assignedExpert ? assignedExpert.name : "не назначен"}
-                  </span>
+                  {assignedPeople.length > 0 ? (
+                    <AvatarGroup people={assignedPeople} />
+                  ) : (
+                    <span className="avatar avatar--placeholder">+</span>
+                  )}
                 </button>
               </PopoverTrigger>
               <PopoverContent className="vacancy-assignees-popover" align="end">
@@ -370,7 +375,7 @@ export default function NewVacancyPage() {
                 confirmLoadingLabel="Отправляем…"
                 confirmDisabledReason={
                   notEnough
-                    ? `Включите хотя бы ${MIN_CHECKED_REQUIREMENTS} требования — сейчас ${checked}`
+                    ? `Нужно хотя бы ${MIN_REQUIREMENTS} требования — сейчас ${requirements.length}`
                     : null
                 }
                 busy={submitting}

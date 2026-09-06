@@ -33,7 +33,6 @@ class RequirementModel(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     kind: Literal["must", "nice"] = "must"
     level: Literal["basic", "confident", "expert"] = "confident"
-    checked: bool = False
     evidence: str = ""
     source: Literal["llm", "manual", "edited"] = "llm"
 
