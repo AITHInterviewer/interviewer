@@ -273,19 +273,19 @@ jobs:
         # Не требует открытых портов 80/443 (на этом туннеле нельзя открыть порт <1000,
         # см. обсуждение) — CA проверяет владение доменом через TXT-запись, которую сам
         # acme.sh проставляет через DuckDNS API. Сертификат общий для nginx (сайт, 443) и
-        # livekit-server (TURN/TLS, 5349) — оба уже смонтировали ./infra/tls. acme.sh сам
-        # пропускает выпуск, если текущий сертификат ещё не близок к истечению (теперь, когда
-        # acme-state volume даёт ему это увидеть — см. infra/docker-compose.yml, реальный
-        # инцидент 2026-09-05: без персистентного /acme.sh каждый прогон стартовал с чистого
-        # состояния, не помнил о прошлой выдаче и перевыпускал сертификат заново, пока не
-        # уткнулись в лимит Let's Encrypt "5 certs/168h"). Не валим весь деплой на этом шаге:
-        # если CA всё же зарейтлимитил, nginx/livekit-server продолжают работать с уже
-        # лежащим на диске сертификатом от прошлого успешного запуска.
+        # livekit-server (TURN/TLS, 5349) — оба уже смонтировали ./infra/tls.
+        # Let's Encrypt 5 certs/168h (инцидент 2026-09-05). При лимите acme-issue.sh
+        # берёт ZeroSSL/BuyPass — браузеры им тоже доверяют. Не валим весь деплой:
+        # если все CA отказали, ниже кладём валидный self-signed, чтобы nginx вообще
+        # стартовал (иначе пустой pem = сайт лежит).
         env:
           DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
         run: |
           $ErrorActionPreference = "Continue"
           $env:TLS_DOMAIN = "ainterviewer.duckdns.org"
+          New-Item -ItemType Directory -Force infra/tls | Out-Null
+          Write-Output "=== infra/tls before acme ==="
+          Get-ChildItem -Force -Recurse infra/tls | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Output
           docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml run --rm acme
           $acmeOk = ($LASTEXITCODE -eq 0)
 
@@ -296,7 +296,12 @@ jobs:
             if ($inside.StartsWith("infra/tls/")) { $inside = $inside.Substring("infra/tls/".Length) }
             $raw = docker run --rm -v "${tlsPath}:/out" alpine/openssl x509 -in "/out/$inside" -noout -issuer 2>&1 | Out-String
             if ($raw -match "issuer=") { return $raw.Trim() }
+            Write-Host "openssl could not read ${RelPath}: $raw"
             return ""
+          }
+
+          function Test-PublicCa([string]$Issuer) {
+            return ($Issuer -match "Let's Encrypt|ZeroSSL|Buypass|BuyPass|Google Trust|GTS |ISRG|Internet Security Research Group|SSL\.com")
           }
 
           if (-not $acmeOk) {
@@ -307,42 +312,29 @@ jobs:
             )
             foreach ($item in $leCandidates) {
               $issuer = Get-CertIssuer $item.Full
-              if ($issuer -match "Let's Encrypt") {
+              if (Test-PublicCa $issuer) {
                 Copy-Item $item.Full "infra/tls/fullchain.pem" -Force
                 Copy-Item $item.Key "infra/tls/domain.key" -Force
-                Write-Output "Reinstalled Let's Encrypt cert from $($item.Full) after acme --issue failed (rate limit). Issuer: $issuer"
+                Write-Output "Reinstalled public CA cert from $($item.Full). Issuer: $issuer"
                 $acmeOk = $true
                 break
               }
             }
           }
 
-          if (-not $acmeOk) {
-            $diskIssuer = Get-CertIssuer "infra/tls/fullchain.pem"
-            if ($diskIssuer -match "Let's Encrypt") {
-              Write-Output "Keeping existing Let's Encrypt cert on disk. Issuer: $diskIssuer"
-            } elseif ((Test-Path infra/tls/fullchain.pem) -and (Test-Path infra/tls/domain.key)) {
-              Write-Output "WARNING: acme.sh failed and the cert on disk is not Let's Encrypt ($diskIssuer). Browsers will warn until a successful Let's Encrypt run. Rate limit retry after 2026-09-07 04:19 UTC."
-            } else {
-              # Реальный инцидент (2026-09-05): попали в rate limit Let's Encrypt (5
-              # certs/168h) как раз когда infra/tls был пуст (см. фикс checkout clean: false
-              # выше — до него git clean стирал сертификат на каждом прогоне). Без файла на
-              # диске nginx/livekit-server вообще не стартуют (не 502 на один location, а
-              # падение всего контейнера) — весь сайт лежит до истечения rate limit (может
-              # быть больше суток). Self-signed — временный аварийный fallback ТОЛЬКО чтобы
-              # сайт не лежал: браузер покажет предупреждение о недоверенном сертификате
-              # (кандидату придётся один раз кликнуть "продолжить"), TURN/TLS с ним не
-              # заработает (см. коммит с self-signed TURN — браузеры валидируют его строже).
-              # Следующий успешный прогон acme (после снятия rate limit) сам перезапишет эти
-              # файлы настоящими — никакого дальнейшего вмешательства не требуется.
-              Write-Output "WARNING: acme.sh failed and there is no cert on disk - generating a TEMPORARY self-signed fallback so the site doesn't go down entirely. Browsers will show a security warning until the next successful Let's Encrypt run replaces it."
-              New-Item -ItemType Directory -Force infra/tls | Out-Null
-              # openssl isn't on PATH on this runner's plain PowerShell - generate it inside
-              # a throwaway container instead (Docker is guaranteed to be here).
-              $tlsPath = (Resolve-Path infra/tls).Path
-              docker run --rm -v "${tlsPath}:/out" alpine/openssl req -x509 -newkey rsa:2048 -nodes -keyout /out/domain.key -out /out/fullchain.pem -days 7 -subj "/CN=ainterviewer.duckdns.org"
-            }
+          $diskIssuer = Get-CertIssuer "infra/tls/fullchain.pem"
+          $keyOk = (Test-Path infra/tls/domain.key) -and ((Get-Item infra/tls/domain.key).Length -gt 0)
+          if ($acmeOk) {
+            Write-Output "acme.sh reported success. $diskIssuer"
+          } elseif ((Test-PublicCa $diskIssuer) -and $keyOk) {
+            Write-Output "Keeping existing public CA cert on disk. $diskIssuer"
+          } else {
+            Write-Output "WARNING: no public CA cert (issuer='$diskIssuer'). Generating a TEMPORARY self-signed fallback so nginx/livekit can start. Browsers will warn until the next successful ACME run."
+            $tlsPath = (Resolve-Path infra/tls).Path
+            docker run --rm -v "${tlsPath}:/out" alpine/openssl req -x509 -newkey rsa:2048 -nodes -keyout /out/domain.key -out /out/fullchain.pem -days 7 -subj "/CN=ainterviewer.duckdns.org"
           }
+          Write-Output "=== infra/tls after acme ==="
+          Get-ChildItem -Force -Recurse infra/tls | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Output
           $global:LASTEXITCODE = 0
 
       - name: Build and (re)start infra + backend + frontend
