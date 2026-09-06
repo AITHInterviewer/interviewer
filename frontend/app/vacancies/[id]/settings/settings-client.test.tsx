@@ -103,6 +103,8 @@ describe("VacancySettingsClient", () => {
         grade: "middle",
         requiredSkills: ["python"],
         niceToHaveSkills: [],
+        expertId: null,
+        hiringManagerId: null,
       }),
     );
     await waitFor(() => expect(screen.getByText(/изменения сохранены/i)).toBeInTheDocument());

@@ -4,20 +4,23 @@ import { useEffect, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
+import { AssigneeField } from "@/components/chrome/AssigneeField";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalActions } from "@/components/ui/overlay";
-import type { VacancyDetail } from "@/lib/api";
+import type { InternalUser, VacancyDetail } from "@/lib/api";
 import {
   archiveManagedVacancy,
+  getSession,
+  loadInternalUsers,
   loadVacancy,
   pauseManagedVacancy,
   resumeManagedVacancy,
   updateManagedVacancy,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { buildNav, GRADE_OPTIONS, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 
@@ -30,6 +33,7 @@ function splitSkills(value: string): string[] {
 
 export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   const { landing, loading } = useProtectedLanding({ requiredArea: RECRUITER_AREA });
+  const currentUser = getSession()?.user;
 
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [vacancyLoading, setVacancyLoading] = useState(true);
@@ -40,6 +44,9 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   const [grade, setGrade] = useState("");
   const [requiredSkills, setRequiredSkills] = useState("");
   const [niceToHaveSkills, setNiceToHaveSkills] = useState("");
+  const [expertId, setExpertId] = useState<string | null>(null);
+  const [hiringManagerId, setHiringManagerId] = useState<string | null>(null);
+  const [users, setUsers] = useState<InternalUser[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -64,6 +71,8 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
         setGrade(detail.grade);
         setRequiredSkills(detail.required_skills.join(", "));
         setNiceToHaveSkills(detail.nice_to_have_skills.join(", "));
+        setExpertId(detail.expert_id ?? null);
+        setHiringManagerId(detail.hiring_manager_id ?? null);
       })
       .catch((caughtError: unknown) => {
         if (!cancelled) {
@@ -73,6 +82,18 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
       .finally(() => {
         if (!cancelled) {
           setVacancyLoading(false);
+        }
+      });
+
+    void loadInternalUsers()
+      .then((response) => {
+        if (!cancelled) {
+          setUsers(response.items);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUsers([]);
         }
       });
 
@@ -123,6 +144,8 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
         grade,
         requiredSkills: splitSkills(requiredSkills),
         niceToHaveSkills: splitSkills(niceToHaveSkills),
+        expertId,
+        hiringManagerId,
       });
       setVacancy((current) => (current ? { ...current, ...updated } : current));
       setStatus("Изменения сохранены.");
@@ -211,7 +234,16 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
             </label>
             <label>
               Грейд
-              <input value={grade} onChange={(event) => setGrade(event.target.value)} required />
+              <select value={grade} onChange={(event) => setGrade(event.target.value)}>
+                {(GRADE_OPTIONS.some((option) => option.value === grade)
+                  ? GRADE_OPTIONS
+                  : [...GRADE_OPTIONS, { value: grade, label: grade }]
+                ).map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               Обязательные навыки
@@ -229,6 +261,22 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
                 placeholder="docker, kubernetes"
               />
             </label>
+            <AssigneeField
+              label="Эксперт"
+              roleCode="expert"
+              users={users}
+              value={expertId}
+              onChange={setExpertId}
+              currentUserId={currentUser?.id}
+            />
+            <AssigneeField
+              label="Менеджер"
+              roleCode="hiring_manager"
+              users={users}
+              value={hiringManagerId}
+              onChange={setHiringManagerId}
+              currentUserId={currentUser?.id}
+            />
             {error ? <p className="form-error">{error}</p> : null}
             {status ? <p className="success-message">{status}</p> : null}
             <div className="form-actions">

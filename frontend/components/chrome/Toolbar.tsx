@@ -18,14 +18,16 @@ export function SearchField({
   onChange,
   placeholder,
   label,
+  className,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
   label: string;
+  className?: string;
 }) {
   return (
-    <span className="search-field">
+    <span className={className ? `search-field ${className}` : "search-field"}>
       <MagnifyingGlass size={16} />
       <input
         type="search"

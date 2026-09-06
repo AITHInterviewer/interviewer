@@ -14,7 +14,7 @@ export function PageHeader({
   path?: string;
   /** Крошки со ссылками: последний пункт — текущая страница. */
   breadcrumbs?: Breadcrumb[];
-  title: string;
+  title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
 }) {

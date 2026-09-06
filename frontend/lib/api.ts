@@ -188,6 +188,8 @@ export type VacancyStatus =
 export type Vacancy = {
   id: string;
   recruiter_id: string;
+  expert_id?: string | null;
+  hiring_manager_id?: string | null;
   title: string;
   description: string;
   grade: string;
@@ -343,6 +345,8 @@ type VacancyWriteBody = {
   grade: string;
   required_skills: string[];
   nice_to_have_skills: string[];
+  expert_id?: string | null;
+  hiring_manager_id?: string | null;
 };
 
 async function requestMultipart<T>(
@@ -404,6 +408,13 @@ export function updateQuestion(
 
 export function deleteQuestion(token: string, vacancyId: string, questionId: string) {
   return request<void>(`/api/v1/vacancies/${vacancyId}/questions/${questionId}`, { method: "DELETE", token });
+}
+
+export function regenerateQuestion(token: string, vacancyId: string, questionId: string) {
+  return request<Question>(`/api/v1/vacancies/${vacancyId}/questions/${questionId}/regenerate`, {
+    method: "POST",
+    token,
+  });
 }
 
 export function approveVacancy(token: string, vacancyId: string) {

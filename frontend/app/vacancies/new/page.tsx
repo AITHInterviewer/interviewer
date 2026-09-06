@@ -1,42 +1,67 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
+import { AssigneeField } from "@/components/chrome/AssigneeField";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { SkillTagInput } from "@/components/chrome/SkillTagInput";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shadcn/popover";
+import { AvatarGroup, type AvatarPerson } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import type { Vacancy, VacancyDetail } from "@/lib/api";
-import { createManagedVacancy, generateVacancyQuestions, sendManagedVacancyToExpert } from "@/lib/auth";
+import type { InternalUser, VacancyDetail } from "@/lib/api";
+import {
+  createManagedVacancy,
+  generateVacancyQuestions,
+  getSession,
+  loadInternalUsers,
+  sendManagedVacancyToExpert,
+} from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav } from "@/lib/nav";
+import { buildNav, GRADE_OPTIONS, gradeLabel } from "@/lib/nav";
+import { useToast } from "@/lib/toast";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
-
-function splitSkills(value: string): string[] {
-  return value
-    .split(",")
-    .map((skill) => skill.trim())
-    .filter((skill) => skill.length > 0);
-}
+const MIN_REQUIRED_SKILLS = 3;
 
 export default function NewVacancyPage() {
   const router = useRouter();
+  const { pushToast } = useToast();
   const { landing, loading } = useProtectedLanding({ requiredArea: RECRUITER_AREA });
+  const currentUser = getSession()?.user;
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [grade, setGrade] = useState("");
-  const [requiredSkills, setRequiredSkills] = useState("");
-  const [niceToHaveSkills, setNiceToHaveSkills] = useState("");
+  const [grade, setGrade] = useState("unspecified");
+  const [requiredSkills, setRequiredSkills] = useState<string[]>([]);
+  const [niceToHaveSkills, setNiceToHaveSkills] = useState<string[]>([]);
+  const [users, setUsers] = useState<InternalUser[]>([]);
+  // По умолчанию создающий назначается на роли, доступные ему — но это можно
+  // снять или передать другому уже на этом экране.
+  const [expertId, setExpertId] = useState<string | null>(
+    currentUser?.roles.includes("expert") ? currentUser.id : null,
+  );
+  const [hiringManagerId, setHiringManagerId] = useState<string | null>(
+    currentUser?.roles.includes("hiring_manager") ? currentUser.id : null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [preview, setPreview] = useState<VacancyDetail | null>(null);
-  const [createdVacancy, setCreatedVacancy] = useState<Vacancy | null>(null);
   const [sending, setSending] = useState(false);
   const [sentStatus, setSentStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!landing) {
+      return;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadInternalUsers()
+      .then((response) => setUsers(response.items))
+      .catch(() => setUsers([]));
+  }, [landing]);
 
   if (loading || !landing) {
     return (
@@ -46,57 +71,56 @@ export default function NewVacancyPage() {
     );
   }
 
-  async function assembleQuestions(vacancyId: string) {
-    const generated = await generateVacancyQuestions(vacancyId);
-    setPreview(generated);
-  }
+  const assignedPeople: AvatarPerson[] = [
+    ...(currentUser ? [{ name: currentUser.name, role: "Рекрутер" }] : []),
+    ...(expertId
+      ? [{ name: users.find((user) => user.id === expertId)?.name ?? "?", role: "Эксперт" }]
+      : []),
+    ...(hiringManagerId
+      ? [{ name: users.find((user) => user.id === hiringManagerId)?.name ?? "?", role: "Менеджер" }]
+      : []),
+  ];
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSubmitting(true);
     setError(null);
 
-    let vacancyId = createdVacancy?.id ?? null;
-    try {
-      if (!vacancyId) {
-        const vacancy = await createManagedVacancy({
-          title,
-          description,
-          grade,
-          requiredSkills: splitSkills(requiredSkills),
-          niceToHaveSkills: splitSkills(niceToHaveSkills),
-        });
-        vacancyId = vacancy.id;
-        setCreatedVacancy(vacancy);
-      }
-      await assembleQuestions(vacancyId);
-    } catch (caughtError) {
-      if (vacancyId) {
-        setError(
-          "Вакансия создана, вопросы не собрались. Повторите сборку — новую вакансию создавать не нужно.",
-        );
-      } else {
-        setError(normalizeError(caughtError, "Не удалось создать вакансию или собрать вопросы."));
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleRetryGenerate() {
-    if (!createdVacancy) {
+    if (requiredSkills.length < MIN_REQUIRED_SKILLS) {
+      setError(`Укажите хотя бы ${MIN_REQUIRED_SKILLS} обязательных навыка.`);
       return;
     }
+
     setSubmitting(true);
-    setError(null);
+
+    let vacancy;
     try {
-      await assembleQuestions(createdVacancy.id);
-    } catch {
-      setError(
-        "Вакансия создана, вопросы не собрались. Повторите сборку — новую вакансию создавать не нужно.",
-      );
-    } finally {
+      vacancy = await createManagedVacancy({
+        title,
+        description,
+        grade,
+        requiredSkills,
+        niceToHaveSkills,
+        expertId,
+        hiringManagerId,
+      });
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, "Не удалось создать вакансию."));
       setSubmitting(false);
+      return;
+    }
+
+    try {
+      const generated = await generateVacancyQuestions(vacancy.id);
+      setPreview(generated);
+      setSubmitting(false);
+    } catch {
+      // Вакансия уже создана — сборку вопросов можно повторить со страницы
+      // самой вакансии, второй раз создавать её не нужно.
+      pushToast(
+        "warning",
+        `Вакансия «${vacancy.title}» создана, но вопросы не собрались. Соберите их на странице вакансии.`,
+      );
+      router.push(`/vacancies/${vacancy.id}`);
     }
   }
 
@@ -123,70 +147,104 @@ export default function NewVacancyPage() {
       <div className="workspace workspace--form">
         <PageHeader
           path="Вакансии / Новая"
-          title="Новая вакансия"
-          description="Навыки указывайте через запятую. После сборки вопросов версию можно отправить эксперту."
+          title={
+            <span className="vacancy-title-row">
+              <input
+                className="vacancy-title-input"
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                placeholder="Название вакансии"
+                aria-label="Название вакансии"
+                required
+              />
+              <select
+                className="vacancy-grade-select"
+                value={grade}
+                onChange={(event) => setGrade(event.target.value)}
+                aria-label="Грейд"
+              >
+                {GRADE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="vacancy-assignees-trigger"
+                    aria-label="Назначить людей на вакансию"
+                  >
+                    {assignedPeople.length > 0 ? (
+                      <AvatarGroup people={assignedPeople} />
+                    ) : (
+                      <span className="avatar avatar--placeholder">+</span>
+                    )}
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="vacancy-assignees-popover" align="start">
+                  <PopoverTitle>Назначенные на вакансию</PopoverTitle>
+                  <div className="vacancy-assignee-row">
+                    <span className="vacancy-assignee__role">Рекрутер</span>
+                    <span className="vacancy-assignee__name">{currentUser?.name ?? "—"}</span>
+                  </div>
+                  <AssigneeField
+                    label="Эксперт"
+                    roleCode="expert"
+                    users={users}
+                    value={expertId}
+                    onChange={setExpertId}
+                    currentUserId={currentUser?.id}
+                  />
+                  <AssigneeField
+                    label="Менеджер"
+                    roleCode="hiring_manager"
+                    users={users}
+                    value={hiringManagerId}
+                    onChange={setHiringManagerId}
+                    currentUserId={currentUser?.id}
+                  />
+                </PopoverContent>
+              </Popover>
+            </span>
+          }
         />
 
         {!preview ? (
-          <form className="form-surface" onSubmit={handleSubmit}>
-            <label>
-              Название
-              <input value={title} onChange={(event) => setTitle(event.target.value)} required />
-            </label>
+          <form className="form-surface form-panel" onSubmit={handleSubmit}>
             <label>
               Описание
               <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
             </label>
-            <label>
-              Грейд
-              <input value={grade} onChange={(event) => setGrade(event.target.value)} required />
-            </label>
-            <label>
-              Обязательные навыки
-              <input
-                value={requiredSkills}
-                onChange={(event) => setRequiredSkills(event.target.value)}
-                placeholder="python, sql"
+            <div className="skills-columns">
+              <SkillTagInput
+                label={`Обязательные навыки (минимум ${MIN_REQUIRED_SKILLS})`}
+                skills={requiredSkills}
+                onChange={setRequiredSkills}
+                placeholder="python, sql, docker…"
               />
-            </label>
-            <label>
-              Желательные навыки
-              <input
-                value={niceToHaveSkills}
-                onChange={(event) => setNiceToHaveSkills(event.target.value)}
-                placeholder="docker, kubernetes"
+              <SkillTagInput
+                label="Желательные навыки"
+                skills={niceToHaveSkills}
+                onChange={setNiceToHaveSkills}
+                placeholder="docker, kubernetes…"
               />
-            </label>
-            {createdVacancy ? <p>Вакансия сохранена: {createdVacancy.title}</p> : null}
+            </div>
             {error ? <p className="form-error">{error}</p> : null}
             <div className="form-actions">
-              {createdVacancy ? (
-                <button
-                  className="button button--primary"
-                  type="button"
-                  disabled={submitting}
-                  onClick={() => void handleRetryGenerate()}
-                >
-                  {submitting ? "Собираем вопросы…" : "Собрать вопросы снова"}
-                </button>
-              ) : (
-                <button className="button button--primary" type="submit" disabled={submitting}>
-                  {submitting ? "Собираем вопросы…" : "Создать и собрать вопросы"}
-                </button>
-              )}
+              <button className="button button--primary" type="submit" disabled={submitting}>
+                {submitting ? "Собираем вопросы…" : "Создать вакансию"}
+              </button>
             </div>
-            <p className="disabled-hint">
-              Создадим вакансию и соберём вопросы. Затем вы сможете отправить комплект эксперту на
-              калибровку. Письмо эксперту не отправляется.
-            </p>
           </form>
         ) : (
-          <section className="form-surface">
+          <section className="form-surface form-panel">
             <p className="path">{preview.title}</p>
             <h2>Требования и вопросы</h2>
             <p>
               Обязательные навыки: {preview.required_skills.join(", ") || "не указаны"}. Грейд:{" "}
-              {preview.grade}.
+              {gradeLabel(preview.grade)}.
             </p>
             {preview.questions.length > 0 ? (
               <ol>

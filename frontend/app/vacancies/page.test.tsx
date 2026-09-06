@@ -99,12 +99,11 @@ describe("VacanciesPage", () => {
     renderPage();
 
     expect(await screen.findByText(/backend developer/i)).toBeInTheDocument();
-    // Статус есть и в строке таблицы, и в фильтре — проверяем именно пилюлю в таблице.
-    const row = (await screen.findByText(/backend developer/i)).closest("tr");
-    expect(row).not.toBeNull();
-    expect(within(row as HTMLElement).getByText(/на калибровке/i)).toBeInTheDocument();
-    expect(within(row as HTMLElement).getByText("Эксперт проверяет комплект")).toBeInTheDocument();
-    expect(within(row as HTMLElement).queryByText(/^Эксперт$/)).not.toBeInTheDocument();
+    // Статус есть и в карточке, и в фильтре — проверяем именно пилюлю в карточке.
+    const card = (await screen.findByText(/backend developer/i)).closest("a");
+    expect(card).not.toBeNull();
+    expect(within(card as HTMLElement).getAllByText(/на проверке у эксперта/i)).toHaveLength(2);
+    expect(within(card as HTMLElement).queryByText(/^Эксперт$/)).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /новая вакансия/i })).not.toBeInTheDocument();
   });
 

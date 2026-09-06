@@ -18,6 +18,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/auth", () => ({
   loadLanding: vi.fn(),
+  getSession: vi.fn(() => null),
 }));
 
 import { loadLanding } from "@/lib/auth";

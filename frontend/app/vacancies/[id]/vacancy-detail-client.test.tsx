@@ -109,9 +109,6 @@ describe("VacancyDetailClient", () => {
 
     expect(await screen.findByRole("heading", { name: /backend developer/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /пригласить кандидата/i })).toBeDisabled();
-    expect(
-      screen.getByText(/пригласить можно после того, как эксперт одобрит версию/i),
-    ).toBeInTheDocument();
   });
 
   it("enables the invite form once the vacancy is active", async () => {
@@ -144,12 +141,31 @@ describe("VacancyDetailClient", () => {
 
     await screen.findByRole("heading", { name: /backend developer/i });
     expect(screen.queryByRole("button", { name: /пригласить кандидата/i })).not.toBeInTheDocument();
-    // Разделы вакансии живут в сайдбаре: он рисуется вокруг экрана в AppShell.
-    expect(screen.getByRole("link", { name: /вопросы/i })).toBeInTheDocument();
   });
 
   it("does not claim nobody was invited when later-stage interviews exist", async () => {
-    vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "active" });
+    vi.mocked(loadVacancy).mockResolvedValue({
+      ...baseVacancy,
+      status: "active",
+      questions: [
+        {
+          id: "q1",
+          vacancy_id: "v1",
+          interview_id: null,
+          text: "Explain GIL",
+          order: 0,
+          skill_tag: ["python"],
+          intent: "assess",
+          reference_answer: "...",
+          format: "voice",
+          role: "assessment",
+          difficulty: "baseline",
+          estimated_duration_sec: 120,
+          stimulus: null,
+          source: "base_generated",
+        },
+      ],
+    });
     vi.mocked(loadInterviews).mockResolvedValue({
       items: [
         {

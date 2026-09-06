@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { ThemeProvider } from "@/lib/theme";
+import { ToastProvider } from "@/lib/toast";
 
 import "./globals.css";
 
@@ -13,7 +14,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="ru" data-theme="light" suppressHydrationWarning>
       <body>
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

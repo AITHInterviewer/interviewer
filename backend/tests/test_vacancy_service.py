@@ -18,6 +18,7 @@ from app.services.vacancy_llm_service import GeneratedQuestion, GeneratedQuestio
 from app.services.vacancy_service import (
     InvalidQuestionError,
     VacancyLockedError,
+    VacancyMissingQuestionsError,
     VacancyNotReadyError,
     VacancyService,
 )
@@ -45,6 +46,17 @@ class FakeVacancyLLMService:
     async def generate_questions(self, vacancy) -> GeneratedQuestionSet:
         self.calls += 1
         return GeneratedQuestionSet(questions=self.questions)
+
+    async def generate_single_question(self, vacancy, existing) -> GeneratedQuestion:
+        self.calls += 1
+        return GeneratedQuestion(
+            text=f"Regenerated: {existing.text}",
+            role=existing.role,
+            skill_tag=["postgres"],
+            intent="Проверить знание индексов, переформулировано",
+            reference_answer="B-tree, GIN, ... (v2)",
+            estimated_duration_sec=200,
+        )
 
 
 async def _make_recruiter(session: AsyncSession) -> InternalUser:
@@ -104,6 +116,60 @@ async def test_generate_questions_replaces_base_generated_only(db_session: Async
     await service.generate_questions(vacancy.id)
     questions_after = await service.list_questions(vacancy.id)
     assert len(questions_after) == 4
+
+
+@pytest.mark.anyio
+async def test_send_to_expert_requires_at_least_one_question(db_session: AsyncSession) -> None:
+    recruiter = await _make_recruiter(db_session)
+    service = _make_service(db_session)
+
+    vacancy = await service.create_vacancy(
+        recruiter_id=recruiter.id,
+        title="Backend Developer",
+        description="...",
+        grade="middle",
+        required_skills=[],
+        nice_to_have_skills=[],
+    )
+
+    with pytest.raises(VacancyMissingQuestionsError):
+        await service.send_to_expert(vacancy.id)
+
+    await service.add_question(vacancy.id, text="Any question")
+    sent = await service.send_to_expert(vacancy.id)
+    assert sent.status == "calibration"
+
+
+@pytest.mark.anyio
+async def test_regenerate_question_keeps_id_and_role_replaces_content(db_session: AsyncSession) -> None:
+    recruiter = await _make_recruiter(db_session)
+    llm = FakeVacancyLLMService()
+    service = _make_service(db_session, llm_service=llm)
+
+    vacancy = await service.create_vacancy(
+        recruiter_id=recruiter.id,
+        title="Backend Developer",
+        description="...",
+        grade="middle",
+        required_skills=["postgres"],
+        nice_to_have_skills=[],
+    )
+    question = await service.add_question(
+        vacancy.id,
+        text="Original question",
+        role="assessment",
+        intent="original intent",
+        reference_answer="original answer",
+        skill_tag=["postgres"],
+    )
+
+    regenerated = await service.regenerate_question(vacancy.id, question.id)
+
+    assert regenerated.id == question.id
+    assert regenerated.role == "assessment"
+    assert regenerated.text == "Regenerated: Original question"
+    assert regenerated.reference_answer == "B-tree, GIN, ... (v2)"
+    assert llm.calls == 1
 
 
 @pytest.mark.anyio

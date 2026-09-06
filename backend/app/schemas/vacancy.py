@@ -29,6 +29,8 @@ class VacancyResponse(BaseModel):
 
     id: UUID
     recruiter_id: UUID
+    expert_id: UUID | None
+    hiring_manager_id: UUID | None
     title: str
     description: str
     grade: str
@@ -46,6 +48,8 @@ class VacancyResponse(BaseModel):
         return cls(
             id=vacancy.id,
             recruiter_id=vacancy.recruiter_id,
+            expert_id=vacancy.expert_id,
+            hiring_manager_id=vacancy.hiring_manager_id,
             title=vacancy.title,
             description=vacancy.description,
             grade=vacancy.grade,
@@ -72,6 +76,8 @@ class VacancyCreate(BaseModel):
     grade: str = Field(min_length=1, max_length=100)
     required_skills: list[str] = Field(default_factory=list)
     nice_to_have_skills: list[str] = Field(default_factory=list)
+    expert_id: UUID | None = None
+    hiring_manager_id: UUID | None = None
 
 
 class VacancyUpdate(BaseModel):
@@ -80,6 +86,10 @@ class VacancyUpdate(BaseModel):
     grade: str | None = Field(default=None, min_length=1, max_length=100)
     required_skills: list[str] | None = None
     nice_to_have_skills: list[str] | None = None
+    # `None` явно означает «снять назначение» — поле применяется, только если
+    # его прислали (см. `model_dump(exclude_unset=True)` в роутере).
+    expert_id: UUID | None = None
+    hiring_manager_id: UUID | None = None
 
 
 class GenerateQuestionsResponse(BaseModel):

@@ -148,6 +148,12 @@ jobs:
         # Settings() raises ValidationError at import and backend won't start. infra +
         # backend/frontend run as one compose project here, so postgres/redis/minio
         # resolve by these exact service names.
+        # OPENROUTER_API_KEY/OPENROUTER_MODEL — vacancy_llm_service.py (генерация вопросов
+        # вакансии), тот же секрет и модель по умолчанию, что уже льются в live-agent/.env
+        # ниже; без ключа сама генерация вопросов вернёт 502 (см. QuestionGenerationError),
+        # остальной backend продолжает работать (ключ читается лениво, не при старте).
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           Set-Content -Path backend/.env -Encoding utf8 -Value @'
           CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000","http://26.67.31.6:12345","https://ainterviewer.duckdns.org:12345"]
@@ -179,7 +185,9 @@ jobs:
           LIVEKIT_API_SECRET=secret
           LIVEKIT_WS_URL=wss://ainterviewer.duckdns.org:12345
           PUBLIC_FRONTEND_URL=https://ainterviewer.duckdns.org:12345
+          OPENROUTER_MODEL=minimax/minimax-m3:free
           '@
+          Add-Content -Path backend/.env -Encoding utf8 -Value "OPENROUTER_API_KEY=$env:OPENROUTER_API_KEY"
 
       - name: Write frontend/.env
         run: |

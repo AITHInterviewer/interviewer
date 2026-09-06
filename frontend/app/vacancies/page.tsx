@@ -12,12 +12,16 @@ import { SearchField, SelectField, Toolbar } from "@/components/chrome/Toolbar";
 import { SkeletonTable } from "@/components/ui/skeleton";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import type { Vacancy } from "@/lib/api";
-import { loadVacancies } from "@/lib/auth";
+import { getSession, loadVacancies } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, vacancyNextStep, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { buildNav, candidateCountLabel, vacancyNextStep, VACANCY_STATUS_LABEL } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
+
+function formatVacancyDate(value: string): string {
+  return new Date(value).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+}
 
 function statusTone(status: Vacancy["status"]): StatusTone {
   if (status === "active" || status === "ready" || status === "approved") return "positive";
@@ -36,16 +40,34 @@ export default function VacanciesPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sort, setSort] = useState("candidates");
+  const [assignedToMeOnly, setAssignedToMeOnly] = useState(false);
+
+  const currentUserId = getSession()?.user.id;
+
+  function isAssignedToMe(vacancy: Vacancy): boolean {
+    return (
+      vacancy.recruiter_id === currentUserId ||
+      vacancy.expert_id === currentUserId ||
+      vacancy.hiring_manager_id === currentUserId
+    );
+  }
+
+  const assignedToMeCount = useMemo(
+    () => (currentUserId ? vacancies.filter(isAssignedToMe).length : 0),
+    [currentUserId, vacancies],
+  );
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const rows = vacancies
+      .filter((item) => (assignedToMeOnly ? isAssignedToMe(item) : true))
       .filter((item) => (statusFilter === "all" ? true : item.status === statusFilter))
       .filter((item) => item.title.toLowerCase().includes(needle));
     if (sort === "title") return [...rows].sort((a, b) => a.title.localeCompare(b.title, "ru"));
     if (sort === "status") return [...rows].sort((a, b) => a.status.localeCompare(b.status));
     return [...rows].sort((a, b) => (b.candidate_count ?? 0) - (a.candidate_count ?? 0));
-  }, [query, sort, statusFilter, vacancies]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assignedToMeOnly, currentUserId, query, sort, statusFilter, vacancies]);
 
   const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
   const canReview = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
@@ -102,7 +124,6 @@ export default function VacanciesPage() {
     <AppShell nav={nav} title="Вакансии">
       <div className="workspace">
         <PageHeader
-          path="Рекрутер"
           title="Вакансии"
           actions={
             canManage ? (
@@ -114,8 +135,51 @@ export default function VacanciesPage() {
         />
 
         {!vacanciesLoading && !error && vacancies.length > 0 ? (
+          <div className="vacancy-dashboard">
+            <div className="stat-tile">
+              <span className="stat-tile__value">{vacancies.length}</span>
+              <span className="stat-tile__label">Всего вакансий</span>
+            </div>
+            <div className="stat-tile">
+              <span className="stat-tile__value">
+                {vacancies.filter((v) => v.status === "active" || v.status === "ready").length}
+              </span>
+              <span className="stat-tile__label">Активных</span>
+            </div>
+            <div className="stat-tile">
+              <span className="stat-tile__value">
+                {
+                  vacancies.filter(
+                    (v) => v.status === "calibration" || v.status === "pending_review",
+                  ).length
+                }
+              </span>
+              <span className="stat-tile__label">На проверке у эксперта</span>
+            </div>
+            <div className="stat-tile">
+              <span className="stat-tile__value">
+                {vacancies.reduce((sum, v) => sum + (v.candidate_count ?? 0), 0)}
+              </span>
+              <span className="stat-tile__label">Кандидатов всего</span>
+            </div>
+            <button
+              type="button"
+              className="stat-tile stat-tile--filter"
+              aria-pressed={assignedToMeOnly}
+              onClick={() => setAssignedToMeOnly((current) => !current)}
+            >
+              <span className="stat-tile__value">{assignedToMeCount}</span>
+              <span className="stat-tile__label">Назначено мне</span>
+            </button>
+          </div>
+        ) : null}
+
+        {!vacanciesLoading && !error && vacancies.length > 0 ? <hr className="section-divider" /> : null}
+
+        {!vacanciesLoading && !error && vacancies.length > 0 ? (
           <Toolbar>
             <SearchField
+              className="search-field--grow"
               label="Поиск по названию"
               placeholder="Поиск вакансии"
               value={query}
@@ -143,8 +207,11 @@ export default function VacanciesPage() {
                 { value: "status", label: "По статусу" },
               ]}
             />
-            <span className="toolbar__count">Найдено: {visible.length}</span>
           </Toolbar>
+        ) : null}
+
+        {!vacanciesLoading && !error && vacancies.length > 0 ? (
+          <p className="toolbar-meta">Найдено: {visible.length}</p>
         ) : null}
 
         {vacanciesLoading ? <SkeletonTable rows={3} columns={4} label="Загружаю вакансии" /> : null}
@@ -163,40 +230,28 @@ export default function VacanciesPage() {
 
         {!vacanciesLoading && !error ? (
           visible.length > 0 ? (
-            <table className="vacancies-table">
-              <thead>
-                <tr>
-                  <th>Название</th>
-                  <th>Статус</th>
-                  <th>Следующий шаг</th>
-                  <th>Кандидаты</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {visible.map((vacancy) => (
-                  <tr key={vacancy.id}>
-                    <td>
-                      <Link href={`/vacancies/${vacancy.id}`}>{vacancy.title}</Link>
-                    </td>
-                    <td>
-                      <StatusPill tone={statusTone(vacancy.status)}>
-                        {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
-                      </StatusPill>
-                    </td>
-                    <td>{vacancyNextStep(vacancy)}</td>
-                    <td>{vacancy.candidate_count ?? "—"}</td>
-                    <td>
-                      <Button asChild variant="secondary">
-                        <Link href={`/vacancies/${vacancy.id}`} aria-label={`Открыть ${vacancy.title}`}>
-                          Открыть
-                        </Link>
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="vacancy-card-grid">
+              {visible.map((vacancy) => (
+                <Link
+                  key={vacancy.id}
+                  href={`/vacancies/${vacancy.id}`}
+                  className="vacancy-card"
+                  aria-label={`Открыть ${vacancy.title}`}
+                >
+                  <div className="vacancy-card__header">
+                    <span className="vacancy-card__title">{vacancy.title}</span>
+                    <StatusPill tone={statusTone(vacancy.status)}>
+                      {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
+                    </StatusPill>
+                  </div>
+                  <p className="vacancy-card__next-step">{vacancyNextStep(vacancy)}</p>
+                  <p className="vacancy-card__candidates">
+                    {candidateCountLabel(vacancy.candidate_count)}
+                  </p>
+                  <p className="vacancy-card__created">Создана {formatVacancyDate(vacancy.created_at)}</p>
+                </Link>
+              ))}
+            </div>
           ) : (
             <ScreenState
               kind="empty"
@@ -214,6 +269,7 @@ export default function VacanciesPage() {
                     onClick={() => {
                       setQuery("");
                       setStatusFilter("all");
+                      setAssignedToMeOnly(false);
                     }}
                   >
                     Сбросить фильтры

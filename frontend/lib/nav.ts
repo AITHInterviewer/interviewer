@@ -2,6 +2,24 @@ import type { LandingArea, LandingResponse, Vacancy } from "@/lib/api";
 
 export const USERS_MANAGE_ACTION = "action.internal_users.manage";
 
+// Грейд — обязательное непустое поле на бэкенде (VacancyCreate.grade), поэтому
+// "без грейда" — тоже значение, а не пустая строка.
+export const GRADE_OPTIONS = [
+  { value: "unspecified", label: " " },
+  { value: "intern", label: "Стажёр" },
+  { value: "junior", label: "Junior" },
+  { value: "junior_plus", label: "Junior+" },
+  { value: "middle", label: "Middle" },
+  { value: "middle_plus", label: "Middle+" },
+  { value: "senior", label: "Senior" },
+  { value: "senior_plus", label: "Senior+" },
+  { value: "lead", label: "Lead" },
+];
+
+export function gradeLabel(value: string): string {
+  return GRADE_OPTIONS.find((option) => option.value === value)?.label ?? value;
+}
+
 const HIDDEN_PATHS = new Set(["/overview", "/candidates", "/internal/hiring-manager"]);
 
 const AREA_HREF: Record<string, string> = {
@@ -52,20 +70,22 @@ export function buildNav(landing: LandingResponse): { href: string; label: strin
 export const VACANCY_STATUS_LABEL: Record<string, string> = {
   draft: "Черновик",
   extracted: "Требования извлечены",
-  calibration: "На калибровке",
+  calibration: "На проверке у эксперта",
   changes_requested: "Нужны изменения",
   approved: "Одобрена",
   active: "Активна",
   paused: "Приостановлена",
   archived: "Архивирована",
-  pending_review: "На калибровке",
+  pending_review: "На проверке у эксперта",
   ready: "Активна",
 };
 
-export const OWNER_LABEL = {
+/** Человекочитаемые названия ролей — для меню аккаунта и подобных мест. */
+export const ROLE_LABEL: Record<string, string> = {
   recruiter: "Рекрутер",
   expert: "Эксперт",
-} as const;
+  hiring_manager: "Hiring-менеджер",
+};
 
 export function vacancyNextStep(
   vacancy: Pick<Vacancy, "status" | "owner_next" | "candidate_count">,
@@ -73,28 +93,36 @@ export function vacancyNextStep(
   switch (vacancy.status) {
     case "calibration":
     case "pending_review":
-      return "Эксперт проверяет комплект";
+      return "На проверке у эксперта";
     case "changes_requested":
-      return "Рекрутер: внести правки";
+      return "Нужны правки";
     case "approved":
-      return "Рекрутер: активировать вакансию";
+      return "Готова к запуску";
     case "active":
     case "ready":
-      return (vacancy.candidate_count ?? 0) > 0
-        ? "Рекрутер: работа с кандидатами"
-        : "Рекрутер: пригласить кандидатов";
+      return (vacancy.candidate_count ?? 0) > 0 ? "В работе" : "Пока нет кандидатов";
     case "paused":
-      return "Рекрутер: возобновить вакансию";
+      return "На паузе";
     case "archived":
       return "В архиве";
     case "draft":
     case "extracted":
-      return "Рекрутер: подготовить комплект";
-    default: {
-      const actor = vacancy.owner_next === "expert" ? OWNER_LABEL.expert : OWNER_LABEL.recruiter;
-      return `${actor}: подготовить комплект`;
-    }
+      return vacancy.owner_next === "expert" ? "Ждёт эксперта" : "Нужно собрать вопросы";
+    default:
+      return "Нужно собрать вопросы";
   }
+}
+
+/** Склонение «кандидат»: 1 кандидат, 2 кандидата, 5 кандидатов. */
+export function candidateCountLabel(count: number | undefined): string {
+  const n = count ?? 0;
+  if (n === 0) return "Нет кандидатов";
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  let word = "кандидатов";
+  if (mod10 === 1 && mod100 !== 11) word = "кандидат";
+  else if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) word = "кандидата";
+  return `${n} ${word}`;
 }
 
 export function vacancyContextNav(

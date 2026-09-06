@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -14,6 +15,14 @@ from app.models.vacancy import Vacancy
 from app.repositories.question_repository import QuestionRepository
 from app.repositories.vacancy_repository import VacancyRepository
 from app.services.vacancy_llm_service import VacancyLLMService
+
+
+class _Unset:
+    """Сентинел для `update_vacancy`: отличает «поле не передали» от `None`
+    («явно снять назначение») на nullable-полях expert_id/hiring_manager_id."""
+
+
+_UNSET: Any = _Unset()
 
 
 class VacancyNotFoundError(Exception):
@@ -30,6 +39,10 @@ class VacancyLockedError(Exception):
 
 class VacancyTransitionError(Exception):
     """Недопустимый переход статуса."""
+
+
+class VacancyMissingQuestionsError(Exception):
+    """Нельзя отправить эксперту (и дальше по статусам) вакансию без единого вопроса."""
 
 
 class InvalidQuestionError(Exception):
@@ -71,9 +84,13 @@ class VacancyService:
         grade: str,
         required_skills: list[str],
         nice_to_have_skills: list[str],
+        expert_id: UUID | None = None,
+        hiring_manager_id: UUID | None = None,
     ) -> Vacancy:
         vacancy = Vacancy(
             recruiter_id=recruiter_id,
+            expert_id=expert_id,
+            hiring_manager_id=hiring_manager_id,
             title=title,
             description=description,
             grade=grade,
@@ -105,6 +122,8 @@ class VacancyService:
         grade: str | None = None,
         required_skills: list[str] | None = None,
         nice_to_have_skills: list[str] | None = None,
+        expert_id: UUID | None = _UNSET,
+        hiring_manager_id: UUID | None = _UNSET,
     ) -> Vacancy:
         vacancy = await self.get_vacancy(vacancy_id)
         self._ensure_unlocked(vacancy)
@@ -119,6 +138,13 @@ class VacancyService:
             vacancy.required_skills = list(required_skills)
         if nice_to_have_skills is not None:
             vacancy.nice_to_have_skills = list(nice_to_have_skills)
+        # `None` здесь — явное «снять назначение», а не «поле не менялось» (см.
+        # VacancyUpdate/роутер: kwarg просто не передаётся, если поля не было в запросе),
+        # поэтому проверяем на сентинел `_UNSET`, а не на `is not None`.
+        if expert_id is not _UNSET:
+            vacancy.expert_id = expert_id
+        if hiring_manager_id is not _UNSET:
+            vacancy.hiring_manager_id = hiring_manager_id
 
         await self.vacancy_repository.commit()
         return vacancy
@@ -154,6 +180,28 @@ class VacancyService:
         vacancy.status = "extracted"
         await self.vacancy_repository.commit()
         return created
+
+    async def regenerate_question(self, vacancy_id: UUID, question_id: UUID) -> Question:
+        """Перегенерирует один вопрос через LLM на замену — роль (assessment/warmup/closing),
+        id, порядок и vacancy_id не меняются, остальные поля перезаписываются ответом LLM."""
+        vacancy = await self.get_vacancy(vacancy_id)
+        self._ensure_unlocked(vacancy)
+
+        question = await self.question_repository.get_by_id(question_id)
+        if question is None or question.vacancy_id != vacancy_id:
+            raise QuestionNotFoundError
+
+        generated = await self.llm_service.generate_single_question(vacancy, question)
+        question.text = generated.text
+        question.skill_tag = list(generated.skill_tag)
+        question.intent = generated.intent
+        question.reference_answer = generated.reference_answer
+        question.format = generated.format
+        question.difficulty = generated.difficulty
+        question.estimated_duration_sec = generated.estimated_duration_sec
+
+        await self.question_repository.commit()
+        return question
 
     async def add_question(
         self,
@@ -287,6 +335,9 @@ class VacancyService:
         vacancy = await self.get_vacancy(vacancy_id)
         if vacancy.status not in {"draft", "extracted", "changes_requested"}:
             raise VacancyTransitionError
+        questions = await self.question_repository.list_for_vacancy(vacancy_id)
+        if not questions:
+            raise VacancyMissingQuestionsError
         vacancy.status = "calibration"
         await self.vacancy_repository.commit()
         return vacancy

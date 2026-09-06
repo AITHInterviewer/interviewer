@@ -27,6 +27,11 @@ class Vacancy(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     recruiter_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("internal_users.id"), nullable=False)
+    # Назначение опционально: вакансия может остаться без эксперта/менеджера.
+    expert_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("internal_users.id"), nullable=True)
+    hiring_manager_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("internal_users.id"), nullable=True
+    )
     title: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     grade: Mapped[str] = mapped_column(Text, nullable=False)

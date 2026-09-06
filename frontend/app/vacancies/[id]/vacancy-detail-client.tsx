@@ -1,33 +1,42 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
-import { PageHeader } from "@/components/chrome/PageHeader";
+import { AssigneeField } from "@/components/chrome/AssigneeField";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shadcn/popover";
 import { Modal, ModalActions } from "@/components/ui/overlay";
 import { Button } from "@/components/ui/button";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { Tag } from "@/components/ui/tag";
+import { AvatarGroup, type AvatarPerson } from "@/components/ui/avatar";
 import { CandidateCard } from "@/components/ui/candidate-card";
-import type { AnonymizedStats, Interview, VacancyDetail } from "@/lib/api";
+import { QuestionsPanel } from "@/components/vacancies/QuestionsPanel";
+import type { AnonymizedStats, InternalUser, Interview, VacancyDetail } from "@/lib/api";
 import {
   activateManagedVacancy,
   createManagedInterview,
   generateVacancyQuestions,
+  getSession,
   loadAnonymizedStats,
   loadInterviews,
+  loadInternalUsers,
   loadVacancy,
   pauseManagedVacancy,
   resumeManagedVacancy,
   sendManagedVacancyToExpert,
+  updateManagedVacancy,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { buildNav, gradeLabel, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
 import { groupInterviews, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
+const QUESTIONS_EDIT_ACTION = "action.questions.edit";
+const LOCKED_STATUSES = new Set(["approved", "active", "paused", "archived", "ready"]);
 
 /** Пустая колонка говорит, чего в ней ждать, а не молчит белым полем. */
 const COLUMN_EMPTY: Record<string, string> = {
@@ -63,8 +72,13 @@ function inviteLink(accessToken: string): string {
   return `${window.location.origin}/i/${accessToken}`;
 }
 
+function formatCreatedAt(value: string): string {
+  return new Date(value).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+}
+
 export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const { landing, loading } = useProtectedLanding();
+  const currentUser = getSession()?.user;
 
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [vacancyLoading, setVacancyLoading] = useState(true);
@@ -76,20 +90,25 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
 
   const [stats, setStats] = useState<AnonymizedStats | null>(null);
 
+  const [users, setUsers] = useState<InternalUser[]>([]);
+
   const [candidateName, setCandidateName] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [interviewFormError, setInterviewFormError] = useState<string | null>(null);
   const [interviewFormSubmitting, setInterviewFormSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
   const [copyError, setCopyError] = useState<string | null>(null);
   const [copyDone, setCopyDone] = useState(false);
 
   const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
+  const hasEditAction = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
   const isHiringManager = landing?.available_areas.some((area) => area.id === HIRING_MANAGER_AREA) ?? false;
   const showAnonymized = isHiringManager && !canManage;
+  const vacancyUnlocked = vacancy ? !LOCKED_STATUSES.has(vacancy.status) : false;
 
   async function refreshVacancy() {
     setVacancyLoading(true);
@@ -143,8 +162,13 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     } else {
       void refreshInterviews();
     }
+    if (canManage) {
+      void loadInternalUsers()
+        .then((response) => setUsers(response.items))
+        .catch(() => setUsers([]));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [landing, vacancyId, showAnonymized]);
+  }, [landing, vacancyId, showAnonymized, canManage]);
 
   const grouped = useMemo(() => groupInterviews(interviews), [interviews]);
   const canInvite = vacancy?.status === "active";
@@ -155,14 +179,27 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const showActivate = canManage && vacancy?.status === "approved";
   const showPause = canManage && vacancy?.status === "active";
   const showResume = canManage && vacancy?.status === "paused";
-  const showGenerate =
-    canManage &&
-    vacancy &&
-    vacancy.status !== "approved" &&
-    vacancy.status !== "active" &&
-    vacancy.status !== "paused" &&
-    vacancy.status !== "archived" &&
-    vacancy.status !== "ready";
+  const canManageQuestions = canManage && vacancyUnlocked;
+  const canEditQuestionContent = hasEditAction && vacancyUnlocked;
+
+  const assignedPeople: AvatarPerson[] = vacancy
+    ? [
+        ...(users.find((user) => user.id === vacancy.recruiter_id)
+          ? [{ name: users.find((user) => user.id === vacancy.recruiter_id)!.name, role: "Рекрутер" }]
+          : []),
+        ...(vacancy.expert_id
+          ? [{ name: users.find((user) => user.id === vacancy.expert_id)?.name ?? "?", role: "Эксперт" }]
+          : []),
+        ...(vacancy.hiring_manager_id
+          ? [
+              {
+                name: users.find((user) => user.id === vacancy.hiring_manager_id)?.name ?? "?",
+                role: "Менеджер",
+              },
+            ]
+          : []),
+      ]
+    : [];
 
   async function applyVacancyUpdate(run: () => Promise<{ status: VacancyDetail["status"] }>, fallback: string) {
     setActionBusy(true);
@@ -174,6 +211,16 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
       setActionError(normalizeError(caughtError, fallback));
     } finally {
       setActionBusy(false);
+    }
+  }
+
+  async function handleAssigneeChange(field: "expertId" | "hiringManagerId", value: string | null) {
+    setActionError(null);
+    try {
+      const updated = await updateManagedVacancy(vacancyId, { [field]: value });
+      setVacancy((current) => (current ? { ...current, ...updated } : current));
+    } catch (caughtError) {
+      setActionError(normalizeError(caughtError, "Не удалось сохранить назначение."));
     }
   }
 
@@ -226,15 +273,17 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   }
 
   async function handleGenerateQuestions() {
-    setActionBusy(true);
+    setGenerating(true);
     setActionError(null);
     try {
-      const updated = await generateVacancyQuestions(vacancyId);
-      setVacancy(updated);
+      await generateVacancyQuestions(vacancyId);
+      // Эндпоинт возвращает только сгенерированные вопросы, не всю вакансию —
+      // перечитываем детали целиком, чтобы не разъезжались статус/грейд/т.д.
+      await refreshVacancy();
     } catch (caughtError) {
       setActionError(normalizeError(caughtError, "Не удалось собрать вопросы."));
     } finally {
-      setActionBusy(false);
+      setGenerating(false);
     }
   }
 
@@ -267,46 +316,74 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
 
         {!vacancyLoading && vacancy ? (
           <>
-            <PageHeader
-              breadcrumbs={vacancyBreadcrumbs(vacancyId, vacancy.title, "Доска")}
-              title={vacancy.title}
-              description={
-                <>
-                  <p>{vacancy.description}</p>
-                  {vacancy.required_skills.length > 0 ? (
-                    <p className="table-tags">
-                      {vacancy.required_skills.map((skill) => (
-                        <Tag key={skill} label={skill} />
-                      ))}
-                    </p>
-                  ) : null}
-                </>
-              }
-              actions={
-                <>
-                  <StatusPill tone={statusTone(vacancy.status)}>
-                    {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
-                  </StatusPill>
-                  {canManage ? (
-                    <span>
-                      <Button type="button" disabled={!canInvite} onClick={() => setInviteOpen(true)}>
-                        Пригласить кандидата
-                      </Button>
-                      {!canInvite ? (
-                        <p className="disabled-hint">
-                          Пригласить можно после того, как эксперт одобрит версию и вакансия станет активной.
-                        </p>
-                      ) : null}
+            <nav className="path path--breadcrumbs" aria-label="Хлебные крошки">
+              {vacancyBreadcrumbs(vacancyId, vacancy.title, "Доска").map((item, index) => (
+                <span className="path__segment" key={`${item.label}-${index}`}>
+                  {index > 0 ? (
+                    <span className="path__sep" aria-hidden="true">
+                      {" "}
+                      /{" "}
                     </span>
                   ) : null}
-                  {showGenerate ? (
-                    <Button
+                  {item.href ? <Link href={item.href}>{item.label}</Link> : <span>{item.label}</span>}
+                </span>
+              ))}
+            </nav>
+
+            <section className="vacancy-info-card form-panel">
+              <div className="vacancy-info-card__header">
+                <h1>{vacancy.title}</h1>
+                <StatusPill tone={statusTone(vacancy.status)}>
+                  {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
+                </StatusPill>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
                       type="button"
-                      variant="secondary"
-                      disabled={actionBusy}
-                      onClick={() => void handleGenerateQuestions()}
+                      className="vacancy-assignees-trigger"
+                      aria-label="Назначенные на вакансию"
                     >
-                      Собрать вопросы
+                      {assignedPeople.length > 0 ? (
+                        <AvatarGroup people={assignedPeople} />
+                      ) : (
+                        <span className="avatar avatar--placeholder">+</span>
+                      )}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="vacancy-assignees-popover" align="start">
+                    <PopoverTitle>Назначенные на вакансию</PopoverTitle>
+                    <div className="vacancy-assignee-row">
+                      <span className="vacancy-assignee__role">Рекрутер</span>
+                      <span className="vacancy-assignee__name">
+                        {users.find((user) => user.id === vacancy.recruiter_id)?.name ?? "—"}
+                      </span>
+                    </div>
+                    {canManage ? (
+                      <>
+                        <AssigneeField
+                          label="Эксперт"
+                          roleCode="expert"
+                          users={users}
+                          value={vacancy.expert_id ?? null}
+                          onChange={(value) => void handleAssigneeChange("expertId", value)}
+                          currentUserId={currentUser?.id}
+                        />
+                        <AssigneeField
+                          label="Менеджер"
+                          roleCode="hiring_manager"
+                          users={users}
+                          value={vacancy.hiring_manager_id ?? null}
+                          onChange={(value) => void handleAssigneeChange("hiringManagerId", value)}
+                          currentUserId={currentUser?.id}
+                        />
+                      </>
+                    ) : null}
+                  </PopoverContent>
+                </Popover>
+                <div className="vacancy-info-card__actions">
+                  {canManage ? (
+                    <Button type="button" disabled={!canInvite} onClick={() => setInviteOpen(true)}>
+                      Пригласить кандидата
                     </Button>
                   ) : null}
                   {showSend ? (
@@ -357,12 +434,38 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                       {actionBusy ? "Возобновляем…" : "Возобновить"}
                     </Button>
                   ) : null}
-                </>
-              }
-            />
-            {actionError ? <p className="form-error">{actionError}</p> : null}
+                </div>
+              </div>
 
-            {showAnonymized ? (
+              <div className="vacancy-info-card__meta">
+                <span>{gradeLabel(vacancy.grade)}</span>
+                <span>Создана {formatCreatedAt(vacancy.created_at)}</span>
+              </div>
+
+              <p>{vacancy.description}</p>
+
+              {vacancy.required_skills.length > 0 ? (
+                <p className="table-tags">
+                  {vacancy.required_skills.map((skill) => (
+                    <Tag key={skill} label={skill} />
+                  ))}
+                </p>
+              ) : null}
+
+              {actionError ? <p className="form-error">{actionError}</p> : null}
+            </section>
+
+            <QuestionsPanel
+              vacancyId={vacancyId}
+              questions={vacancy.questions}
+              canManage={canManageQuestions}
+              canEditContent={canEditQuestionContent}
+              generating={generating}
+              onGenerate={() => void handleGenerateQuestions()}
+              onQuestionsChanged={refreshVacancy}
+            />
+
+            {vacancy.questions.length === 0 ? null : showAnonymized ? (
               <section className="plain-section">
                 <h2>Сводка без имён</h2>
                 {interviewsLoading ? <ScreenState kind="loading" title="Загрузка" text="Считаем статусы…" /> : null}
@@ -447,77 +550,71 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                     </section>
                   </>
                 ) : null}
-
-                {canManage ? (
-                  <Modal
-                    open={inviteOpen}
-                    title="Пригласить кандидата"
-                    onClose={() => setInviteOpen(false)}
-                  >
-                  <form className="form-surface" onSubmit={handleCreateInterview}>
-                    <p className="muted-copy">
-                      {createdInviteLink
-                        ? "Ссылка создана. Отправьте её кандидату самостоятельно."
-                        : "Система готовит ссылку. Письмо кандидату отправляете вы."}
-                    </p>
-                    <label>
-                      Имя кандидата (необязательно)
-                      <input
-                        value={candidateName}
-                        onChange={(event) => setCandidateName(event.target.value)}
-                        disabled={!canInvite}
-                      />
-                    </label>
-                    <label>
-                      Резюме кандидата
-                      <input
-                        key={createdInviteLink ?? "resume-empty"}
-                        type="file"
-                        onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
-                        disabled={!canInvite}
-                      />
-                      <span className="field-hint">
-                        Резюме увидят эксперт и нанимающий менеджер рядом с отчётом.
-                      </span>
-                    </label>
-                    {createdInviteLink ? (
-                      <label>
-                        Ссылка для кандидата
-                        <input readOnly value={createdInviteLink} />
-                      </label>
-                    ) : null}
-                    {interviewFormError ? <p className="form-error">{interviewFormError}</p> : null}
-                    <ModalActions>
-                      <Button type="button" variant="secondary" data-modal-initial-focus onClick={() => setInviteOpen(false)}>
-                        Отмена
-                      </Button>
-                      <Button
-                        type="submit"
-                        disabled={!canInvite}
-                        loading={interviewFormSubmitting}
-                        loadingLabel="Готовлю ссылку…"
-                      >
-                        Подготовить ссылку
-                      </Button>
-                      {createdInviteLink ? (
-                        <Button type="button" variant="secondary" onClick={() => void handleCopyInviteLink()}>
-                          Скопировать ссылку
-                        </Button>
-                      ) : null}
-                    </ModalActions>
-                    {copyError ? (
-                      <p className="form-error" role="alert">
-                        {copyError}
-                      </p>
-                    ) : null}
-                    {copyDone ? (
-                      <p role="status">Ссылка скопирована</p>
-                    ) : null}
-                  </form>
-                  </Modal>
-                ) : null}
               </>
             )}
+
+            {canManage ? (
+              <Modal open={inviteOpen} title="Пригласить кандидата" onClose={() => setInviteOpen(false)}>
+                <form className="form-surface" onSubmit={handleCreateInterview}>
+                  <p className="muted-copy">
+                    {createdInviteLink
+                      ? "Ссылка создана. Отправьте её кандидату самостоятельно."
+                      : "Система готовит ссылку. Письмо кандидату отправляете вы."}
+                  </p>
+                  <label>
+                    Имя кандидата (необязательно)
+                    <input
+                      value={candidateName}
+                      onChange={(event) => setCandidateName(event.target.value)}
+                      disabled={!canInvite}
+                    />
+                  </label>
+                  <label>
+                    Резюме кандидата
+                    <input
+                      key={createdInviteLink ?? "resume-empty"}
+                      type="file"
+                      onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
+                      disabled={!canInvite}
+                    />
+                    <span className="field-hint">
+                      Резюме увидят эксперт и нанимающий менеджер рядом с отчётом.
+                    </span>
+                  </label>
+                  {createdInviteLink ? (
+                    <label>
+                      Ссылка для кандидата
+                      <input readOnly value={createdInviteLink} />
+                    </label>
+                  ) : null}
+                  {interviewFormError ? <p className="form-error">{interviewFormError}</p> : null}
+                  <ModalActions>
+                    <Button type="button" variant="secondary" data-modal-initial-focus onClick={() => setInviteOpen(false)}>
+                      Отмена
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={!canInvite}
+                      loading={interviewFormSubmitting}
+                      loadingLabel="Готовлю ссылку…"
+                    >
+                      Подготовить ссылку
+                    </Button>
+                    {createdInviteLink ? (
+                      <Button type="button" variant="secondary" onClick={() => void handleCopyInviteLink()}>
+                        Скопировать ссылку
+                      </Button>
+                    ) : null}
+                  </ModalActions>
+                  {copyError ? (
+                    <p className="form-error" role="alert">
+                      {copyError}
+                    </p>
+                  ) : null}
+                  {copyDone ? <p role="status">Ссылка скопирована</p> : null}
+                </form>
+              </Modal>
+            ) : null}
           </>
         ) : null}
       </div>

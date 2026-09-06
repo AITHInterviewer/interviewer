@@ -1,5 +1,9 @@
 @import "tailwindcss";
-@import "tw-animate-css";
+/* Локальная копия node_modules/tw-animate-css/dist/tw-animate.css: пакет
+   объявляет только условие экспорта "style" без "default", и на путях с
+   не-ASCII символами (кириллица в пути проекта) резолвер Turbopack не может
+   его найти. Обновлять вместе с версией зависимости в package.json. */
+@import "./vendor-tw-animate.css";
 @import "./product.css";
 
 :root {

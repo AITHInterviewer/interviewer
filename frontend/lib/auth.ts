@@ -32,6 +32,7 @@ import {
   loginUser,
   pauseVacancy,
   registerRecruiter,
+  regenerateQuestion,
   requestExpertAudit,
   requestExtraAnswer,
   requestVacancyChanges,
@@ -198,6 +199,8 @@ export type VacancyInput = {
   grade: string;
   requiredSkills: string[];
   niceToHaveSkills: string[];
+  expertId?: string | null;
+  hiringManagerId?: string | null;
 };
 
 export async function createManagedVacancy(input: VacancyInput) {
@@ -212,6 +215,8 @@ export async function createManagedVacancy(input: VacancyInput) {
     grade: input.grade,
     required_skills: input.requiredSkills,
     nice_to_have_skills: input.niceToHaveSkills,
+    expert_id: input.expertId ?? null,
+    hiring_manager_id: input.hiringManagerId ?? null,
   });
 }
 
@@ -227,6 +232,8 @@ export async function updateManagedVacancy(vacancyId: string, input: Partial<Vac
     ...(input.grade !== undefined ? { grade: input.grade } : {}),
     ...(input.requiredSkills !== undefined ? { required_skills: input.requiredSkills } : {}),
     ...(input.niceToHaveSkills !== undefined ? { nice_to_have_skills: input.niceToHaveSkills } : {}),
+    ...(input.expertId !== undefined ? { expert_id: input.expertId } : {}),
+    ...(input.hiringManagerId !== undefined ? { hiring_manager_id: input.hiringManagerId } : {}),
   });
 }
 
@@ -286,6 +293,15 @@ export async function deleteManagedQuestion(vacancyId: string, questionId: strin
   }
 
   return deleteQuestion(session.token, vacancyId, questionId);
+}
+
+export async function regenerateManagedQuestion(vacancyId: string, questionId: string) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+
+  return regenerateQuestion(session.token, vacancyId, questionId);
 }
 
 export async function approveManagedVacancy(vacancyId: string) {

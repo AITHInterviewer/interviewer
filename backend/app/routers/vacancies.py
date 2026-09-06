@@ -42,6 +42,7 @@ from app.services.vacancy_service import (
     InvalidQuestionError,
     QuestionNotFoundError,
     VacancyLockedError,
+    VacancyMissingQuestionsError,
     VacancyNotFoundError,
     VacancyNotReadyError,
     VacancyService,
@@ -86,6 +87,8 @@ async def create_vacancy(
         grade=payload.grade,
         required_skills=payload.required_skills,
         nice_to_have_skills=payload.nice_to_have_skills,
+        expert_id=payload.expert_id,
+        hiring_manager_id=payload.hiring_manager_id,
     )
     return await _vacancy_response(service, vacancy)
 
@@ -167,6 +170,24 @@ async def add_question(
     return QuestionResponse.model_validate(question)
 
 
+@router.post("/{vacancy_id}/questions/{question_id}/regenerate", response_model=QuestionResponse)
+async def regenerate_question(
+    vacancy_id: UUID,
+    question_id: UUID,
+    _: Annotated[InternalUser, Depends(require_recruiter)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> QuestionResponse:
+    try:
+        question = await service.regenerate_question(vacancy_id, question_id)
+    except VacancyNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found.") from exc
+    except QuestionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found.") from exc
+    except VacancyLockedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vacancy is already ready.") from exc
+    return QuestionResponse.model_validate(question)
+
+
 @router.patch("/{vacancy_id}/questions/{question_id}", response_model=QuestionResponse)
 async def update_question(
     vacancy_id: UUID,
@@ -234,7 +255,12 @@ async def approve_vacancy(
     return await _vacancy_response(service, vacancy)
 
 
-_TRANSITION_ERRORS = (VacancyNotFoundError, VacancyTransitionError, VacancyLockedError)
+_TRANSITION_ERRORS = (
+    VacancyNotFoundError,
+    VacancyTransitionError,
+    VacancyLockedError,
+    VacancyMissingQuestionsError,
+)
 
 
 def _transition_http(exc: Exception) -> HTTPException:
@@ -244,6 +270,11 @@ def _transition_http(exc: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invalid vacancy transition.")
     if isinstance(exc, VacancyLockedError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vacancy is locked.")
+    if isinstance(exc, VacancyMissingQuestionsError):
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Vacancy has no questions yet.",
+        )
     raise exc
 
 
