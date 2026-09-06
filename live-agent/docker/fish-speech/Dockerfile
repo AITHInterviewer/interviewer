@@ -21,13 +21,6 @@ RUN git clone --branch v1.5.1 --depth 1 https://github.com/fishaudio/fish-speech
 # funasr нужен только для ASR; делаем импорт опциональным, чтобы TTS работал без него
 COPY docker/fish-speech/model_manager_patch.py tools/server/model_manager.py
 
-# Референсный голос для клонирования (ReferenceLoader.load_by_id ищет ровно
-# references/<id>/*.wav + одноимённый *.lab — см. fish_speech/inference_engine/
-# reference_loader.py). sample.wav/.lab — фрагмент из Russian LibriSpeech
-# (istupakov/russian_librispeech на HuggingFace, public domain — записи LibriVox),
-# используется как voice_id="pushkin" в agent.py.
-COPY docker/fish-speech/references/ references/
-
 # torch.compile(mode="reduce-overhead") captures a CUDA Graph around
 # decode_one_token; the returned `codebooks` tensor lives in a graph-owned
 # buffer that gets overwritten by the next decode step before the caller is
@@ -73,6 +66,15 @@ RUN pip3 install --no-cache-dir --break-system-packages --only-binary=tokenizers
 
 # Устанавливаем пакет fish-speech без deps (уже установлены выше)
 RUN pip3 install --no-cache-dir --break-system-packages --no-deps -e .
+
+# Меняется часто (референс голоса) — держим ПОСЛЕ всех pip install, иначе любое
+# изменение здесь инвалидирует кэш всех тяжёлых слоёв выше (torch и т.д. качаются заново
+# — реальный найденный баг, 2026-09-06: 7+ минут вместо секунд на пересборку).
+# ReferenceLoader.load_by_id ищет ровно references/<id>/*.wav + одноимённый *.lab (см.
+# fish_speech/inference_engine/reference_loader.py). sample.wav/.lab — фрагмент из
+# Russian LibriSpeech (istupakov/russian_librispeech на HuggingFace, public domain —
+# записи LibriVox), используется как voice_id="pushkin" в agent.py.
+COPY docker/fish-speech/references/ references/
 
 EXPOSE 8080
 
