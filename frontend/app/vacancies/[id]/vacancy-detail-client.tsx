@@ -33,7 +33,7 @@ import {
 import { normalizeError } from "@/lib/errors";
 import { buildNav, gradeLabel, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
 import { groupInterviews, interviewColumn, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
-import { vacancyScoreRange } from "@/lib/report";
+import { vacancyScoreRange, interviewScore, isReportProcessing } from "@/lib/report";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
@@ -570,16 +570,38 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                       <tr>
                         <th>Имя</th>
                         <th>Стадия</th>
+                        <th>Оценка</th>
                         <th></th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredCandidates.map((interview) => {
                         const name = interview.candidate_name ?? "Без имени";
+                        const score = interviewScore(interview);
                         return (
                           <tr key={interview.id}>
                             <td>{name}</td>
                             <td>{interviewStageLabel(interview)}</td>
+                            <td>
+                              {score ? (
+                                <span className="candidate-score">
+                                  {score.percent != null ? (
+                                    <>
+                                      <i data-tone={score.verdict ?? "none"} />
+                                      <b className="candidate-score__value" data-tone={score.verdict ?? "none"}>
+                                        {score.percent}%
+                                      </b>
+                                    </>
+                                  ) : (
+                                    <span className="muted-copy">—</span>
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="muted-copy">
+                                  {isReportProcessing(interview) ? "Отчёт готовится" : "—"}
+                                </span>
+                              )}
+                            </td>
                             <td>
                               <Link
                                 href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
@@ -655,13 +677,27 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                               ) : (
                                 items.map((interview) => {
                                   const name = interview.candidate_name ?? "Без имени";
+                                  const score = interviewScore(interview);
                                   return (
                                     <CandidateCard
                                       key={interview.id}
                                       name={name}
                                       stage={interviewStageLabel(interview)}
                                       href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
-                                      action={`Открыть ${name}`}
+                                      action="Открыть"
+                                      status={
+                                        score?.percent != null ? (
+                                          <span className="candidate-score">
+                                            <i data-tone={score.verdict ?? "none"} />
+                                            <b
+                                              className="candidate-score__value"
+                                              data-tone={score.verdict ?? "none"}
+                                            >
+                                              {score.percent}%
+                                            </b>
+                                          </span>
+                                        ) : undefined
+                                      }
                                     />
                                   );
                                 })

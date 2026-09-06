@@ -30,6 +30,7 @@ import {
   reevaluateManagedInterview,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
+import { useToast } from "@/lib/toast";
 import { interviewStageLabel } from "@/lib/pipeline";
 import {
   buildRequirementMap,
@@ -155,7 +156,6 @@ export default function VacancyCandidatePage() {
   const [pageLoading, setPageLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [managerId, setManagerId] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [transcriptQuery, setTranscriptQuery] = useState("");
   const [focusedLineKey, setFocusedLineKey] = useState<string | null>(null);
@@ -322,19 +322,30 @@ export default function VacancyCandidatePage() {
     };
   }, [landing, params.cid, params.id, canManage]);
 
+  const { pushToast } = useToast();
+
   async function handleHandoff() {
     if (!managerId.trim()) {
-      setError("Выберите менеджера.");
+      pushToast("warning", "Выберите менеджера.");
       return;
     }
     setBusy(true);
-    setError(null);
+    const manager = managers.find((item) => item.id === managerId.trim());
     try {
       await handoffManagedInterview(params.cid, { to_manager_id: managerId.trim(), summary: "" });
-      setInterview((current) => (current ? { ...current, recruiter_decision: "handed_off" } : current));
-      setStatus("Передано менеджеру.");
+      setInterview((current) =>
+        current
+          ? {
+              ...current,
+              recruiter_decision: "handed_off",
+              handed_off_to: manager ? { id: manager.id, name: manager.name } : null,
+            }
+          : current,
+      );
+      pushToast("success", `Передано менеджеру: ${manager?.name ?? "имя менеджера неизвестно"}`);
     } catch (caughtError) {
-      setError(normalizeError(caughtError, "Не удалось передать менеджеру."));
+      const message = normalizeError(caughtError, "Не удалось передать менеджеру.");
+      pushToast("error", message.includes("Already handed off") ? "Уже передано менеджеру ранее." : message);
     } finally {
       setBusy(false);
     }
@@ -358,17 +369,16 @@ export default function VacancyCandidatePage() {
 
   async function handleReevaluate() {
     setBusy(true);
-    setError(null);
     try {
       const updated = await reevaluateManagedInterview(params.cid);
       setInterview(updated);
       if (updated.product_state === "report_ready") {
-        setStatus("Отчёт пересобран.");
+        pushToast("success", "Отчёт пересобран.");
       } else {
-        setStatus("Не удалось пересобрать отчёт — разбор снова не прошёл. Попробуйте ещё раз позже.");
+        pushToast("warning", "Не удалось пересобрать отчёт — разбор снова не прошёл. Попробуйте позже.");
       }
     } catch (caughtError) {
-      setError(normalizeError(caughtError, "Не удалось пересобрать отчёт."));
+      pushToast("error", normalizeError(caughtError, "Не удалось пересобрать отчёт."));
     } finally {
       setBusy(false);
     }
@@ -403,7 +413,6 @@ export default function VacancyCandidatePage() {
               description={interviewStageLabel(interview)}
             />
             {error ? <p className="form-error">{error}</p> : null}
-            {status ? <p className="success-message">{status}</p> : null}
 
             {interview.recording_url && !processing ? (
               <section className="interview-recording">
@@ -873,33 +882,52 @@ export default function VacancyCandidatePage() {
 
             {canManage ? (
               <div className="decision-deck">
-                <div className="decision-deck__in">
-                  <span className="decision-deck__label">Решение по кандидату</span>
-                  <select
-                    value={managerId}
-                    onChange={(event) => setManagerId(event.target.value)}
-                    aria-label="Менеджер"
-                  >
-                    <option value="">Выберите менеджера</option>
-                    {managers.map((manager) => (
-                      <option key={manager.id} value={manager.id}>
-                        {manager.name} ({manager.email})
-                      </option>
-                    ))}
-                  </select>
-                  <span className="decision-deck__spacer" />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={interview.recruiter_decision !== "awaiting"}
-                    onClick={() => setFinalInviteOpen(true)}
-                  >
-                    Пригласить на финал
-                  </Button>
-                  <Button type="button" disabled={busy || !managerId.trim()} onClick={() => void handleHandoff()}>
-                    Передать менеджеру
-                  </Button>
-                </div>
+              <div className="decision-deck__in">
+                {interview.recruiter_decision === "handed_off" && interview.handed_off_to ? (
+                  <>
+                    <span className="decision-deck__label">Заявка у менеджера</span>
+                    <span className="decision-deck__manager">{interview.handed_off_to.name}</span>
+                    <span className="decision-deck__spacer" />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled
+                      title="Кнопка станет доступна после решения менеджера"
+                      onClick={() => setFinalInviteOpen(true)}
+                    >
+                      Пригласить на финал
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <span className="decision-deck__label">Решение по кандидату</span>
+                    <select
+                      value={managerId}
+                      onChange={(event) => setManagerId(event.target.value)}
+                      aria-label="Менеджер"
+                    >
+                      <option value="">Выберите менеджера</option>
+                      {managers.map((manager) => (
+                        <option key={manager.id} value={manager.id}>
+                          {manager.name} ({manager.email})
+                        </option>
+                      ))}
+                    </select>
+                    <span className="decision-deck__spacer" />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={interview.recruiter_decision !== "awaiting"}
+                      onClick={() => setFinalInviteOpen(true)}
+                    >
+                      Пригласить на финал
+                    </Button>
+                    <Button type="button" disabled={busy || !managerId.trim()} onClick={() => void handleHandoff()}>
+                      Передать менеджеру
+                    </Button>
+                  </>
+                )}
+              </div>
               </div>
             ) : null}
             <Modal open={finalInviteOpen} title="Приглашение на финальное интервью" onClose={() => setFinalInviteOpen(false)}>

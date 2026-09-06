@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { InterviewAnswer, InterviewReport, Question } from "@/lib/api";
 import {
   buildRequirementMap,
+  interviewScore,
   isReportProcessing,
   mandatorySummary,
   requiredSkillTally,
@@ -10,6 +11,8 @@ import {
   scoreTone,
   skillVerdictFor,
   uncoveredRequirements,
+  VERDICT_LABEL,
+  verdictTone,
 } from "@/lib/report";
 
 function question(id: string, order: number, skills: string[]): Question {
@@ -210,5 +213,40 @@ describe("isReportProcessing", () => {
   it("false когда отчёт не в обработке", () => {
     expect(isReportProcessing({ product_state: "report_ready" })).toBe(false);
     expect(isReportProcessing({})).toBe(false);
+  });
+});
+
+describe("interviewScore", () => {
+  it("отдаёт процент и вердикт готового отчёта", () => {
+    const ready = {
+      product_state: "report_ready" as const,
+      report_json: { ...report({ confirmed: ["Python"] }), score_percent: 78, verdict: "fits" as const },
+    };
+    expect(interviewScore(ready)).toEqual({ percent: 78, verdict: "fits" });
+  });
+
+  it("null, пока отчёт собирается или отсутствует", () => {
+    expect(interviewScore({ product_state: "report_processing", report_json: null })).toBeNull();
+    expect(interviewScore({ product_state: "report_ready", report_json: null })).toBeNull();
+    expect(interviewScore({})).toBeNull();
+  });
+
+  it("percent падает на overall_score, если score_percent нет", () => {
+    const legacy = { product_state: "report_ready" as const, report_json: report({}) };
+    expect(interviewScore(legacy)).toEqual({ percent: 92, verdict: "needs_review" });
+  });
+});
+
+describe("verdictTone / VERDICT_LABEL", () => {
+  it("тон под вердикт", () => {
+    expect(verdictTone("fits")).toBe("positive");
+    expect(verdictTone("needs_review")).toBe("warning");
+    expect(verdictTone("not_fits")).toBe("danger");
+  });
+
+  it("подписи на русском", () => {
+    expect(VERDICT_LABEL.fits).toBe("Проходит");
+    expect(VERDICT_LABEL.not_fits).toBe("Не проходит");
+    expect(VERDICT_LABEL.needs_review).toBe("Нуждается в доп. проверке");
   });
 });

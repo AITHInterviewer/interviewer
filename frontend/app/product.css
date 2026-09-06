@@ -579,7 +579,8 @@ input:hover, textarea:hover { border-color: var(--border-strong); }
 .candidate-card { min-height: 110px; padding: 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-raised); }
 .candidate-card--interactive { width: 100%; text-align: left; text-decoration: none; color: inherit; }
 .candidate-card__top { display: flex; align-items: center; gap: 9px; }
-.candidate-card__action { display: flex; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px solid var(--surface-muted); color: var(--accent); font-size: var(--text-body); }
+.candidate-card__action { display: grid; place-items: center; width: 24px; height: 24px; margin-left: auto; border-radius: 50%; color: var(--ink-tertiary); transition: background var(--ease), color var(--ease); }
+.candidate-card--interactive:hover .candidate-card__action { background: var(--surface-selected); color: var(--accent); }
 .field { display: flex; flex-direction: column; gap: 8px; }
 .field > label { color: var(--ink-secondary); font-size: var(--text-body); }
 .field__hint { color: var(--ink-tertiary); font-size: var(--text-meta); }
@@ -756,9 +757,12 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 
 /* Панель решения: фиксированная внизу */
 .workspace--with-deck { padding-bottom: 110px; }
+/* Тосты не должны перекрывать кнопки нижней панели. */
+body:has(.decision-deck) .toast-stack { bottom: 92px; }
 .decision-deck { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: color-mix(in srgb, var(--surface-raised) 92%, transparent); backdrop-filter: blur(12px); border-top: 1px solid var(--border); }
 .decision-deck__in { max-width: var(--content); margin: 0 auto; padding: 14px 24px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .decision-deck__label { font-size: var(--text-meta); color: var(--ink-tertiary); }
+.decision-deck__manager { padding: 5px 12px; border-radius: var(--radius-pill); background: var(--surface-selected); color: var(--accent); font-size: var(--text-meta); font-weight: 600; }
 .decision-deck__spacer { flex: 1; }
 .decision-deck select { font: inherit; font-size: var(--text-meta); color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-control); padding: 8px 11px; max-width: 320px; }
 
@@ -770,3 +774,14 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
   .q-row__detail { padding-left: 20px; }
   .report-hero__score { justify-items: start; }
 }
+
+/* Оценка кандидата в списке вакансии: процент, окрашенный по вердикту */
+.candidate-score { display: inline-flex; align-items: center; gap: 7px; }
+.candidate-score i { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); }
+.candidate-score i[data-tone="fits"] { background: var(--positive); }
+.candidate-score i[data-tone="needs_review"] { background: var(--warning); }
+.candidate-score i[data-tone="not_fits"] { background: var(--danger); }
+.candidate-score__value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--text-body); font-weight: 600; }
+.candidate-score__value[data-tone="fits"] { color: var(--positive); }
+.candidate-score__value[data-tone="needs_review"] { color: var(--warning); }
+.candidate-score__value[data-tone="not_fits"] { color: var(--danger); }
