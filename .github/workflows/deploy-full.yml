@@ -25,6 +25,10 @@ name: deploy full stack (self-hosted)
 
 on:
   workflow_dispatch: {}
+  # Temporary one-shot: this commit triggers deploy of the merged animation branch.
+  # Reverted immediately after so later pushes to main stay manual-only.
+  push:
+    branches: [main]
 
 concurrency:
   group: deploy-full
