@@ -47,9 +47,15 @@
    секунд), не «забытая настройка по умолчанию» — не меняй без явного запроса.
 
 8. **STT/TTS — self-hosted через Docker, OpenAI-совместимые эндпоинты**
-   (`docker-compose.yml`), не облачные API с ключами. LLM — Claude Agent SDK на
-   подписке (`claude login`), не OpenRouter/API-ключ — оба решения обсуждались и приняты
-   явно, см. историю в README.
+   (`docker-compose.yml`), не облачные API с ключами. LLM по умолчанию — Claude Agent
+   SDK на подписке (`claude login`), не OpenRouter/API-ключ — оба решения обсуждались и
+   приняты явно, см. историю в README.
+   Исключение (2026-09-06, явный запрос пользователя): CLI-харнесс Claude Agent SDK даёт
+   5-19с на ход даже с переиспользуемым `ClaudeSDKClient` — неприемлемо при требовании
+   2-3с. Добавлен опциональный `MistralLiveControlLLM` (`llm_client.py`), прямой REST к
+   Mistral API — включается `LLM_PROVIDER=mistral` в `live-agent/.env`
+   (`MISTRAL_API_KEY`/`MISTRAL_MODEL` тоже оттуда). Дефолт при отсутствии `LLM_PROVIDER`
+   остаётся Claude Agent SDK — это проба, не отмена решения из этого пункта.
 
 9. **Любое изменение `state_machine.py` — с тестом.** `tests/test_state_machine.py`
    называет тесты по конкретной ветке из раздела 2.3.1 архитектурного документа. Новая

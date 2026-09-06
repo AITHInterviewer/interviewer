@@ -215,9 +215,17 @@ jobs:
           '@
 
       - name: Write live-agent/.env
+        # LLM_PROVIDER=mistral — временная проба (2026-09-06): Claude Agent SDK CLI даёт
+        # 5-19с на ход (харнесс-накладные расходы, см. live-agent/CLAUDE.md п.8 и
+        # llm_client.py), при требовании 2-3с это неприемлемо. MISTRAL_API_KEY — секрет
+        # репозитория, не хардкодим значение в workflow.
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
         run: |
           Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
           LLM_MODEL=claude-haiku-4-5
+          LLM_PROVIDER=mistral
+          MISTRAL_MODEL=mistral-small-latest
           STT_BASE_URL=http://stt:8000/v1
           TTS_BASE_URL=http://tts:8080
           STT_API_KEY=not-needed
@@ -232,6 +240,7 @@ jobs:
           LIVEKIT_API_KEY=devkey
           LIVEKIT_API_SECRET=secret
           '@
+          Add-Content -Path live-agent/.env -Encoding utf8 -Value "MISTRAL_API_KEY=$env:MISTRAL_API_KEY"
 
       - name: Obtain/renew TLS certificate (Let's Encrypt via DuckDNS DNS-01)
         # Не требует открытых портов 80/443 (на этом туннеле нельзя открыть порт <1000,

@@ -51,7 +51,7 @@ from livekit.plugins import silero
 from .control_bridge import RedisEventSink
 from .echo_filter import is_likely_echo
 from .events import EventLog, EventSink
-from .llm_client import ClaudeAgentSDKLiveControlLLM
+from .llm_client import ClaudeAgentSDKLiveControlLLM, LiveControlLLM, MistralLiveControlLLM
 from .prompts import INTRO_PHRASE
 from .schema import InterviewInput
 from .state_machine import LiveContourEngine
@@ -215,7 +215,13 @@ async def entrypoint(ctx: JobContext) -> None:
         AGENT_ROOT / "out" / f"{interview.interview_id}.jsonl",
         sinks=_build_event_sinks(interview.interview_id),
     )
-    llm = ClaudeAgentSDKLiveControlLLM()
+    llm: LiveControlLLM
+    if os.environ.get("LLM_PROVIDER", "claude_sdk") == "mistral":
+        # Прямой REST к Mistral вместо Claude Agent SDK CLI — обходит харнесс-накладные
+        # расходы, см. llm_client.py. Опционально, включается явно (LLM_PROVIDER=mistral).
+        llm = MistralLiveControlLLM()
+    else:
+        llm = ClaudeAgentSDKLiveControlLLM()
     engine = LiveContourEngine(interview, llm, events)
 
     session = AgentSession(

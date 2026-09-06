@@ -17,22 +17,24 @@
 Модель — `claude-haiku-4-5` (решение пользователя: нужна скорость на узкой классификации
 с бюджетом в единицы секунд, не intelligence-максимум).
 
-Известный риск, который НЕ проверен в этой сессии (нет подписки/авторизации в песочнице,
-где писался код): `query()` поднимает отдельный subprocess (`claude.exe`) на каждый вызов —
-это добавляет задержку старта процесса поверх самого инференса. Если она окажется заметной
-на фоне бюджета "единицы секунд" — следующий шаг для оптимизации: держать один
-`ClaudeSDKClient` на весь текущий вопрос (переподключать в `_enter_question()`), чтобы не
-поднимать процесс заново на каждую паузу внутри одного вопроса. Сейчас сознательно взят
-более простой вариант (без вручную создаваемой сессии) — так буквальнее соответствует
-"контекст только текущий вопрос" и меньше кода, но если задержка окажется проблемой,
-это первое место для оптимизации.
+Известный риск, подтверждённый вживую (2026-09-05, см. `ClaudeAgentSDKLiveControlLLM`
+докстринг ниже): даже с переиспользованным `ClaudeSDKClient` один ход занимает 5-19
+секунд — это не подключение подпроцесса (оно происходит раз на вопрос), а накладные
+расходы самого CLI-харнесса Claude Code поверх инференса. При требовании ответа за
+2-3 секунды (2026-09-06) это неприемлемо — добавлен `MistralLiveControlLLM` как
+опциональная альтернатива на прямом REST-API (переключается `LLM_PROVIDER=mistral`,
+см. `agent.py`). Дефолт остаётся Claude Agent SDK — правило 8 в CLAUDE.md описывает это
+как ранее принятое решение; здесь оно не отменяется, а временно пробуется alternative
+провайдер по прямому запросу пользователя.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from abc import ABC, abstractmethod
 
+import httpx
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -121,9 +123,55 @@ class ClaudeAgentSDKLiveControlLLM(LiveControlLLM):
 
         # На случай если CLI по какой-то причине не заполнил structured_output —
         # пробуем распарсить текстовый ответ как JSON, а не падаем молча.
-        import json
-
         raw = result.result or fallback_text
+        return LiveControlDecision.model_validate(json.loads(raw))
+
+
+class MistralLiveControlLLM(LiveControlLLM):
+    """Прямой REST-вызов Mistral Chat Completions вместо Claude Agent SDK CLI — убирает
+    накладные расходы харнесса (см. докстринг модуля): один `httpx`-запрос без
+    подпроцесса. `response_format: json_object` у Mistral не принимает JSON-схему (в
+    отличие от `output_format` Claude Agent SDK) — схема ответа добавляется текстом в
+    system prompt, а `LiveControlDecision.model_validate()` сам проверяет результат.
+
+    Без сессии/подпроцесса между ходами — `reset()` не держит состояния, каждый вызов
+    независим (обычный stateless HTTP-клиент)."""
+
+    BASE_URL = "https://api.mistral.ai/v1/chat/completions"
+
+    _SCHEMA_HINT = """\
+
+Ответь СТРОГО одним JSON-объектом, без markdown-обёртки (```), без текста до или после \
+JSON, ровно с такими полями:
+{
+  "decision": "continue" | "exhaustive" | "ambiguous" | "gap",
+  "gap_type": "clarification" | "leading_hint" | "drill_down" | null,
+  "utterance": "текст реплики кандидату, или null при decision=continue/exhaustive",
+  "reasoning": "короткое обоснование для протокола"
+}
+gap_type обязателен (не null), только если decision="gap"."""
+
+    def __init__(self, model: str | None = None, api_key: str | None = None):
+        self.model = model or os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
+        self.api_key = api_key or os.environ["MISTRAL_API_KEY"]
+        self._client = httpx.AsyncClient(timeout=20.0)
+
+    async def decide(self, system_prompt: str, turn_prompt: str) -> LiveControlDecision:
+        response = await self._client.post(
+            self.BASE_URL,
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            json={
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt + self._SCHEMA_HINT},
+                    {"role": "user", "content": turn_prompt},
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.3,
+            },
+        )
+        response.raise_for_status()
+        raw = response.json()["choices"][0]["message"]["content"]
         return LiveControlDecision.model_validate(json.loads(raw))
 
 
