@@ -259,30 +259,28 @@ export function InterviewRoom({
           {baseQuestionText ?? "Подключаемся к интервью…"}
         </p>
         {followUpText ? <p className="question-followup">{followUpText}</p> : null}
+        <StatusLine channelState={channelState} />
+      </section>
+
+      {/* Субтитры (зеркало произнесённого — выключаются кнопкой снизу слева) и под ними
+          таймер отведённого на вопрос времени — единой колонкой над нижними кнопками. */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-16 z-20 mx-auto flex max-w-2xl flex-col items-center gap-1 px-4 text-center">
+        {subtitlesOn && subtitles.agent ? (
+          <p className="rounded-md bg-[color-mix(in_srgb,var(--surface-raised)_92%,transparent)] px-3 py-1 text-sm text-[var(--ink-secondary)] shadow-sm">
+            Интервьюер: {subtitles.agent}
+          </p>
+        ) : null}
+        {subtitlesOn && subtitles.candidate ? (
+          <p className="rounded-md bg-[color-mix(in_srgb,var(--surface-raised)_92%,transparent)] px-3 py-1 text-sm shadow-sm">
+            Вы: {subtitles.candidate}
+          </p>
+        ) : null}
         {remainingMs != null ? (
           <p className="text-sm tabular-nums text-[var(--ink-tertiary)]">
             {remainingMs > 0 ? `Осталось времени на вопрос: ${formatDuration(remainingMs)}` : "Время на вопрос вышло"}
           </p>
         ) : null}
-        <StatusLine channelState={channelState} />
-      </section>
-
-      {/* Субтитры — зеркало произнесённого (транскрипт ответа кандидата + реплики
-          интервьюера). Выключаются кнопкой снизу слева. */}
-      {subtitlesOn && (subtitles.agent || subtitles.candidate) ? (
-        <div className="pointer-events-none fixed inset-x-0 bottom-20 z-20 mx-auto max-w-2xl space-y-1 px-4 text-center">
-          {subtitles.agent ? (
-            <p className="inline-block rounded-md bg-[color-mix(in_srgb,var(--surface-raised)_92%,transparent)] px-3 py-1 text-sm text-[var(--ink-secondary)] shadow-sm">
-              Интервьюер: {subtitles.agent}
-            </p>
-          ) : null}
-          {subtitles.candidate ? (
-            <p className="inline-block rounded-md bg-[color-mix(in_srgb,var(--surface-raised)_92%,transparent)] px-3 py-1 text-sm shadow-sm">
-              Вы: {subtitles.candidate}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      </div>
 
       <button
         type="button"
@@ -301,7 +299,7 @@ export function InterviewRoom({
             setNextSent(true);
           }}
           disabled={nextSent}
-          className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-ink)] hover:opacity-90 disabled:opacity-50"
+          className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
         >
           {nextSent ? "Переходим…" : "Дальше"}
           <ChevronRight className="h-4 w-4" />
