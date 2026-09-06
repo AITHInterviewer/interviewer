@@ -18,6 +18,10 @@ on:
         description: "Also call OpenRouter TTS from inside the agent container ('false' to skip)"
         required: false
         default: "true"
+      vacancy_probe:
+        description: "Прогнать разбор описания вакансии и сборку вопросов боевой моделью ('true' чтобы включить)"
+        required: false
+        default: "false"
 
 jobs:
   logs:
@@ -163,5 +167,112 @@ jobs:
               for model in STT_MODELS:
                   await probe_stt(frames, model, with_prompt=False)
                   await probe_stt(frames, model, with_prompt=True)
+          asyncio.run(main())
+          PY
+
+      # Единственное звено флоу вакансии, которое нельзя проверить тестами: что боевая
+      # модель на самом деле отвечает по vacancy_requirements_extract.txt и
+      # vacancy_question_set.txt строгим JSON нужной формы. Ключ живёт в backend/.env на
+      # раннере — проба идёт ИЗ backend-контейнера тем же клиентом, что и продакшн-путь,
+      # и ничего не пишет в базу. Выключена по умолчанию: это платный вызов модели.
+      - name: Probe vacancy requirement extraction + question set
+        if: ${{ github.event.inputs.vacancy_probe == 'true' }}
+        run: |
+          set +e
+          main=(--project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml -f docker-compose.vps.yml)
+          docker compose "${main[@]}" exec -T backend python - <<'PY'
+          import asyncio
+          import os
+
+          from app.services.vacancy_llm_service import VacancyLLMService
+
+          DESCRIPTION = """Middle + Python Developer
+          Уровень должности: Middle
+          Опыт работы: от 3 лет коммерческой разработки
+          Обязанности:
+          - Разработка и поддержка высоконагруженных микросервисов;
+          - Интеграция с Kafka для обработки потоков данных;
+          - Проектирование Event Sourcing и CQRS паттернов;
+          - Настройка мониторинга и алертинга сервисов;
+          - Участие в Code review.
+          Требования:
+          - Опыт работы с Python от 5 лет;
+          - Django/FastAPI - опыт разработки REST API;
+          - Микросервисная архитектура - опыт проектирования и поддержки;
+          - Apache Kafka - продакшн опыт работы с producers/consumers;
+          - PostgreSQL - проектирование схем, оптимизация запросов;
+          - ETL процессы - Extract, Transform, Load данных;
+          - Docker/Kubernetes - контейнеризация и оркестрация;
+          - Event-driven архитектура - паттерны работы с событиями;
+          - Мониторинг: Prometheus, Grafana или аналоги;
+          - Git, CI/CD - DevOps практики.
+          Будет плюсом:
+          - Знание gRPC для межсервисного взаимодействия;
+          - Опыт с ELK Stack;
+          - Знание Domain-Driven Design (DDD).
+          Условия:
+          - Удаленная работа, гибкое начало и конец рабочего дня.
+          - Оплату участия в профильных онлайн-конференциях (HighLoad++, Podlodka).
+          - Доступ к курсам нашей объединенной IT-школы GIGASCHOOL.
+          """
+
+
+          class _Vacancy:
+              """Ровно те поля, которые читает _vacancy_prompt — в базу не ходим."""
+
+              def __init__(self, title, grade, description, requirements):
+                  self.title = title
+                  self.grade = grade
+                  self.description = description
+                  self.requirements = requirements
+                  self.required_skills = [r["name"] for r in requirements]
+                  self.nice_to_have_skills = []
+
+
+          async def main() -> None:
+              print("model =", os.environ.get("OPENROUTER_MODEL", "(default)"))
+              service = VacancyLLMService()
+
+              extracted = await service.extract_requirements(DESCRIPTION)
+              print(f"\n=== ТРЕБОВАНИЯ ({len(extracted.requirements)}) ===")
+              print("title =", extracted.title, "| grade =", extracted.grade)
+              for item in extracted.requirements:
+                  print(f"  {item.kind:4} {item.level:9} {item.name}  <- {item.evidence[:60]}")
+              print(f"\n--- excluded ({len(extracted.excluded)}) ---")
+              for item in extracted.excluded[:8]:
+                  print(f"  {item.text[:60]} :: {item.reason}")
+              print("--- warnings ---")
+              for w in extracted.warnings:
+                  print(" ", w)
+
+              kinds = {i.kind for i in extracted.requirements}
+              levels = {i.level for i in extracted.requirements}
+              print(f"\nПРОВЕРКА: требований={len(extracted.requirements)} (ждём <=10),"
+                    f" kind={sorted(kinds)}, level={sorted(levels)}")
+              if len(kinds) == 1 or len(levels) == 1:
+                  print("ВНИМАНИЕ: модель поставила один и тот же kind/level всему списку.")
+
+              requirements = [
+                  {**item.model_dump(), "id": f"req_{i}", "source": "llm"}
+                  for i, item in enumerate(extracted.requirements[:10])
+              ]
+              vacancy = _Vacancy(extracted.title, extracted.grade, DESCRIPTION, requirements)
+              generated = await service.generate_questions(vacancy)
+
+              print(f"\n=== ВОПРОСЫ ({len(generated.questions)}) ===")
+              for q in generated.questions:
+                  print(f"  [{q.role}] {q.skill_tag} {q.estimated_duration_sec}s :: {q.text[:90]}")
+
+              wanted = {r["name"].strip().lower() for r in requirements}
+              covered = {
+                  t.strip().lower()
+                  for q in generated.questions
+                  if q.role == "assessment"
+                  for t in q.skill_tag
+              }
+              missing = sorted(wanted - covered)
+              print("\nПОКРЫТИЕ:", "полное" if not missing else f"НЕ ЗАКРЫТЫ: {missing}")
+
+
           asyncio.run(main())
           PY
