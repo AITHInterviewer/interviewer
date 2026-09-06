@@ -103,16 +103,12 @@ describe("requirementConclusion", () => {
 });
 
 describe("isReportProcessing", () => {
-  it("true при report_status processing", () => {
-    expect(isReportProcessing({ report_status: "processing" })).toBe(true);
-  });
-
   it("true при product_state report_processing", () => {
     expect(isReportProcessing({ product_state: "report_processing" })).toBe(true);
   });
 
   it("false когда отчёт не в обработке", () => {
-    expect(isReportProcessing({ report_status: "ready", product_state: "report_ready" })).toBe(false);
+    expect(isReportProcessing({ product_state: "report_ready" })).toBe(false);
     expect(isReportProcessing({})).toBe(false);
   });
 });

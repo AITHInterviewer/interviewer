@@ -55,9 +55,7 @@ function extraLink(accessToken: string, clarificationId: string): string {
 }
 
 function reportLabel(interview: Interview): string {
-  if (interview.report_status === "ready") return "Отчёт готов: решение за вами.";
-  if (interview.report_status === "updated_extra") return "Отчёт обновлён после доп. ответа кандидата.";
-  if (interview.report_status === "expert_reviewed") return "Эксперт разобрал отчёт и оставил отметку.";
+  if (interview.product_state === "report_ready") return "Отчёт готов: решение за вами.";
   return "Отчёт готовится. Обычно это занимает около часа после сдачи.";
 }
 

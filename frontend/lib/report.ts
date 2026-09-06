@@ -126,8 +126,6 @@ export function uncoveredRequirements(rows: RequirementRow[]): RequirementRow[] 
 }
 
 /** Отчёт ещё собирается: цифры покрытия нельзя читать как итоговый пробел. */
-export function isReportProcessing(
-  interview: Pick<Interview, "report_status" | "product_state">,
-): boolean {
-  return interview.report_status === "processing" || interview.product_state === "report_processing";
+export function isReportProcessing(interview: Pick<Interview, "product_state">): boolean {
+  return interview.product_state === "report_processing";
 }

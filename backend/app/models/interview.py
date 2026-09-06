@@ -44,9 +44,6 @@ class Interview(Base):
     rubric_version_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("rubric_version.id"), nullable=True
     )
-    report_status: Mapped[str] = mapped_column(
-        Text, nullable=False, default="processing", server_default="processing"
-    )
     report_json: Mapped[dict | None] = mapped_column(_jsonb, nullable=True)
     recruiter_decision: Mapped[str] = mapped_column(
         Text, nullable=False, default="awaiting", server_default="awaiting"

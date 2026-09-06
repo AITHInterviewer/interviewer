@@ -17,7 +17,6 @@ class InterviewResponse(BaseModel):
     created_at: datetime
     completed_at: datetime | None
     product_state: str = "invited"
-    report_status: str = "processing"
     recruiter_decision: str = "awaiting"
     rubric_version_id: UUID | None = None
 

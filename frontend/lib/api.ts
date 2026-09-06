@@ -269,7 +269,6 @@ export type Interview = {
   status: string;
   created_at: string;
   product_state?: InterviewProductState;
-  report_status?: "processing" | "ready" | "updated_extra" | "expert_reviewed";
   recruiter_decision?: RecruiterDecision;
   rubric_version_id?: string | null;
 };

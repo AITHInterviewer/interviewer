@@ -145,7 +145,6 @@ const interviews = [
     status: "report_ready",
     created_at: "2026-09-03T09:00:00Z",
     product_state: "report_ready",
-    report_status: "ready",
     recruiter_decision: "awaiting",
   },
   {
@@ -157,7 +156,6 @@ const interviews = [
     status: "report_ready",
     created_at: "2026-09-02T09:00:00Z",
     product_state: "report_ready",
-    report_status: "ready",
     recruiter_decision: "handed_off",
   },
   {
