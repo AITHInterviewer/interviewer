@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { apiFetch, resolveLiveKitWsUrl } from "@/lib/api";
 import { ControlChannel, type ChannelState, type SubtitleLine } from "@/lib/control-channel";
 import { LiveKitSession, type AgentPresence } from "@/lib/livekit-client";
+import { InterviewerOrb } from "@/components/interview/InterviewerOrb";
 
 type LiveKitTokenResponse = { token: string; room_name: string; ws_url: string; expires_at: string };
 
@@ -380,15 +381,7 @@ export function InterviewRoom({
             <DeviceSettings liveKitRef={liveKitRef} onDeviceSwitched={() => syncActiveTracks(liveKitRef.current)} />
           </div>
         </div>
-        <div
-          className={`flex aspect-video items-center justify-center rounded-xl border-4 text-sm transition-colors duration-150 ${
-            agentPresence === "speaking"
-              ? "border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] text-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_25%,transparent)]"
-              : "border-transparent bg-[var(--surface-muted)] text-[var(--ink-secondary)]"
-          }`}
-        >
-          {agentPresence === "speaking" ? "Интервьюер говорит…" : agentPresence === "present" ? "Интервьюер" : "Ожидаем интервьюера…"}
-        </div>
+        <InterviewerOrb presence={agentPresence} />
       </div>
     </div>
   );
