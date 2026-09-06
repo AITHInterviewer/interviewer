@@ -28,6 +28,7 @@ import {
   loadInterview,
   loadInterviewEvents,
   loadVacancy,
+  reevaluateManagedInterview,
   requestManagedAudit,
   requestManagedExtra,
 } from "@/lib/auth";
@@ -299,6 +300,24 @@ export default function VacancyCandidatePage() {
     }
   }
 
+  async function handleReevaluate() {
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await reevaluateManagedInterview(params.cid);
+      setInterview(updated);
+      if (updated.product_state === "report_ready") {
+        setStatus("Отчёт пересобран.");
+      } else {
+        setStatus("Не удалось пересобрать отчёт — разбор снова не прошёл. Попробуйте ещё раз позже.");
+      }
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, "Не удалось пересобрать отчёт."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading || !landing) {
     return (
       <main className="workspace">
@@ -353,6 +372,16 @@ export default function VacancyCandidatePage() {
                     ? "Интервью завершено, отчёт собирается"
                     : `Это разбор ответов системой, а не решение о найме. ${reportLabel(interview)}`}
                 </p>
+                {processing && canManage ? (
+                  <div className="form-actions">
+                    <Button type="button" variant="secondary" disabled={busy} onClick={() => void handleReevaluate()}>
+                      Пересобрать отчёт
+                    </Button>
+                    <span className="muted-copy">
+                      Если отчёт долго не готов — разбор мог не пройти. Кнопка запускает его заново.
+                    </span>
+                  </div>
+                ) : null}
                 {!processing && interview.report_json ? (
                   (() => {
                     const tally = requiredSkillTally(interview.report_json);

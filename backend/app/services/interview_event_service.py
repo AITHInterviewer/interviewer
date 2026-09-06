@@ -158,6 +158,32 @@ class InterviewEventService:
         elif event_type == "question_completed":
             answer.completed_at = ts
 
+    async def reevaluate(self, interview_id: uuid.UUID | str) -> Interview | None:
+        """Повторный запуск разбора для интервью, застрявшего на этапе отчёта
+        (воркер упал/LLM вернул ошибку и задача ушла в failed, см. `fail_job`).
+        Рекрутёр дёргает это кнопкой с карточки кандидата (`POST .../reevaluate`).
+        Синхронной оценки здесь нет — сбрасываем outbox-задачу в pending; фактический
+        разбор делает evaluation-agent (как при `interview_completed`)."""
+        interview_id = uuid.UUID(str(interview_id))
+        interview = await self.session.get(Interview, interview_id)
+        if interview is None or interview.status not in ("completed", "processing_failed"):
+            return interview
+        interview.product_state = "report_processing"
+        job_result = await self.session.execute(
+            select(EvaluationJob).where(EvaluationJob.interview_id == interview_id)
+        )
+        job = job_result.scalar_one_or_none()
+        if job is None:
+            self.session.add(EvaluationJob(interview_id=interview_id, status="pending"))
+        else:
+            job.status = "pending"
+            job.attempts = 0
+            job.last_error = None
+            job.started_at = None
+            job.finished_at = None
+        await self.session.commit()
+        return interview
+
     async def _get_or_create_answer(
         self, interview_id: uuid.UUID | str, question_id: uuid.UUID, started_at: datetime
     ) -> Answer:

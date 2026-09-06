@@ -294,3 +294,37 @@ async def test_interview_completed_twice_does_not_duplicate_job(
         .all()
     )
     assert len(jobs) == 1
+
+
+@pytest.mark.anyio
+async def test_reevaluate_resets_failed_job_and_requeues(
+    db_session: AsyncSession,
+) -> None:
+    """`reevaluate` — кнопка с карточки кандидата для интервью, застрявшего на отчёте:
+    существующая failed-задача сбрасывается в pending, interview снова в report_processing.
+    Фактический разбор — прерогатива evaluation-agent (claim_pending_job)."""
+    interview = await seed_demo_interview(db_session, question_count=1)
+    service = InterviewEventService(db_session)
+
+    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
+    job = (
+        (await db_session.execute(select(EvaluationJob).where(EvaluationJob.interview_id == interview.id)))
+        .scalars()
+        .one()
+    )
+    job.status = "failed"
+    job.attempts = job.max_attempts
+    job.last_error = "moonshot 401"
+    await db_session.commit()
+    await db_session.refresh(interview)
+    assert interview.status == "completed"
+    assert interview.product_state == "report_processing"
+
+    await service.reevaluate(interview.id)
+
+    await db_session.refresh(interview)
+    await db_session.refresh(job)
+    assert interview.product_state == "report_processing"
+    assert job.status == "pending"
+    assert job.attempts == 0
+    assert job.last_error is None

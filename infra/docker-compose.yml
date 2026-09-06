@@ -117,20 +117,22 @@ services:
     # ошибке, если его действительно запустят (см. deploy-full.yml) без DUCKDNS_TOKEN/TLS_DOMAIN.
     environment:
       - DuckDNS_Token=${DUCKDNS_TOKEN}
+      - TLS_DOMAIN=${TLS_DOMAIN}
     volumes:
       - ./infra/tls:/acme.sh/output
       # LE_CONFIG_HOME for this image is /acme.sh itself (account registration, ACME
-      # thumbprint, per-domain renewal bookkeeping) — separate from --cert-home below,
-      # which only controls where the issued cert files land. Without persisting this too,
+      # thumbprint, per-domain renewal bookkeeping). Without persisting this too,
       # `docker compose run --rm acme` starts a brand-new, empty /acme.sh every single
       # deploy: acme.sh has no memory of ever having issued this domain before and reissues
       # a fresh certificate on every run instead of detecting "still valid, skip" — burned
       # through Let's Encrypt's 5-certs/168h rate limit this way (2026-09-05).
       - acme-state:/acme.sh
+      - ./infra/acme-issue.sh:/issue.sh:ro
     entrypoint: sh
-    command: >-
-      -c "acme.sh --issue --dns dns_duckdns -d ${TLS_DOMAIN} --server letsencrypt --cert-home /acme.sh/output &&
-      acme.sh --install-cert -d ${TLS_DOMAIN} --cert-home /acme.sh/output --key-file /acme.sh/output/domain.key --fullchain-file /acme.sh/output/fullchain.pem"
+    # sed: runner на Windows может отдать скрипт с CRLF; в контейнере это ломает sh.
+    # Скрипт сначала копирует уже выпущенный cert из volume, не трогая live-файлы.
+    # Если Let's Encrypt в rate limit — берёт ZeroSSL/BuyPass (браузеры тоже доверяют).
+    command: ["-c", "sed 's/\\r$$//' /issue.sh | sh"]
 
   livekit-egress:
     image: livekit/egress:latest
