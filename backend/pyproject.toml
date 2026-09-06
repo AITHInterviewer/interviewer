@@ -32,6 +32,10 @@ dependencies = [
     # Multipart-эндпоинт создания интервью (POST /vacancies/{id}/interviews, resume_file) —
     # FastAPI требует этот пакет для разбора form-data/UploadFile.
     "python-multipart",
+    # HTTP-клиент для OpenRouter (app/services/llm.py). В optional-dev он уже был
+    # из‑за тестов; в production-образе (`uv sync --no-dev`) его не было — uvicorn
+    # падал с ModuleNotFoundError: httpx.
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
