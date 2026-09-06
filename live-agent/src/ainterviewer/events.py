@@ -33,6 +33,7 @@ class EventType(str, Enum):
     QUESTION_STARTED = "question_started"
     BACKCHANNEL_PLAYED = "backchannel_played"
     CANDIDATE_UTTERANCE = "candidate_utterance"
+    STT_PARTIAL = "stt_partial"
     LIVE_CONTROL_DECISION = "live_control_decision"
     AGENT_UTTERANCE = "agent_utterance"
     ADAPTIVE_QUESTION_ASKED = "adaptive_question_asked"

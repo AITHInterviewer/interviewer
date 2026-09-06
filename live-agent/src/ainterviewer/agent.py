@@ -53,7 +53,7 @@ from livekit.plugins import silero
 
 from .control_bridge import RedisEventSink
 from .echo_filter import is_likely_echo
-from .events import EventLog, EventSink
+from .events import EventLog, EventSink, EventType
 from .llm_client import (
     AnthropicAPILiveControlLLM,
     ClaudeAgentSDKLiveControlLLM,
@@ -427,7 +427,20 @@ async def entrypoint(ctx: JobContext) -> None:
     # умолчанию, на случай если оно резолвится не так, как ожидается.
     @session.on("user_input_transcribed")
     def _on_user_transcript(ev):  # noqa: ANN001
-        logger.info("user_input_transcribed: %r", ev)
+        logger.info("user_input_transcribed: transcript=%r is_final=%s", ev.transcript, ev.is_final)
+        # Живые субтитры речи кандидата: и промежуточный (interim), и финальный транскрипт
+        # STT — по мере поступления, ещё до реактивного цикла. Это черновой ASR (тот же
+        # статус, что у CANDIDATE_UTTERANCE), только потоковый; batch-контур его не читает,
+        # получатель — субтитры кандидатского UI (control_channel: stt_partial →
+        # subtitle_candidate).
+        text = (ev.transcript or "").strip()
+        if not text:
+            return
+        events.emit(
+            EventType.STT_PARTIAL,
+            question_id=engine.state.current.question.id if engine.state.current else None,
+            payload={"text": text, "is_final": ev.is_final},
+        )
 
     @session.on("user_state_changed")
     def _on_user_state(ev):  # noqa: ANN001

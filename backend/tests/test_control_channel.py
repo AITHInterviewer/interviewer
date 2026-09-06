@@ -111,6 +111,15 @@ async def test_utterances_map_to_subtitles(db_session: AsyncSession) -> None:
     # Пустой транскрипт (ещё не финализирован) — не шлём.
     assert await to_control_event(db_session, {"type": "candidate_utterance", "payload": {}}) is None
 
+    # Живой (потоковый) STT кандидата идёт в тот же слот субтитров.
+    partial = await to_control_event(
+        db_session,
+        {"type": "stt_partial", "question_id": "q1", "payload": {"text": "я работал с", "is_final": False}},
+    )
+    assert partial is not None
+    assert partial["type"] == "subtitle_candidate"
+    assert partial["text"] == "я работал с"
+
 
 @pytest.mark.anyio
 async def test_question_started_carries_time_limit_for_countdown(db_session: AsyncSession) -> None:

@@ -25,9 +25,10 @@ logger = logging.getLogger(__name__)
 # (backchannel_played, live_control_decision, interview_started) сознательно не
 # транслируются — избыточны для UI.
 #
-# candidate_utterance/agent_utterance транслируются как субтитры (транскрипт ответа
-# кандидата и реплики интервьюера внизу экрана, выключаемые кандидатом) — это НЕ управление
-# ходом интервью, а зеркало уже произнесённого, поэтому FR-011 не нарушается.
+# candidate_utterance/agent_utterance/stt_partial транслируются как субтитры (транскрипт
+# ответа кандидата — потоковый stt_partial и финальный candidate_utterance — и реплики
+# интервьюера внизу экрана, выключаемые кандидатом) — это НЕ управление ходом интервью,
+# а зеркало уже произнесённого, поэтому FR-011 не нарушается.
 _TRANSLATED_EVENT_TYPES = {
     "question_started": "question",
     "checkin_used": "checkin",
@@ -35,6 +36,7 @@ _TRANSLATED_EVENT_TYPES = {
     "question_completed": "transition",
     "interview_completed": "completed",
     "candidate_utterance": "subtitle_candidate",
+    "stt_partial": "subtitle_candidate",
     "agent_utterance": "subtitle_agent",
 }
 
