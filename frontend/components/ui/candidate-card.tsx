@@ -47,7 +47,11 @@ export function CandidateCard({
   }
 
   return (
-    <Link className="candidate-card candidate-card--interactive" href={href} aria-label={action}>
+    <Link
+      className="candidate-card candidate-card--interactive"
+      href={href}
+      aria-label={action ? `${action} ${name}` : undefined}
+    >
       {body}
     </Link>
   );

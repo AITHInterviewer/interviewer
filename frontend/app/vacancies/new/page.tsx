@@ -81,6 +81,7 @@ export default function NewVacancyPage() {
   const [extracting, setExtracting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [titleError, setTitleError] = useState<string | null>(null);
 
   function applyExtraction(payload: ExtractedRequirements) {
     setDescription(payload.description);
@@ -166,7 +167,7 @@ export default function NewVacancyPage() {
   async function handleSendToExpert() {
     setError(null);
     if (!title.trim()) {
-      setError("Укажите название вакансии — подсказка: его можно взять из заголовка описания.");
+      setTitleError("Название вакансии обязательно — укажите, на кого нанимаете.");
       return;
     }
     const unnamed = requirements.some((item) => item.checked && !item.name.trim());
@@ -324,9 +325,16 @@ export default function NewVacancyPage() {
                 Название вакансии
                 <input
                   value={title}
-                  onChange={(event) => setTitle(event.target.value)}
+                  onChange={(event) => {
+                    setTitle(event.target.value);
+                    if (titleError) {
+                      setTitleError(null);
+                    }
+                  }}
                   placeholder="Python Developer"
+                  aria-invalid={titleError ? "true" : undefined}
                 />
+                {titleError ? <span className="form-error">{titleError}</span> : null}
               </label>
               <label>
                 Грейд
