@@ -13,7 +13,14 @@
 # ВАЖНО про модель STT здесь: это ЖИВОЙ контур с бюджетом в единицы секунд — измерили
 # вживую, что `large-v3-turbo` на CPU даёт 20–30+ сек/реплику даже прогретым (float16→
 # float32 фолбэк без GPU), это и стало причиной "агент перестал отвечать". Большая точная
-# модель — законное место evaluation-agent (см. ../evaluation-agent/docker-compose.yml), не сюда.
+# модель была законным местом только evaluation-agent (см. ../evaluation-agent/docker-compose.yml),
+# не сюда — ЭТО БЫЛО ВЕРНО ДО GPU. С 2026-09-05 раннер имеет рабочую NVIDIA GPU (RTX 5070 Ti,
+# 16GB, `docker run --gpus all` подтверждён вживую), поэтому `large-v3` (не turbo — файл уже
+# скачан) теперь запускается явно на `cuda`/`float16` (см. `stt.environment` ниже), а не на CPU.
+# WHISPER__INFERENCE_DEVICE/WHISPER__COMPUTE_TYPE заданы ЯВНО (не `auto`) намеренно: именно
+# молчаливый фолбэк float16->float32-CPU (описанный абзацем выше) и был причиной зависания —
+# явные значения означают громкий отказ, если GPU в контейнере вдруг недоступна, вместо
+# повторения того же "агент перестал отвечать" без единой ошибки в логах.
 
 services:
   live-agent:
@@ -23,12 +30,13 @@ services:
         required: false
     environment:
       # Внутри docker-сети — по имени сервиса, не localhost (тот действует только при
-      # локальном запуске .venv-процессом на хосте, см. .env.example).
+      # локальном запуске .venv-процессом на хосте, см. .env.example). ВАЖНО: этот блок
+      # имеет приоритет над env_file — реальный найденный баг (2026-09-06), значение TTS_BASE_URL
+      # здесь оставалось на старом Piper-порту 8000 ещё три деплоя после смены live-agent/.env
+      # на Fish Speech (8080), потому что deploy-full.yml переписывает только .env, не этот
+      # файл — агент продолжал ловить ConnectionRefusedError на каждую реплику молча.
       - STT_BASE_URL=http://stt:8000/v1
-      - TTS_BASE_URL=http://tts:8000/v1
-      - LIVEKIT_URL=ws://livekit-server:7880
-      - LIVEKIT_API_KEY=devkey
-      - LIVEKIT_API_SECRET=dev-secret-change-me-32-characters
+      - TTS_BASE_URL=http://tts:8080
     volumes:
       # Claude Agent SDK запускает `claude` CLI подпроцессом (см. Dockerfile) — креды
       # подписки (`claude login`, разово на хосте, НЕ в образе) читает отсюда.
@@ -51,41 +59,67 @@ services:
     # "start"), не привязан к портам. Не проверено вживую (нужен реальный livekit-server).
 
   stt:
-    image: fedirz/faster-whisper-server:latest-cpu
+    image: fedirz/faster-whisper-server:latest-cuda
     ports:
       - "3905:8000"
     environment:
-      # small — быстро, но реальная жалоба на качество техтерминов ("очень плохо").
-      # medium — компромисс по точности, ВРЕМЕННО откачен обратно на small (2026-09-05):
-      # model.bin для medium (~1.5ГБ) так и не докачался — тот же нестабильный CDN-хост
-      # HuggingFace (us.aws.cdn.hf.co), что и с TTS-моделью, тут файл ещё больше и падает
-      # ещё стабильнее (blob остался 0-байтным .incomplete). small — тем же путём, что
-      # чинили TTS: скачать вручную на другой машине и docker cp в кэш контейнера.
-      - WHISPER__MODEL=Systran/faster-whisper-small
-      # HF_HUB_OFFLINE=1 — не ходить в сеть за проверкой модели, когда она уже в
-      # локальном кэше (актуально после того, как small реально докачается).
-      - HF_HUB_OFFLINE=1
+      # large-v3 на GPU (см. докстринг в шапке файла) — модель уже скачана на раннере,
+      # calling session положит файл в кэш тем же способом, что и irina/ruslan для TTS.
+      - WHISPER__MODEL=Systran/faster-whisper-large-v3
+      # Явно cuda/float16 (не auto) — см. докстринг в шапке файла: молчаливый фолбэк на
+      # CPU float32 был реальным зафиксированным инцидентом ("агент перестал отвечать").
+      - WHISPER__INFERENCE_DEVICE=cuda
+      - WHISPER__COMPUTE_TYPE=float16
+      # Тот же CDN-баг, что и у TTS ниже (xet-транспорт huggingface_hub падает с TLS
+      # handshake eof на этой сети) — large-v3 тоже реально качается с HF, не только
+      # Piper-голоса.
+      - HF_HUB_DISABLE_XET=1
+      - HF_HUB_DOWNLOAD_TIMEOUT=60
+      # HF_HUB_OFFLINE=1 намеренно НЕ включаем: реальный найденный баг (2026-09-05) —
+      # stt-cache на этом раннере ещё пустой (новый volume), а офлайн-режим блокирует
+      # ЛЮБОЙ сетевой вызов huggingface_hub, включая /v1/models (просто список моделей,
+      # без скачивания) — сервер падал 500 на каждый запрос с
+      # `huggingface_hub.errors.OfflineModeIsEnabled`, модель вообще не могла ни разу
+      # скачаться. Включать обратно можно только после того, как model.onnx/бинарник
+      # уже реально лежит в кэше (см. irina/ruslan-прецедент для TTS).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     volumes:
       - stt-cache:/root/.cache/huggingface
 
   tts:
-    image: ghcr.io/speaches-ai/speaches:latest-cpu
+    # Piper/speaches (и -cpu, и -cuda) откинули: правильно произносит русский, но грубо
+    # коверкает вставки английских терминов (транслитерация через espeak-ng-фонемизацию,
+    # не настоящая мультиязычная акустическая модель) — реальная жалоба на качество для
+    # технического интервью (2026-09-05/06). Fish Speech v1.5.1 — мультиязычная модель,
+    # код-свитчинг RU+EN в одном предложении звучит естественно, без транслитерации.
+    # Свой образ (не готовый с ghcr/docker hub — upstream не публикует его сам), собран из
+    # официального репо fish-speech с минимальным патчем (см. docker/fish-speech/) —
+    # опциональный импорт funasr (нужен только для ASR-режима, который мы не используем) и
+    # torch.compile mode="default" вместо "reduce-overhead" (CUDA Graph capture ловил
+    # "accessing tensor output of CUDAGraphs that has been overwritten" на этом GPU).
+    build:
+      context: .
+      dockerfile: docker/fish-speech/Dockerfile
     ports:
-      - "3906:8000"
-    environment:
-      # Модель скачивает сам сервер (в ответ на запрос от speaches-cli, не CLI-процесс) —
-      # переменная нужна именно тут, `docker exec -e` на отдельный exec-процесс не влияет
-      # на уже запущенный сервер. Новый xet-транспорт huggingface_hub падал с TLS handshake
-      # eof / CAS service error на этой сети — принудительно классический HTTP-download.
-      - HF_HUB_DISABLE_XET=1
-      # Дефолтный таймаут huggingface_hub (10с) не хватает на этой сети — реально видели
-      # ReadTimeoutError на скачивании model.onnx с us.aws.cdn.hf.co.
-      - HF_HUB_DOWNLOAD_TIMEOUT=60
-    # Без volume для кэша моделей — реальная проверка показала PermissionError: именованный
-    # volume создаётся Docker'ом от root, а образ работает под непривилегированным ubuntu
-    # (uid 1000) и не может в него писать. Можно было бы chown'ить volume отдельным init-шагом,
-    # но для MVP проще принять, что голос перекачивается заново при пересоздании контейнера —
-    # `docker compose stop/start` (без rm) кэш внутри слоя контейнера сохраняет.
+      - "3906:8080"
+    volumes:
+      # Чекпойнты (веса модели, ~1.4GB) — общий с другим проектом путь на этом раннере,
+      # не наш deploy их не качает и не хранит. checkpoints/fish-speech-1.5/... — путь,
+      # который ждёт CMD в Dockerfile (--llama-checkpoint-path/--decoder-checkpoint-path).
+      - C:\ai-interviewer-assets\fish-speech-1.5:/opt/fish-speech/checkpoints/fish-speech-1.5:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
 volumes:
   stt-cache:

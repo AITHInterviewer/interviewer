@@ -1,12 +1,22 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { AuthShell } from "@/components/auth/auth-shell";
+import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
 import { getSession, resolveLandingPath, signIn } from "@/lib/auth";
+
+const CREDENTIALS_ERROR = "Не удалось войти. Проверьте почту и пароль";
+const SERVICE_ERROR = "Не удалось связаться с сервисом. Повторите попытку";
+
+function loginErrorMessage(caughtError: unknown): string {
+  if (caughtError instanceof ApiError && caughtError.status === 401) {
+    return CREDENTIALS_ERROR;
+  }
+  return SERVICE_ERROR;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -31,11 +41,7 @@ export default function LoginPage() {
       const response = await signIn({ email, password });
       router.push(await resolveLandingPath(response.access_token));
     } catch (caughtError) {
-      if (caughtError instanceof ApiError) {
-        setError(caughtError.message);
-      } else {
-        setError("Could not sign in.");
-      }
+      setError(loginErrorMessage(caughtError));
     } finally {
       setSubmitting(false);
     }
@@ -43,13 +49,13 @@ export default function LoginPage() {
 
   return (
     <AuthShell
-      eyebrow="Internal / Login"
-      title="Sign in to the internal workspace"
-      description="Use your internal account."
+      eyebrow="Вход для сотрудников"
+      title="Вход в рабочий кабинет"
+      description="Используйте рабочую почту и пароль, выданные для доступа"
     >
       <form className="form-surface" onSubmit={handleSubmit}>
         <label>
-          Work email
+          Рабочая почта
           <input
             name="email"
             type="email"
@@ -59,7 +65,7 @@ export default function LoginPage() {
           />
         </label>
         <label>
-          Password
+          Пароль
           <input
             name="password"
             type="password"
@@ -70,13 +76,13 @@ export default function LoginPage() {
           />
         </label>
         {error ? <p className="form-error">{error}</p> : null}
+        <p className="disabled-hint">
+          <a href="mailto:help@napoleon-it.ru">Нужна помощь со входом?</a>
+        </p>
         <div className="form-actions">
-          <button className="button button--primary" type="submit" disabled={submitting}>
-            {submitting ? "Signing in..." : "Sign in"}
-          </button>
-          <Link className="button button--secondary" href="/register">
-            Create recruiter account
-          </Link>
+          <Button type="submit" variant="primary" loading={submitting}>
+            Войти
+          </Button>
         </div>
       </form>
     </AuthShell>

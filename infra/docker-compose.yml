@@ -3,10 +3,7 @@
 # по имени (postgres/redis/minio/livekit-server), см. include: в корневом docker-compose.yml.
 #
 # ВНИМАНИЕ: livekit-server и livekit-egress настроены в dev-режиме с фиксированными
-# ключом devkey и секретом только для разработки — годится для локальной разработки и CI,
-# НЕ для прода. Egress
-# ни разу не проверялся вживую (нет реальной WebRTC-комнаты с записью в этом проекте
-# на момент написания) — конфиг собран по документации LiveKit, не протестирован.
+# ключами (devkey/secret) — годится для локальной разработки и CI, НЕ для прода.
 
 services:
   postgres:
@@ -67,11 +64,17 @@ services:
     # Relative to this included compose file. Keeping the path local also works when the
     # root compose stack includes infra/docker-compose.yml.
     volumes:
-      - ./livekit.yaml:/etc/livekit.yaml:ro
+      - ./infra/livekit.yaml:/etc/livekit.yaml:ro
+      # Тот же сертификат, что и у nginx (см. сервис acme выше) — используется только
+      # деплойной версией livekit.yaml (turn: cert_file/key_file), локальный дефолт
+      # TURN вообще не включает. Пустая директория локально — не проблема, раз на неё
+      # никто не ссылается.
+      - ./infra/tls:/etc/ainterviewer-tls:ro
     ports:
       - "3907:7880" # HTTP/WS сигналинг
       - "3908:7881" # TCP fallback для ICE/TURN
       - "50000-50100:50000-50100/udp" # RTC-медиа (диапазон урезан для локали; в проде — шире)
+      - "5349:5349" # встроенный TURN/TLS (см. livekit.yaml, блок turn) — обход для candidate без VPN
     # ainterviewer-shared — чтобы live-agent (отдельный compose-проект/сеть) видел этот
     # контейнер напрямую по имени "livekit-server" и получал host ICE-кандидат вместо
     # похода через внешний IP хоста (см. livekit.yaml). default — иначе теряется связь
@@ -81,19 +84,91 @@ services:
       default:
       ainterviewer-shared:
 
+  # Единая точка входа наружу (frontend/backend/livekit-сигналинг за одним портом) —
+  # см. infra/nginx/nginx.conf, там же — почему postgres/minio сюда не заведены и почему
+  # апстримы резолвятся в рантайме, а не через depends_on: frontend/backend определены в
+  # docker-compose.dev.yml (не в этом файле) — по имени резолвятся, только когда оба
+  # compose-файла подняты вместе одним проектом (см. .github/workflows/deploy-full.yml).
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Настоящий Let's Encrypt сертификат (через DuckDNS DNS-01, без открытых портов
+      # 80/443 — см. сервис acme ниже и .github/workflows/deploy-full.yml). ./infra/tls
+      # должен существовать до старта nginx: ssl_certificate указывает на него напрямую,
+      # отсутствие файла — фатальная ошибка старта nginx, не просто 502 на один location.
+      - ./infra/tls:/etc/ainterviewer-tls:ro
+    ports:
+      - "${PUBLIC_HTTP_PORT:-12345}:443"
+
+  # Одноразовая (не поднимается через `up -d`, только `docker compose run --rm acme` —
+  # см. deploy-full.yml) выписка/продление Let's Encrypt сертификата через DNS-01 у DuckDNS:
+  # не требует открытых портов 80/443 (которые нельзя открыть на этом туннеле, только ≥1000)
+  # — вместо HTTP-проверки CA сверяет TXT-запись, которую acme.sh сам проставляет через
+  # DuckDNS API. Сертификат общий для nginx (сайт) и livekit-server (TURN/TLS, см.
+  # infra/livekit.yaml) — оба читают один и тот же ./infra/tls.
+  acme:
+    image: neilpang/acme.sh
+    # Без ":?required" — Compose интерполирует ВЕСЬ файл, включая этот сервис, даже когда
+    # `up`/`down` нацелены на другие сервисы и эти переменные не заданы в их шагах (env
+    # одного шага workflow не переживает переход к следующему) — с required-синтаксисом
+    # любой такой вызов падал с "required variable ... is missing a value", хотя acme
+    # вообще не запускался. Пустые значения здесь безвредны: acme.sh сам явно сообщит об
+    # ошибке, если его действительно запустят (см. deploy-full.yml) без DUCKDNS_TOKEN/TLS_DOMAIN.
+    environment:
+      - DuckDNS_Token=${DUCKDNS_TOKEN}
+    volumes:
+      - ./infra/tls:/acme.sh/output
+      # LE_CONFIG_HOME for this image is /acme.sh itself (account registration, ACME
+      # thumbprint, per-domain renewal bookkeeping) — separate from --cert-home below,
+      # which only controls where the issued cert files land. Without persisting this too,
+      # `docker compose run --rm acme` starts a brand-new, empty /acme.sh every single
+      # deploy: acme.sh has no memory of ever having issued this domain before and reissues
+      # a fresh certificate on every run instead of detecting "still valid, skip" — burned
+      # through Let's Encrypt's 5-certs/168h rate limit this way (2026-09-05).
+      - acme-state:/acme.sh
+    entrypoint: sh
+    command: >-
+      -c "acme.sh --issue --dns dns_duckdns -d ${TLS_DOMAIN} --server letsencrypt --cert-home /acme.sh/output &&
+      acme.sh --install-cert -d ${TLS_DOMAIN} --cert-home /acme.sh/output --key-file /acme.sh/output/domain.key --fullchain-file /acme.sh/output/fullchain.pem"
+
   livekit-egress:
     image: livekit/egress:latest
+    # entrypoint.sh этого образа читает конфиг ТОЛЬКО из EGRESS_CONFIG_BODY (инлайн-YAML в
+    # переменной) или EGRESS_CONFIG_FILE (путь к файлу) — `--config <file>` CLI-флагом,
+    # который тут стоял раньше, не поддерживается вовсе, поэтому entrypoint не находил ни
+    # то ни другое и падал с "missing config", даже когда файл был смонтирован верно
+    # (найдено на деплое 2026-09-06 — `cat` внутри контейнера показывал корректный YAML).
     environment:
       - EGRESS_CONFIG_FILE=/etc/egress.yaml
+    # ./infra/livekit-egress-config.yaml, не ./livekit-egress-config.yaml — та же причина,
+    # что у livekit.yaml чуть выше в этом файле: относительные пути в volumes резолвятся от
+    # --project-directory (корень репо), не от папки этого compose-файла.
     volumes:
-      - ./livekit-egress-config.yaml:/etc/egress.yaml:ro
+      - ./infra/livekit-egress-config.yaml:/etc/egress.yaml:ro
     depends_on:
       - redis
       - livekit-server
 
+  # backend определён в docker-compose.dev.yml, не здесь — этот стэнза только добавляет
+  # networks: к уже описанному сервису (Compose мержит по имени сервиса, когда оба файла
+  # переданы вместе через -f, см. deploy-full.yml). Без ainterviewer-shared live-agent
+  # (отдельный compose-проект/сеть) не резолвит "backend" по имени и не может получить
+  # интервью-данные (GET /api/v1/interviews/{id}/live-input) — падает с
+  # httpcore.ConnectTimeout, кандидат никогда не получает первый вопрос и виснет на
+  # "Подключаемся...". Не трогаем сам docker-compose.dev.yml: он ещё и самостоятельный
+  # local-dev quickstart (см. корневой README.md) без внешней сети ainterviewer-shared —
+  # добавление networks: там сломало бы `docker compose -f docker-compose.dev.yml up`
+  # само по себе (внешняя сеть не создана и не нужна в этом сценарии).
+  backend:
+    networks:
+      default:
+      ainterviewer-shared:
+
 volumes:
   postgres-data:
   minio-data:
+  acme-state:
 
 networks:
   # Общая сеть между этим compose-проектом и live-agent/docker-compose.yml (отдельный

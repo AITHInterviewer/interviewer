@@ -17,22 +17,25 @@
 Модель — `claude-haiku-4-5` (решение пользователя: нужна скорость на узкой классификации
 с бюджетом в единицы секунд, не intelligence-максимум).
 
-Известный риск, который НЕ проверен в этой сессии (нет подписки/авторизации в песочнице,
-где писался код): `query()` поднимает отдельный subprocess (`claude.exe`) на каждый вызов —
-это добавляет задержку старта процесса поверх самого инференса. Если она окажется заметной
-на фоне бюджета "единицы секунд" — следующий шаг для оптимизации: держать один
-`ClaudeSDKClient` на весь текущий вопрос (переподключать в `_enter_question()`), чтобы не
-поднимать процесс заново на каждую паузу внутри одного вопроса. Сейчас сознательно взят
-более простой вариант (без вручную создаваемой сессии) — так буквальнее соответствует
-"контекст только текущий вопрос" и меньше кода, но если задержка окажется проблемой,
-это первое место для оптимизации.
+Известный риск, подтверждённый вживую (2026-09-05, см. `ClaudeAgentSDKLiveControlLLM`
+докстринг ниже): даже с переиспользованным `ClaudeSDKClient` один ход занимает 5-19
+секунд — это не подключение подпроцесса (оно происходит раз на вопрос), а накладные
+расходы самого CLI-харнесса Claude Code поверх инференса. При требовании ответа за
+2-3 секунды (2026-09-06) это неприемлемо — добавлен `MistralLiveControlLLM` как
+опциональная альтернатива на прямом REST-API (переключается `LLM_PROVIDER=mistral`,
+см. `agent.py`). Дефолт остаётся Claude Agent SDK — правило 8 в CLAUDE.md описывает это
+как ранее принятое решение; здесь оно не отменяется, а временно пробуется alternative
+провайдер по прямому запросу пользователя.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 from abc import ABC, abstractmethod
 
+import httpx
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -44,6 +47,17 @@ from claude_agent_sdk import (
 from .schema import Decision, GapType, LiveControlDecision
 
 DEFAULT_MODEL = "claude-haiku-4-5"
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """`Retry-After` — секунды (не HTTP-date, тот формат тут никто не отдаёт) — если
+    заголовка нет или он не парсится, вызывающий сам берёт дефолтный бэкофф."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 class LiveControlLLM(ABC):
@@ -121,10 +135,149 @@ class ClaudeAgentSDKLiveControlLLM(LiveControlLLM):
 
         # На случай если CLI по какой-то причине не заполнил structured_output —
         # пробуем распарсить текстовый ответ как JSON, а не падаем молча.
-        import json
-
         raw = result.result or fallback_text
         return LiveControlDecision.model_validate(json.loads(raw))
+
+
+class _OpenAICompatibleLiveControlLLM(LiveControlLLM):
+    """База для любого OpenAI-совместимого `/chat/completions` (Mistral, OpenRouter, ...)
+    вместо Claude Agent SDK CLI — убирает накладные расходы харнесса (см. докстринг
+    модуля): один `httpx`-запрос без подпроцесса. `response_format: json_object` не
+    принимает JSON-схему (в отличие от `output_format` Claude Agent SDK или tool-use
+    Anthropic) — схема ответа добавляется текстом в system prompt, а
+    `LiveControlDecision.model_validate()` сам проверяет результат.
+
+    Без сессии/подпроцесса между ходами — `reset()` не держит состояния, каждый вызов
+    независим (обычный stateless HTTP-клиент).
+
+    Реальный найденный баг вживую (2026-09-06): бесплатный тир OpenRouter отдал 429 Too
+    Many Requests посреди интервью — `decide()` падал на каждом следующем ходу без
+    какого-либо повтора, агент замолкал навсегда (кандидат решил, что сервис завис, и
+    закрыл вкладку). `_MAX_RETRIES` попыток с бэкоффом (уважаем `Retry-After`, если
+    сервер его прислал) — конечно, не решает исчерпание квоты целиком, но переживает
+    короткие всплески троттлинга, не блокируя разговор на секунды дольше нужного."""
+
+    BASE_URL: str
+    _MAX_RETRIES = 2
+    _RETRY_BACKOFF_SECONDS = (0.5, 1.5)
+
+    _SCHEMA_HINT = """\
+
+Ответь СТРОГО одним JSON-объектом, без markdown-обёртки (```), без текста до или после \
+JSON, ровно с такими полями:
+{
+  "decision": "continue" | "exhaustive" | "ambiguous" | "gap",
+  "gap_type": "clarification" | "leading_hint" | "drill_down" | null,
+  "utterance": "текст реплики кандидату, или null при decision=continue/exhaustive",
+  "reasoning": "короткое обоснование для протокола"
+}
+gap_type обязателен (не null), только если decision="gap"."""
+
+    def __init__(self, model: str, api_key: str):
+        self.model = model
+        self.api_key = api_key
+        self._client = httpx.AsyncClient(timeout=20.0)
+
+    async def decide(self, system_prompt: str, turn_prompt: str) -> LiveControlDecision:
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt + self._SCHEMA_HINT},
+                {"role": "user", "content": turn_prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.3,
+        }
+
+        response: httpx.Response | None = None
+        for attempt in range(self._MAX_RETRIES + 1):
+            response = await self._client.post(
+                self.BASE_URL, headers={"Authorization": f"Bearer {self.api_key}"}, json=payload
+            )
+            if response.status_code != 429 or attempt == self._MAX_RETRIES:
+                break
+            delay = _parse_retry_after(response.headers.get("retry-after")) or self._RETRY_BACKOFF_SECONDS[attempt]
+            await asyncio.sleep(delay)
+
+        assert response is not None  # цикл выполняется минимум один раз
+        response.raise_for_status()
+        raw = response.json()["choices"][0]["message"]["content"]
+        return LiveControlDecision.model_validate(json.loads(raw))
+
+
+class MistralLiveControlLLM(_OpenAICompatibleLiveControlLLM):
+    BASE_URL = "https://api.mistral.ai/v1/chat/completions"
+
+    def __init__(self, model: str | None = None, api_key: str | None = None):
+        super().__init__(
+            model=model or os.environ.get("MISTRAL_MODEL", "mistral-small-latest"),
+            api_key=api_key or os.environ["MISTRAL_API_KEY"],
+        )
+
+
+class OpenRouterLiveControlLLM(_OpenAICompatibleLiveControlLLM):
+    """Для рутинного тестирования (2026-09-06, явный запрос пользователя) — платный
+    Anthropic-ключ (`AnthropicAPILiveControlLLM`) бережём под демо, а не тратим на каждый
+    тестовый прогон интервью. Дефолтная модель — бесплатный тир OpenRouter."""
+
+    BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+    def __init__(self, model: str | None = None, api_key: str | None = None):
+        super().__init__(
+            model=model or os.environ.get("OPENROUTER_MODEL", "minimax/minimax-m3:free"),
+            api_key=api_key or os.environ["OPENROUTER_API_KEY"],
+        )
+
+
+class AnthropicAPILiveControlLLM(LiveControlLLM):
+    """Прямой вызов Anthropic Messages API (`/v1/messages`) вместо Claude Agent SDK CLI —
+    убирает тот же харнесс-оверхед, что и `MistralLiveControlLLM`, но остаётся на модели
+    Claude и получает structured output нативно через принудительный tool-use (`tool_choice`
+    с единственным тулом `decide`, `input_schema` = JSON-схема `LiveControlDecision`) —
+    надёжнее, чем просить JSON текстом в промпте (см. `MistralLiveControlLLM`): Anthropic
+    сам гарантирует, что `tool_use.input` соответствует схеме, не нужно парсить/чинить текст.
+
+    `base_url`/`api_key` берутся из `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY` — это может
+    быть не сам api.anthropic.com, а Anthropic-совместимый прокси (см. `ANTHROPIC_BASE_URL`
+    в `~/.claude/settings.json` Claude Code — тот же механизм). Как и Mistral-клиент, без
+    сессии между ходами — `reset()` no-op."""
+
+    DEFAULT_BASE_URL = "https://api.anthropic.com"
+    ANTHROPIC_VERSION = "2023-06-01"
+    TOOL_NAME = "decide"
+
+    def __init__(self, model: str | None = None, api_key: str | None = None, base_url: str | None = None):
+        self.model = model or os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
+        self.api_key = api_key or os.environ["ANTHROPIC_API_KEY"]
+        self.base_url = (base_url or os.environ.get("ANTHROPIC_BASE_URL", self.DEFAULT_BASE_URL)).rstrip("/")
+        self._client = httpx.AsyncClient(timeout=20.0)
+
+    async def decide(self, system_prompt: str, turn_prompt: str) -> LiveControlDecision:
+        response = await self._client.post(
+            f"{self.base_url}/v1/messages",
+            headers={
+                "x-api-key": self.api_key,
+                "anthropic-version": self.ANTHROPIC_VERSION,
+            },
+            json={
+                "model": self.model,
+                "max_tokens": 512,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": turn_prompt}],
+                "tools": [
+                    {
+                        "name": self.TOOL_NAME,
+                        "description": "Зафиксировать решение по текущему ходу интервью.",
+                        "input_schema": LiveControlDecision.model_json_schema(),
+                    }
+                ],
+                "tool_choice": {"type": "tool", "name": self.TOOL_NAME},
+            },
+        )
+        response.raise_for_status()
+        content = response.json()["content"]
+        tool_use = next(block for block in content if block["type"] == "tool_use")
+        return LiveControlDecision.model_validate(tool_use["input"])
 
 
 class FakeLLM(LiveControlLLM):

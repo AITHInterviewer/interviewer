@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
@@ -21,19 +21,27 @@ vi.mock("@/lib/auth", async () => {
     loadLanding: vi.fn(),
     loadVacancy: vi.fn(),
     loadInterviews: vi.fn(),
+    loadAnonymizedStats: vi.fn(),
     generateVacancyQuestions: vi.fn(),
     createManagedInterview: vi.fn(),
+    sendManagedVacancyToExpert: vi.fn(),
+    activateManagedVacancy: vi.fn(),
+    pauseManagedVacancy: vi.fn(),
+    resumeManagedVacancy: vi.fn(),
   };
 });
 
-import { loadInterviews, loadLanding, loadVacancy } from "@/lib/auth";
+import { createManagedInterview, loadInterviews, loadLanding, loadVacancy } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
+import { ToastProvider } from "@/lib/toast";
 import { VacancyDetailClient } from "./vacancy-detail-client";
 
 function renderClient(vacancyId: string) {
   return render(
     <ThemeProvider>
-      <VacancyDetailClient vacancyId={vacancyId} />
+      <ToastProvider>
+        <VacancyDetailClient vacancyId={vacancyId} />
+      </ToastProvider>
     </ThemeProvider>,
   );
 }
@@ -51,6 +59,33 @@ const baseVacancy = {
   questions: [],
 };
 
+const createdInvite = {
+  interview: {
+    id: "i1",
+    vacancy_id: "v1",
+    candidate_name: "Lida",
+    resume_file_url: "",
+    access_token: "tok-abc",
+    status: "invited",
+    created_at: "2026-01-01T00:00:00Z",
+  },
+  candidate_link: "/i/tok-abc",
+};
+
+async function openInviteFormAndAttachResume() {
+  vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "active" });
+  vi.mocked(createManagedInterview).mockResolvedValue(createdInvite);
+  renderClient("v1");
+  fireEvent.click(await screen.findByRole("button", { name: /пригласить кандидата/i }));
+  fireEvent.change(await screen.findByLabelText(/фио кандидата/i), { target: { value: "Ivan Petrov" } });
+  const resumeInput = await screen.findByLabelText(/резюме кандидата/i);
+  fireEvent.change(resumeInput, {
+    target: { files: [new File(["cv"], "resume.pdf", { type: "application/pdf" })] },
+  });
+  fireEvent.submit(screen.getByRole("button", { name: /^пригласить$/i }).closest("form")!);
+  await screen.findByLabelText(/сообщение для кандидата/i);
+}
+
 describe("VacancyDetailClient", () => {
   beforeEach(() => {
     vi.mocked(loadLanding).mockResolvedValue({
@@ -64,26 +99,36 @@ describe("VacancyDetailClient", () => {
     });
     vi.mocked(loadVacancy).mockResolvedValue(baseVacancy);
     vi.mocked(loadInterviews).mockResolvedValue({ items: [] });
+    vi.mocked(createManagedInterview).mockReset();
   });
 
-  it("shows the vacancy overview and a disabled interview form while the vacancy is not ready", async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("disables invite until the vacancy is active", async () => {
     renderClient("v1");
 
     expect(await screen.findByRole("heading", { name: /backend developer/i })).toBeInTheDocument();
-    expect(screen.getByText(/no interviews yet/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /create interview/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /пригласить кандидата/i })).toBeDisabled();
   });
 
-  it("enables the create-interview form once the vacancy is ready", async () => {
-    vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "ready" });
+  it("enables the invite form once the vacancy is active", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "active" });
 
     renderClient("v1");
 
     await screen.findByRole("heading", { name: /backend developer/i });
-    expect(screen.getByLabelText(/resume file/i)).not.toBeDisabled();
+    const invite = screen.getByRole("button", { name: /пригласить кандидата/i });
+    expect(invite).not.toBeDisabled();
+
+    // Форма живёт в модалке: до нажатия её на странице нет.
+    expect(screen.queryByLabelText(/резюме кандидата/i)).not.toBeInTheDocument();
+    fireEvent.click(invite);
+    expect(await screen.findByLabelText(/резюме кандидата/i)).not.toBeDisabled();
   });
 
-  it("hides recruiter-only actions for users without the recruiter area", async () => {
+  it("hides recruiter-only invite for users without the recruiter area", async () => {
     vi.mocked(loadLanding).mockResolvedValue({
       session: { token: "token", user: { id: "1", name: "Expert", email: "e@example.com", roles: ["expert"] } },
       landing: {
@@ -97,8 +142,61 @@ describe("VacancyDetailClient", () => {
     renderClient("v1");
 
     await screen.findByRole("heading", { name: /backend developer/i });
-    expect(screen.queryByRole("button", { name: /generate questions/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /settings/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /questions/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /пригласить кандидата/i })).not.toBeInTheDocument();
+  });
+
+  it("does not claim nobody was invited when later-stage interviews exist", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({
+      ...baseVacancy,
+      status: "active",
+      questions: [
+        {
+          id: "q1",
+          vacancy_id: "v1",
+          interview_id: null,
+          text: "Explain GIL",
+          order: 0,
+          skill_tag: ["python"],
+          intent: "assess",
+          reference_answer: "...",
+          format: "voice",
+          role: "assessment",
+          difficulty: "baseline",
+          estimated_duration_sec: 120,
+          stimulus: null,
+          source: "base_generated",
+        },
+      ],
+    });
+    vi.mocked(loadInterviews).mockResolvedValue({
+      items: [
+        {
+          id: "i1",
+          vacancy_id: "v1",
+          candidate_name: "Lida",
+          resume_file_url: "",
+          access_token: "t",
+          status: "completed",
+          created_at: "2026-01-01T00:00:00Z",
+          product_state: "report_ready",
+        },
+      ],
+    });
+
+    renderClient("v1");
+
+    expect(await screen.findByText("Сейчас в этой стадии никого нет")).toBeInTheDocument();
+    expect(screen.queryByText("Никого не пригласили")).not.toBeInTheDocument();
+    expect(screen.queryByText("Никого ещё не приглашали")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /открыть lida/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /приостановить/i })).toBeInTheDocument();
+  });
+
+  it("shows a ready-to-send message with the invite link after creating an interview", async () => {
+    await openInviteFormAndAttachResume();
+
+    const message = screen.getByLabelText(/сообщение для кандидата/i);
+    expect(message.textContent).toContain(`${window.location.origin}/i/tok-abc`);
+    expect(message.textContent).toContain("Ivan Petrov");
   });
 });

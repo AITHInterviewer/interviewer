@@ -47,9 +47,26 @@
    секунд), не «забытая настройка по умолчанию» — не меняй без явного запроса.
 
 8. **STT/TTS — self-hosted через Docker, OpenAI-совместимые эндпоинты**
-   (`docker-compose.yml`), не облачные API с ключами. LLM — Claude Agent SDK на
-   подписке (`claude login`), не OpenRouter/API-ключ — оба решения обсуждались и приняты
-   явно, см. историю в README.
+   (`docker-compose.yml`), не облачные API с ключами. LLM по умолчанию — Claude Agent
+   SDK на подписке (`claude login`), не OpenRouter/API-ключ — оба решения обсуждались и
+   приняты явно, см. историю в README.
+   Исключение (2026-09-06, явный запрос пользователя): CLI-харнесс Claude Agent SDK даёт
+   5-19с на ход даже с переиспользуемым `ClaudeSDKClient` — неприемлемо при требовании
+   2-3с. Добавлены опциональные альтернативы в `llm_client.py`, переключаются
+   `LLM_PROVIDER` в `live-agent/.env`:
+     - `mistral` — `MistralLiveControlLLM`, прямой REST к Mistral API. Пробовали и
+       откатили: бесплатный ключ отдавал 429 на каждый вызов (нулевая квота).
+     - `openrouter` — `OpenRouterLiveControlLLM`, бесплатная модель через OpenRouter
+       (дефолт `minimax/minimax-m3:free` — `google/gemini-2.0-flash-exp:free` пробовали
+       первым, но каталог OpenRouter уже не отдаёт эту модель, "No endpoints found",
+       2026-09-06) — для рутинного тестирования интервью, не тратит платные токены.
+       Бесплатный каталог OpenRouter меняется — если снова 404/429 на upstream, проверь
+       живой список `GET /api/v1/models` и подставь другой `:free`-слаг.
+     - `anthropic_api` — `AnthropicAPILiveControlLLM`, прямой Anthropic Messages API
+       (сам api.anthropic.com или купленный прокси через `ANTHROPIC_BASE_URL`) — для
+       демо, платный, поэтому не включается по умолчанию в деплое.
+   Дефолт при отсутствии `LLM_PROVIDER` остаётся Claude Agent SDK — это проба, не отмена
+   решения из этого пункта.
 
 9. **Любое изменение `state_machine.py` — с тестом.** `tests/test_state_machine.py`
    называет тесты по конкретной ветке из раздела 2.3.1 архитектурного документа. Новая

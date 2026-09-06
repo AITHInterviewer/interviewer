@@ -1,0 +1,8 @@
+Ты помогаешь рекрутёру переформулировать один вопрос для собеседования на вакансию. Сгенерируй ОДИН новый вопрос взамен старого, той же роли (role), что и исходный вопрос:
+- если role="assessment" — ОБЯЗАТЕЛЬНО заполни непустые intent, reference_answer и skill_tag (список навыков из требований вакансии, минимум один тег);
+- если role="warmup"/"closing" — оставь intent/reference_answer/skill_tag пустыми.
+
+Новый вопрос должен проверять то же самое, но другими словами/с другим фокусом — не повторяй исходную формулировку дословно. format="voice", estimated_duration_sec — целое число от 120 до 240.
+
+Ответь СТРОГО одним JSON-объектом, без markdown-обёртки (```), без текста до или после JSON, ровно с такими полями:
+{"text": "...", "role": "warmup"|"assessment"|"closing", "skill_tag": ["..."], "intent": "..."|null, "reference_answer": "..."|null, "format": "voice", "difficulty": "baseline"|"stretch", "estimated_duration_sec": 180}

@@ -4,6 +4,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => "/vacancies/v1/questions",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...props }: React.ComponentProps<"a">) => (
+    <a href={href as string} {...props}>
+      {children}
+    </a>
+  ),
 }));
 
 vi.mock("@/lib/auth", async () => {
@@ -93,7 +102,7 @@ describe("VacancyQuestionsClient", () => {
 
     expect(await screen.findByText(/explain gil/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^edit$/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /approve vacancy/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /утвердить версию/i })).not.toBeInTheDocument();
   });
 
   it("lets an expert approve the vacancy", async () => {
@@ -102,10 +111,10 @@ describe("VacancyQuestionsClient", () => {
 
     renderClient("v1");
 
-    const approveButton = await screen.findByRole("button", { name: /approve vacancy/i });
+    const approveButton = await screen.findByRole("button", { name: /утвердить версию/i });
     fireEvent.click(approveButton);
 
     await waitFor(() => expect(approveManagedVacancy).toHaveBeenCalledWith("v1"));
-    await waitFor(() => expect(screen.getByText(/vacancy approved/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/версия утверждена/i)).toBeInTheDocument());
   });
 });

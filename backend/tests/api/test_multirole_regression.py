@@ -32,7 +32,7 @@ async def test_single_role_sign_in_and_landing_unchanged(client) -> None:
 
     assert landing.status_code == 200
     assert landing.json()["roles"] == ["hiring_manager"]
-    assert landing.json()["default_path"] == "/internal/hiring-manager"
+    assert landing.json()["default_path"] == "/manager"
     assert questions.status_code == 403
 
 

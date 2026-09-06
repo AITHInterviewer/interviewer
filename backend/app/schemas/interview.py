@@ -16,6 +16,11 @@ class InterviewResponse(BaseModel):
     dynamic_questions_used: int
     created_at: datetime
     completed_at: datetime | None
+    product_state: str = "invited"
+    report_json: dict | None = None
+    recording_url: str | None = None
+    recruiter_decision: str = "awaiting"
+    rubric_version_id: UUID | None = None
 
 
 class InterviewListResponse(BaseModel):

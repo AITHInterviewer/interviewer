@@ -1,4 +1,9 @@
 @import "tailwindcss";
+/* Локальная копия node_modules/tw-animate-css/dist/tw-animate.css: пакет
+   объявляет только условие экспорта "style" без "default", и на путях с
+   не-ASCII символами (кириллица в пути проекта) резолвер Turbopack не может
+   его найти. Обновлять вместе с версией зависимости в package.json. */
+@import "./vendor-tw-animate.css";
 @import "./product.css";
 
 :root {
@@ -23,17 +28,30 @@
   --danger: #9c3434;
   --danger-soft: #f8e4e4;
   --focus: 0 0 0 3px rgb(20 10 240 / 0.22);
+  --shadow-hover: 0 4px 12px rgb(28 28 32 / 0.08);
+  --shadow-pop: 0 8px 24px rgb(28 28 32 / 0.12);
+  --shadow-overlay: 0 18px 44px rgb(28 28 32 / 0.20);
+  --shadow-drag: 0 14px 30px rgb(20 10 240 / 0.22);
   --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --radius-control: 8px;
   --radius-panel: 12px;
   --radius-pill: 999px;
-  --text-path: 12px;
-  --text-meta: 13px;
-  --text-body: 15px;
-  --text-h2: 16px;
-  --text-h1: 32px;
-  --text-display: 32px;
+  --text-logo: 12px;
+  --text-meta: 14px;
+  --text-mono: 14px;
+  --text-body: 16px;
+  --text-h2: 18px;
+  --text-h1: 34px;
+  --text-display: 34px;
+  --leading-h1: 1.15;
+  --leading-h2: 1.3;
+  --leading-body: 1.5;
+  --leading-meta: 1.4;
+  --control-h: 38px;
+  --control-h-large: 42px;
+  --field-h: 42px;
+  --sidebar-w: 260px;
   --content: 1440px;
   --ease: 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -62,13 +80,55 @@
   --focus: 0 0 0 3px rgb(117 110 255 / 0.3);
 }
 
+/* Мост к shadcn/ui: его компоненты читают tailwind-цвета primary, muted,
+   accent и sidebar. Значения берём из токенов эталона, чтобы бренд остался наш.
+   Внимание: у shadcn «accent» — это поверхность под наведением, а не бренд.
+   Бренд-синий уходит в «primary». Наши CSS-классы читают var(--accent) напрямую
+   и этой подменой не задеты. */
 @theme inline {
+  /* наши имена, как было */
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
   --color-ink: var(--ink);
-  --color-accent: var(--accent);
   --color-border: var(--border);
   --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  /* имена shadcn */
+  --color-background: var(--canvas);
+  --color-foreground: var(--ink);
+  --color-card: var(--surface-raised);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--surface-raised);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-ink);
+  --color-secondary: var(--surface-muted);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--surface-muted);
+  --color-muted-foreground: var(--ink-tertiary);
+  --color-accent: var(--surface-selected);
+  --color-accent-foreground: var(--accent);
+  --color-destructive: var(--danger);
+  --color-destructive-foreground: var(--surface-raised);
+  --color-input: var(--border);
+  --color-ring: var(--accent);
+
+  /* сайдбар shadcn */
+  --color-sidebar: var(--surface-raised);
+  --color-sidebar-foreground: var(--ink);
+  --color-sidebar-primary: var(--accent);
+  --color-sidebar-primary-foreground: var(--accent-ink);
+  --color-sidebar-accent: var(--surface-selected);
+  --color-sidebar-accent-foreground: var(--accent);
+  --color-sidebar-border: var(--border);
+  --color-sidebar-ring: var(--accent);
+
+  /* радиусы: rounded-lg у shadcn = наш контрол 8px */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: var(--radius-control);
+  --radius-xl: var(--radius-panel);
 }
 
 * {
@@ -87,6 +147,15 @@ body {
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: var(--text-body);
-  line-height: 1.48;
+  line-height: var(--leading-body);
   -webkit-font-smoothing: antialiased;
+}
+
+@keyframes np-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes np-shimmer {
+  0% { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
 }

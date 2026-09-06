@@ -3,8 +3,8 @@ name: reset data (self-hosted)
 # Разовая ручная джоба — полностью сносит postgres/minio (и заодно frontend
 # node_modules/.next, чтобы не тащить кэш) volumes для основного стека
 # (docker-compose.dev.yml + infra/docker-compose.yml). Живой стек не остаётся
-# запущенным после этого — следующий деплой (deploy-dev.yml / deploy-full.yml /
-# seed-demo-interview.yml) поднимет всё заново с чистой БД и пустым MinIO.
+# запущенным после этого — следующий запуск deploy-full.yml поднимет всё заново с
+# чистой БД и пустым MinIO.
 
 on:
   workflow_dispatch: {}

@@ -15,6 +15,7 @@ export function ScreenState({
     <div
       className={`screen-state screen-state--${kind}`}
       role={kind === "error" ? "alert" : "status"}
+      aria-busy={kind === "loading" ? true : undefined}
     >
       <h2 className="screen-state__title">{title}</h2>
       <p className="screen-state__text">{text}</p>

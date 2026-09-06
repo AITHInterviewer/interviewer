@@ -1,7 +1,9 @@
 name: deploy full stack (self-hosted)
 
-# Расширение deploy-dev.yml: помимо frontend+backend поднимает общую инфру (postgres,
-# redis, minio, livekit-server) и live-agent (+ его self-hosted stt/tts). evaluation-agent
+# Единственный деплой-workflow в репо (deploy-dev.yml/seed-demo-interview.yml убраны —
+# избыточны рядом с этим). Поднимает всё: общую инфру (postgres, redis, minio,
+# livekit-server) + backend/frontend + nginx (единая точка входа, см.
+# infra/nginx/nginx.conf) + live-agent (+ его self-hosted stt/tts). evaluation-agent
 # намеренно НЕ включает сам воркер — worker.py падает на NotImplementedError (см.
 # evaluation-agent/README.md, раздел «Статус»), это ожидаемо, не баг — поднимается только
 # его STT (stt-accurate), самостоятельная часть.
@@ -48,6 +50,43 @@ jobs:
         shell: powershell
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Default clean: true runs `git clean -ffdx` first, which wipes ALL untracked
+          # files - including infra/tls/ (the issued Let's Encrypt cert, never committed,
+          # see acme service in infra/docker-compose.yml). That silently forced a brand new
+          # certificate issuance on every single deploy regardless of acme.sh's own
+          # skip-if-valid logic or the persisted acme-state volume, and is the real reason
+          # we hit Let's Encrypt's 5-certs/168h rate limit (2026-09-05). Every file this
+          # workflow itself needs fresh (backend/.env, frontend/.env, infra/livekit.yaml,
+          # live-agent/.env) is already fully overwritten by its own "Write ..." steps below,
+          # so disabling the clean has no other effect here.
+          clean: false
+
+      - name: Reserve livekit UDP port range from Windows dynamic allocation
+        # livekit-server binds a FIXED UDP range (50000-50100, see infra/livekit.yaml)
+        # for RTC media. Windows/WSL2 (Docker Desktop's backend) hands out ports from its
+        # own dynamic/ephemeral range for unrelated outbound connections, and that range
+        # can overlap 50000-50100 - livekit-server then fails to bind with "Only one usage
+        # of each socket address...". `netsh ... excludedportrange` reserves the block so
+        # Windows won't hand any of it out to anything else; idempotent (errors harmlessly
+        # if already reserved) and, like the firewall rule below, may need elevation the
+        # runner account doesn't have - warn and continue rather than abort the deploy,
+        # since it's an environment fix, not something this workflow can guarantee.
+        # netsh is a native exe, not a cmdlet - failures (access denied, already
+        # reserved) come back as plain output + a non-zero exit code, not a catchable
+        # PowerShell exception, so check $LASTEXITCODE rather than try/catch here. Actions'
+        # powershell wrapper fails the STEP on a nonzero $LASTEXITCODE left over from the
+        # last command it ran, regardless of our own warn-and-continue logic - reset it
+        # explicitly, same as the network-create step below (hit this the hard way: the
+        # warning printed correctly and the step still failed the whole run).
+        run: |
+          $output = netsh interface ipv4 add excludedportrange protocol=udp startport=50000 numberofports=101 store=persistent
+          if ($LASTEXITCODE -eq 0) {
+            Write-Output "reserved UDP 50000-50100 for livekit-server"
+          } else {
+            Write-Output "WARNING: could not reserve UDP 50000-50100 (netsh: $output) - livekit-server media may fail to bind; reserve it manually on the runner if so"
+          }
+          $global:LASTEXITCODE = 0
 
       - name: Ensure firewall rules for all service ports
         run: |
@@ -58,6 +97,9 @@ jobs:
           $rules = @{
             "ainterviewer-3000" = @{ Port = 3000; Proto = "TCP" }
             "ainterviewer-8000" = @{ Port = 8000; Proto = "TCP" }
+            # 12345, not the 39xx pool: matches the port already forwarded externally
+            # (see infra/docker-compose.yml, nginx service) - keep in sync if that changes.
+            "ainterviewer-nginx" = @{ Port = 12345; Proto = "TCP" }
             "ainterviewer-3901" = @{ Port = 3901; Proto = "TCP" } # postgres
             "ainterviewer-3902" = @{ Port = 3902; Proto = "TCP" } # redis
             "ainterviewer-3903" = @{ Port = 3903; Proto = "TCP" } # minio API
@@ -67,25 +109,54 @@ jobs:
             "ainterviewer-3907" = @{ Port = 3907; Proto = "TCP" } # livekit signaling
             "ainterviewer-3908" = @{ Port = 3908; Proto = "TCP" } # livekit tcp fallback
             "ainterviewer-livekit-udp" = @{ Port = "50000-50100"; Proto = "UDP" }
+            # TURN/TLS для candidate без Radmin VPN — проброшен отдельным портом через
+            # тот же внешний туннель, что и nginx (см. infra/livekit.yaml, блок turn).
+            "ainterviewer-livekit-turn-tls" = @{ Port = 5349; Proto = "TCP" }
           }
           foreach ($name in $rules.Keys) {
             $existing = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
             if (-not $existing) {
-              New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol $rules[$name].Proto -LocalPort $rules[$name].Port -Action Allow | Out-Null
-              Write-Output "created: $name"
+              # Runner service account turned out to lack rights to create NEW rules
+              # (existing ones were set up once, out-of-band, with elevation) - "Access
+              # is denied" (Win32 error 5) here used to be a terminating error that
+              # aborted the whole deploy over a single missing rule. Warn and continue
+              # instead: whoever manages the runner needs to create it once manually,
+              # same as the ones already in place.
+              try {
+                New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol $rules[$name].Proto -LocalPort $rules[$name].Port -Action Allow -ErrorAction Stop | Out-Null
+                Write-Output "created: $name"
+              } catch {
+                Write-Output "WARNING: could not create firewall rule '$name' ($($_.Exception.Message)) - create it manually on the runner"
+              }
             } else {
               Write-Output "already exists: $name"
             }
           }
+
+      - name: Ensure shared Docker network between this stack and live-agent
+        # ainterviewer-net — общая сеть между двумя отдельными compose-проектами (этот
+        # стек и live-agent/docker-compose.yml), объявлена как external: true в обоих
+        # compose-файлах (сам Compose её не создаёт). Идемпотентно: игнорируем ошибку,
+        # если уже существует с прошлого запуска.
+        run: |
+          docker network create ainterviewer-net
+          $global:LASTEXITCODE = 0
+          Write-Output "ok"
 
       - name: Write backend/.env
         # backend/app/config.py requires all of these (no defaults) — without them
         # Settings() raises ValidationError at import and backend won't start. infra +
         # backend/frontend run as one compose project here, so postgres/redis/minio
         # resolve by these exact service names.
+        # OPENROUTER_API_KEY/OPENROUTER_MODEL — vacancy_llm_service.py (генерация вопросов
+        # вакансии), тот же секрет и модель по умолчанию, что уже льются в live-agent/.env
+        # ниже; без ключа сама генерация вопросов вернёт 502 (см. QuestionGenerationError),
+        # остальной backend продолжает работать (ключ читается лениво, не при старте).
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           Set-Content -Path backend/.env -Encoding utf8 -Value @'
-          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000"]
+          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000","http://26.67.31.6:12345","https://ainterviewer.duckdns.org:12345"]
           APP_ENV=development
           APP_DEBUG=true
           APP_HOST=0.0.0.0
@@ -111,45 +182,142 @@ jobs:
           S3_BUCKET=ainterviewer-resumes
           S3_REGION=us-east-1
           LIVEKIT_API_KEY=devkey
-          LIVEKIT_API_SECRET=dev-secret-change-me-32-characters
-          LIVEKIT_WS_URL=ws://26.67.31.6:3907
-          PUBLIC_FRONTEND_URL=http://26.67.31.6:3000
+          LIVEKIT_API_SECRET=secret
+          LIVEKIT_WS_URL=wss://ainterviewer.duckdns.org:12345
+          LIVEKIT_API_URL=ws://livekit-server:7880
+          RECORDINGS_S3_BUCKET=ainterviewer-recordings
+          PUBLIC_FRONTEND_URL=https://ainterviewer.duckdns.org:12345
+          OPENROUTER_MODEL=minimax/minimax-m3:free
           '@
+          Add-Content -Path backend/.env -Encoding utf8 -Value "OPENROUTER_API_KEY=$env:OPENROUTER_API_KEY"
 
       - name: Write frontend/.env
         run: |
           Set-Content -Path frontend/.env -Encoding utf8 -Value @'
-          NEXT_PUBLIC_BACKEND_URL=http://26.67.31.6:8000
           BACKEND_INTERNAL_URL=http://backend:8000
-          NEXT_DEV_ALLOWED_ORIGINS=26.67.31.6
+          NEXT_DEV_ALLOWED_ORIGINS=26.67.31.6,ainterviewer.duckdns.org
+          '@
+
+      - name: Write infra/livekit.yaml (with node_ip for this deploy)
+        # rtc.node_ip — какой IP livekit-server объявляет ICE-кандидатам как адрес для
+        # медиа. 26.67.31.6 — адрес этого раннера в Radmin VPN, тот же, через который
+        # реально ходит браузер кандидата. use_external_ip (STUN) сюда не годится — STUN
+        # находит РЕАЛЬНЫЙ публичный IP хоста через интернет-аплинк, а не VPN-адрес, и
+        # это две разные сети (см. infra/livekit.yaml, комментарий в checked-in версии).
+        run: |
+          Set-Content -Path infra/livekit.yaml -Encoding utf8 -Value @'
+          port: 7880
+          rtc:
+            tcp_port: 7881
+            port_range_start: 50000
+            port_range_end: 50100
+            node_ip: 26.67.31.6
+          keys:
+            devkey: secret
+          room:
+            auto_create: true
+          redis:
+            address: redis:6379
+          turn:
+            enabled: true
+            tls_port: 5349
+            domain: ainterviewer.duckdns.org
+            cert_file: /etc/ainterviewer-tls/fullchain.pem
+            key_file: /etc/ainterviewer-tls/domain.key
           '@
 
       - name: Write live-agent/.env
+        # LLM_PROVIDER=mistral пробовали 2026-09-06 (см. llm_client.py, CLAUDE.md п.8) —
+        # откачено: бесплатный ключ Mistral вернул 429 на КАЖДЫЙ вызов с первой попытки
+        # (нулевая квота, не всплеск нагрузки) — бот всю сессию молчал.
+        # LLM_PROVIDER=openrouter пробовали как дефолт для рутинного тестирования —
+        # откачено 2026-09-06: бесплатный тир OpenRouter отдал 429 ПОСРЕДИ живого интервью
+        # (не сразу, квота исчерпалась в процессе разговора), агент замолчал на все
+        # последующие ходы, кандидат решил, что сервис завис. Добавили retry/backoff в
+        # llm_client.py, но это не убирает исчерпание бесплатной квоты как таковое —
+        # переключаемся на платный прямой Anthropic Messages API (ANTHROPIC_BASE_URL/
+        # ANTHROPIC_API_KEY, секреты репозитория, уже используются в
+        # AnthropicAPILiveControlLLM) как дефолт для деплоя, не только для демо.
+        env:
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
           LLM_MODEL=claude-haiku-4-5
+          LLM_PROVIDER=anthropic_api
+          ANTHROPIC_MODEL=claude-haiku-4-5
+          MISTRAL_MODEL=mistral-small-latest
+          OPENROUTER_MODEL=minimax/minimax-m3:free
           STT_BASE_URL=http://stt:8000/v1
-          TTS_BASE_URL=http://tts:8000/v1
+          TTS_BASE_URL=http://tts:8080
           STT_API_KEY=not-needed
           TTS_API_KEY=not-needed
           STT_MODEL=whisper-1
           STT_LANGUAGE=ru
-          TTS_MODEL=speaches-ai/piper-ru_RU-irina-medium
-          TTS_VOICE=irina
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
-          LIVEKIT_URL=ws://host.docker.internal:3907
+          BACKEND_BASE_URL=http://backend:8000
+          LIVE_AGENT_TOKEN=development-live-agent-token
+          REDIS_URL=redis://redis:6379/0
+          LIVEKIT_URL=ws://livekit-server:7880
           LIVEKIT_API_KEY=devkey
-          LIVEKIT_API_SECRET=dev-secret-change-me-32-characters
+          LIVEKIT_API_SECRET=secret
           '@
+          Add-Content -Path live-agent/.env -Encoding utf8 -Value "ANTHROPIC_API_KEY=$env:ANTHROPIC_API_KEY"
+          Add-Content -Path live-agent/.env -Encoding utf8 -Value "OPENROUTER_API_KEY=$env:OPENROUTER_API_KEY"
+          Add-Content -Path live-agent/.env -Encoding utf8 -Value "ANTHROPIC_BASE_URL=$env:ANTHROPIC_BASE_URL"
+          Add-Content -Path live-agent/.env -Encoding utf8 -Value "MISTRAL_API_KEY=$env:MISTRAL_API_KEY"
+
+      - name: Obtain/renew TLS certificate (Let's Encrypt via DuckDNS DNS-01)
+        # Не требует открытых портов 80/443 (на этом туннеле нельзя открыть порт <1000,
+        # см. обсуждение) — CA проверяет владение доменом через TXT-запись, которую сам
+        # acme.sh проставляет через DuckDNS API. Сертификат общий для nginx (сайт, 443) и
+        # livekit-server (TURN/TLS, 5349) — оба уже смонтировали ./infra/tls. acme.sh сам
+        # пропускает выпуск, если текущий сертификат ещё не близок к истечению (теперь, когда
+        # acme-state volume даёт ему это увидеть — см. infra/docker-compose.yml, реальный
+        # инцидент 2026-09-05: без персистентного /acme.sh каждый прогон стартовал с чистого
+        # состояния, не помнил о прошлой выдаче и перевыпускал сертификат заново, пока не
+        # уткнулись в лимит Let's Encrypt "5 certs/168h"). Не валим весь деплой на этом шаге:
+        # если CA всё же зарейтлимитил, nginx/livekit-server продолжают работать с уже
+        # лежащим на диске сертификатом от прошлого успешного запуска.
+        env:
+          DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
+        run: |
+          $env:TLS_DOMAIN = "ainterviewer.duckdns.org"
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml run --rm acme
+          if ($LASTEXITCODE -ne 0) {
+            if ((Test-Path infra/tls/fullchain.pem) -and (Test-Path infra/tls/domain.key)) {
+              Write-Output "WARNING: acme.sh failed (see log above, e.g. rate limit) - continuing with the existing cert already on disk"
+            } else {
+              # Реальный инцидент (2026-09-05): попали в rate limit Let's Encrypt (5
+              # certs/168h) как раз когда infra/tls был пуст (см. фикс checkout clean: false
+              # выше — до него git clean стирал сертификат на каждом прогоне). Без файла на
+              # диске nginx/livekit-server вообще не стартуют (не 502 на один location, а
+              # падение всего контейнера) — весь сайт лежит до истечения rate limit (может
+              # быть больше суток).Self-signed — временный аварийный fallback ТОЛЬКО чтобы
+              # сайт не лежал: браузер покажет предупреждение о недоверенном сертификате
+              # (кандидату придётся один раз кликнуть "продолжить"), TURN/TLS с ним не
+              # заработает (см. коммит с self-signed TURN — браузеры валидируют его строже).
+              # Следующий успешный прогон acme (после снятия rate limit) сам перезапишет эти
+              # файлы настоящими — никакого дальнейшего вмешательства не требуется.
+              Write-Output "WARNING: acme.sh failed and there is no cert on disk - generating a TEMPORARY self-signed fallback so the site doesn't go down entirely. Browsers will show a security warning until the next successful Let's Encrypt run replaces it."
+              New-Item -ItemType Directory -Force infra/tls | Out-Null
+              # openssl isn't on PATH on this runner's plain PowerShell - generate it inside
+              # a throwaway container instead (Docker is guaranteed to be here).
+              $tlsPath = (Resolve-Path infra/tls).Path
+              docker run --rm -v "${tlsPath}:/out" alpine/openssl req -x509 -newkey rsa:2048 -nodes -keyout /out/domain.key -out /out/fullchain.pem -days 7 -subj "/CN=ainterviewer.duckdns.org"
+            }
+          }
+          $global:LASTEXITCODE = 0
 
       - name: Build and (re)start infra + backend + frontend
-        # livekit-server исключён из этого прогона: его фиксированный UDP-диапазон
-        # 50000-50100 конфликтует с портами, которые Windows/WSL2 (Docker Desktop backend)
-        # резервирует динамически — "Only one usage of each socket address..." на одном из
-        # портов диапазона. Известная особенность Docker Desktop на Windows, не ошибка
-        # конфига; чинить отдельно (сузить диапазон и/или снять исключения через
-        # `netsh interface ipv4 show excludedportrange protocol=udp` на самой машине), не
-        # блокируя этим postgres/redis/minio.
+        # livekit-server теперь тоже здесь — см. шаг "Reserve livekit UDP port range"
+        # выше про обход конфликта его фиксированного UDP-диапазона с Windows/Docker
+        # Desktop. livekit-egress тоже включён — backend/app/services/livekit_egress.py
+        # реально дёргает Egress API (см. interview_event_service.py), без запущенного
+        # egress-контейнера запись интервью тихо не работала бы (EgressError гасится, но
+        # никакого файла не появится).
         # Explicit `down` before `up`, not `up --force-recreate`: force-recreate can start
         # the replacement container before Docker has fully released the old one's port
         # binding, producing "port is already allocated" (observed on minio:9000/tcp) —
@@ -163,7 +331,17 @@ jobs:
             -f docker-compose.dev.yml `
             -f infra/docker-compose.yml `
             up -d --build `
-            postgres redis minio backend frontend
+            postgres redis minio livekit-server livekit-egress backend frontend nginx
+          # livekit-server отдельно, с --force-recreate: он читает infra/livekit.yaml
+          # через bind-mount — Compose не пересоздаёт контейнер только из-за того, что
+          # ИЗМЕНИЛОСЬ СОДЕРЖИМОЕ файла на хосте (сама конфигурация сервиса в compose не
+          # изменилась) — без этого контейнер продолжает работать со старым node_ip до
+          # следующего изменения самого docker-compose.yml. Не форсим остальные сервисы —
+          # незачем гонять их без нужды при каждом деплое.
+          docker compose --project-directory . `
+            -f docker-compose.dev.yml `
+            -f infra/docker-compose.yml `
+            up -d --force-recreate livekit-server
 
       - name: Build and (re)start live-agent (+ its stt/tts)
         run: |
@@ -178,7 +356,7 @@ jobs:
           $ok = $false
           for ($i = 0; $i -lt 24; $i++) {
             try {
-              Invoke-WebRequest -Uri http://localhost:8000/health -UseBasicParsing -TimeoutSec 3 | Out-Null
+              Invoke-WebRequest -Uri http://localhost:8000/api/health -UseBasicParsing -TimeoutSec 3 | Out-Null
               $ok = $true
               break
             } catch { Start-Sleep -Seconds 5 }
@@ -210,11 +388,36 @@ jobs:
           }
           Write-Output "minio healthy"
 
+      - name: Wait for livekit-server
+        # No real health endpoint contract to rely on here (see infra/README.md - egress
+        # side of this service is untested, and this port isn't exercised by any test in
+        # the repo either) - a TCP connect on the signaling port is the best available
+        # signal. Soft warning, not a hard failure: unlike backend/minio, this service is
+        # known-fragile on this runner (UDP port range, see steps above) and shouldn't
+        # take down an otherwise-successful deploy of everything else.
+        run: |
+          $ok = $false
+          for ($i = 0; $i -lt 24; $i++) {
+            if ((Test-NetConnection -ComputerName localhost -Port 3907 -WarningAction SilentlyContinue).TcpTestSucceeded) {
+              $ok = $true
+              break
+            }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $ok) {
+            Write-Output "WARNING: livekit-server did not come up in time - check logs, see UDP port range steps above"
+            docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server --tail 100
+          } else {
+            Write-Output "livekit-server listening"
+          }
+
       - name: Report container status
         if: always()
         run: |
           Write-Output "--- infra + backend + frontend ---"
-          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml ps
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml ps -a
+          Write-Output "--- livekit-egress logs (tail) ---"
+          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs --tail=80 livekit-egress
           Write-Output "--- live-agent ---"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps
           Write-Output "--- evaluation-agent (stt-accurate only) ---"
@@ -225,12 +428,15 @@ jobs:
         # PowerShell choked on a curly-quote-adjacent apostrophe inside a double-quoted
         # string here before (TerminatorExpectedAtEndOfString), likely an encoding quirk.
         run: |
-          Write-Output "frontend:        http://26.67.31.6:3000"
-          Write-Output "backend health:  http://26.67.31.6:8000/health"
-          Write-Output "stt (live):      http://26.67.31.6:3905/v1/models"
-          Write-Output "tts (live):      http://26.67.31.6:3906"
-          Write-Output "minio console:   http://26.67.31.6:3904"
-          Write-Output "postgres:        26.67.31.6:3901"
-          Write-Output "NOTE: livekit-server is not running this pass, see build step comment."
+          Write-Output "entry point (nginx): https://ainterviewer.duckdns.org:12345"
+          Write-Output "VPN (Radmin):        http://26.67.31.6:12345"
+          Write-Output "frontend (direct):   http://26.67.31.6:3000"
+          Write-Output "backend health:      https://ainterviewer.duckdns.org:12345/api/health"
+          Write-Output "stt (live):          http://26.67.31.6:3905/v1/models"
+          Write-Output "tts (live):          http://26.67.31.6:3906"
+          Write-Output "minio console:       http://26.67.31.6:3904"
+          Write-Output "postgres:            26.67.31.6:3901"
+          Write-Output "livekit signaling:   wss://ainterviewer.duckdns.org:12345/rtc/ (also ws://26.67.31.6:3907)"
+          Write-Output "livekit TURN/TLS:    ainterviewer.duckdns.org:5349 (media fallback for candidates without Radmin VPN)"
           Write-Output "NOTE: live-agent LLM calls need claude login run once on this machine"
           Write-Output "under the runner service account, not done by this workflow."

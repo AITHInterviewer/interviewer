@@ -129,6 +129,14 @@ class EvaluationService:
         )
         self.session.add(evaluation)
 
+        # Продуктовая ось (009): тот же контракт, что давал бывший синхронный
+        # `_complete_interview` из main — `report_json` на интервью + "report_ready"
+        # (канбан «Готовы к решению», страница кандидата). Структура — то, что прислал
+        # evaluation-agent (EvaluationCreateRequest), не старая main-овская
+        # (skill_verdicts там нет — фронт мирно показывает «Разбор недоступен»).
+        interview.report_json = request.model_dump(mode="json")
+        interview.product_state = "report_ready"
+
         await self.session.commit()
         await self.session.refresh(evaluation)
         return EvaluationResponse.model_validate(evaluation)
@@ -137,10 +145,11 @@ class EvaluationService:
         interview = await self.get_interview(interview_id)
         if interview is not None:
             interview.status = "processing_failed"
+            # Дедицированного product_state для провала нет (см. frontend/lib/pipeline.ts) —
+            # честнее «Ответы отправлены», чем вечное «Готовим отчёт».
+            interview.product_state = "submitted"
             await self.session.commit()
 
     async def get_evaluation(self, interview_id: UUID) -> Evaluation | None:
-        result = await self.session.execute(
-            select(Evaluation).where(Evaluation.interview_id == interview_id)
-        )
+        result = await self.session.execute(select(Evaluation).where(Evaluation.interview_id == interview_id))
         return result.scalar_one_or_none()

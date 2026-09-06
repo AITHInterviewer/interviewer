@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Экраны Napoleon Interview</title>
+<style>
+  :root {
+    --canvas:#f2f2f5; --surface:#fdfdff; --ink:#1c1c20;
+    --ink-secondary:#555560; --ink-tertiary:#757580; --border:#d5d5dd; --accent:#140af0;
+    --warning:#80530a; --warning-soft:#fff1cc; --positive:#126544;
+    --sans:"Helvetica Neue",Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--canvas); color:var(--ink); font-family:var(--sans); font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased; }
+  .wrap { width:min(100% - 40px, 1180px); margin:0 auto; padding:40px 0 96px; }
+  .word { font-size:12px; font-weight:600; letter-spacing:.14em; }
+  .word span { font-family:var(--mono); font-size:14px; letter-spacing:0; color:var(--accent); }
+  h1 { margin:16px 0 10px; font-size:34px; font-weight:600; line-height:1.15; letter-spacing:-.01em; text-wrap:balance; }
+  .lede { max-width:68ch; margin:0; color:var(--ink-secondary); }
+  .meta { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:18px; color:var(--ink-tertiary); font-size:14px; }
+  .meta b { color:var(--ink); font-weight:600; }
+  section { margin-top:56px; }
+  .sec-head { display:flex; align-items:baseline; justify-content:space-between; gap:20px; padding-bottom:14px; border-bottom:1px solid var(--border); }
+  h2 { margin:0; font-size:18px; font-weight:600; line-height:1.3; }
+  .sec-head p { max-width:58ch; margin:0; color:var(--ink-tertiary); font-size:14px; }
+  .count { flex:0 0 auto; color:var(--ink-tertiary); font-family:var(--mono); font-size:14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(430px,1fr)); gap:26px; margin-top:22px; }
+  figure { display:flex; flex-direction:column; gap:10px; margin:0; }
+  .left { display:flex; align-items:baseline; gap:10px; justify-content:space-between; }
+  .name { font-size:16px; font-weight:600; }
+  .route { color:var(--ink-tertiary); font-family:var(--mono); font-size:14px; overflow-wrap:anywhere; }
+  figure img { display:block; width:100%; height:auto; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+  figcaption { color:var(--ink-secondary); font-size:14px; }
+  .fix { margin:0; padding:8px 10px; border-left:2px solid var(--warning); background:var(--warning-soft); color:var(--warning); font-size:14px; }
+  .fix[data-kind="done"] { border-left-color:var(--positive); background:transparent; color:var(--ink-secondary); }
+  .fix[data-kind="done"] b { color:var(--positive); }
+  .fix b { font-weight:600; }
+  a { color:var(--accent); }
+  .howto { margin-top:26px; padding:22px 24px; border:1px solid var(--border); border-radius:12px; background:var(--surface); }
+  .howto h3 { margin:0 0 12px; font-size:16px; font-weight:600; }
+  .howto ol { margin:0; padding-left:20px; display:flex; flex-direction:column; gap:12px; }
+  .howto li { color:var(--ink-secondary); }
+  .howto li b { color:var(--ink); font-weight:600; }
+  .howto p { margin:0; color:var(--ink-secondary); max-width:70ch; }
+  .howto code { font-family:var(--mono); font-size:14px; color:var(--ink); }
+  @media print {
+    body { background:#fff; }
+    .wrap { width:auto; margin:0; padding:0; }
+    .grid { grid-template-columns:1fr; }
+    figure { break-inside:avoid; page-break-inside:avoid; }
+    section { break-before:page; }
+    section:first-of-type { break-before:auto; }
+    h1, .lede, .meta { break-after:avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="word">NAPOLEON <span>[INTERVIEW]</span></span>
+  <h1>Все экраны Napoleon Interview</h1>
+  <p class="lede">Каталог на коде ветки <code style="font-family:var(--mono);font-size:14px">main</code>, 6 сентября 2026.
+  Один снимок на все роли: вакансия Middle+ Python Developer, пять требований, пять вопросов.
+  Лидия ждёт решения рекрутера, Дмитрий уже передан менеджеру, Павел в интервью.
+  Зелёным — уже сделано на фронте. Жёлтым — то, что без бэкенда не закрыть.</p>
+  <div class="meta">
+    <span><b>33</b> экранов</span>
+    <span><b>19</b> закрытых правок на кадрах</span>
+    <span><b>4</b> ждут бэкенд</span>
+    <span>мок без живого API</span>
+  </div>
+  <section>
+    <div class="sec-head">
+      <div><h2>Вход и служебные</h2><p>Что человек видит до кабинета.</p></div>
+      <span class="count">4</span>
+    </div>
+    <div class="grid">
+      <figure>
+        <div class="left"><span class="name">Вход</span><span class="route">/login</span></div>
+        <img src="screens/login.jpg" alt="Вход" loading="lazy" width="1440" height="900">
+        <figcaption>Логотип, карточка, русские подписи. В основном ряду только «Войти» — регистрации там нет. Ссылка «Нужна помощь со входом?». Текст про выданные доступы, не про администратора.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Помощь со входом видна сразу, не только после ошибки.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Ошибка входа</span><span class="route">/login</span></div>
+        <img src="screens/login-error.jpg" alt="Ошибка входа" loading="lazy" width="1440" height="900">
+        <figcaption>После 401 фронт показывает «Не удалось войти. Проверьте почту и пароль», а не текст бэкенда. Мок отдаёт английское «Invalid email or password.» — на экране его нет.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> after: login-error по-прежнему заполняет форму и нажимает «Войти».</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Регистрация</span><span class="route">/register</span></div>
+        <img src="screens/register.jpg" alt="Регистрация" loading="lazy" width="1440" height="900">
+        <figcaption>Тот же кадр карточки. Заголовок честный: регистрация рекрутера, не «первый аккаунт».</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Заголовок «Регистрация рекрутера» — экран открывают и когда аккаунты уже есть.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Такой страницы нет</span><span class="route">/no-such-page</span></div>
+        <img src="screens/notfound.jpg" alt="Такой страницы нет" loading="lazy" width="1440" height="900">
+        <figcaption>404 с логотипом и путём назад ко входу.</figcaption>
+        
+      </figure>
+    </div>
+  </section>
+<section>
+    <div class="sec-head">
+      <div><h2>Рекрутер</h2><p>Список, доска, отчёт, настройки.</p></div>
+      <span class="count">6</span>
+    </div>
+    <div class="grid">
+      <figure>
+        <div class="left"><span class="name">Список вакансий</span><span class="route">/vacancies</span></div>
+        <img src="screens/vacancies.jpg" alt="Список вакансий" loading="lazy" width="1440" height="900">
+        <figcaption>Статус пилюлей, следующий шаг — действие и кто делает (например «Рекрутер: работа с кандидатами»), поиск, фильтр и сортировка. Пустой результат отличает «вакансий нет» от «под фильтры ничего не подошло».</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Поиск по названию, фильтр по статусу, сортировка.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Новая вакансия</span><span class="route">/vacancies/new</span></div>
+        <img src="screens/new.jpg" alt="Новая вакансия" loading="lazy" width="1440" height="900">
+        <figcaption>Форма без лишних полей. Сначала создаём вакансию и собираем вопросы, затем можно отправить эксперту. Письмо само не уходит.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Под кнопкой сказано: письмо эксперту не отправляем.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Доска кандидатов</span><span class="route">/vacancies/v-python</span></div>
+        <img src="screens/board.jpg" alt="Доска кандидатов" loading="lazy" width="1440" height="900">
+        <figcaption>Колонки по вниманию рекрутера. Лидия — готовы к решению, Дмитрий — завершён / передан, Павел — в интервью. Пустая «приглашены» в настоящем времени: «Сейчас в этой стадии никого нет», потому что люди уже есть дальше. Пауза — глагол «Приостановить».</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Пустая колонка не говорит «никого не пригласили», если на доске уже есть люди.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Отчёт по кандидату</span><span class="route">/vacancies/v-python/candidates/i-lida</span></div>
+        <img src="screens/report.jpg" alt="Отчёт по кандидату" loading="lazy" width="1440" height="900">
+        <figcaption>Сводка и карта требований. «Ответ есть» — расшифровка есть, это не подтверждение навыка. «Разбор недоступен» — анализа в ответе интервью нет.</figcaption>
+        <p class="fix" data-kind="todo"><b>Осталось:</b> Нет таймкодов и плеера: API их не отдаёт. Как появятся — цитата станет кликабельной.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Настройки</span><span class="route">/vacancies/v-python/settings</span></div>
+        <img src="screens/settings.jpg" alt="Настройки" loading="lazy" width="1440" height="900">
+        <figcaption>Сверху «Статус вакансии»: статус, «Приостановить» и «Архивировать». Ниже поля названия и навыков.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Пауза и архив вынесены из формы. Архив спрашивает подтверждение в модалке.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Подтверждение архива</span><span class="route">/vacancies/v-python/settings</span></div>
+        <img src="screens/settings-archive.jpg" alt="Подтверждение архива" loading="lazy" width="1440" height="900">
+        <figcaption>Модалка держит фокус, закрывается по Esc. Написано, что случится со ссылками кандидатов.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Кнопка называется «Архивировать». Съёмка жмёт её, не «Архив».</p>
+      </figure>
+    </div>
+  </section>
+<section>
+    <div class="sec-head">
+      <div><h2>Калибровка</h2><p>Три шага одной задачи: критерии, вопросы, утверждение.</p></div>
+      <span class="count">3</span>
+    </div>
+    <div class="grid">
+      <figure>
+        <div class="left"><span class="name">Требования</span><span class="route">/vacancies/v-python/rubric</span></div>
+        <img src="screens/rubric.jpg" alt="Требования" loading="lazy" width="1440" height="900">
+        <figcaption>Список навыков можно поправить здесь же, как в настройках. Видно, какой вопрос закрывает требование и где дыра.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Форма навыков дергает тот же updateVacancy — прыжок в настройки не нужен.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Вопросы</span><span class="route">/vacancies/v-python/questions</span></div>
+        <img src="screens/questions.jpg" alt="Вопросы" loading="lazy" width="1440" height="900">
+        <figcaption>Роль, формат и сложность словами. Вопрос подписан требованием, которое закрывает. Тег вне требований помечен.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Вопрос с тегом вне требований: ответ на него ничего не закроет.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Утверждение</span><span class="route">/vacancies/v-python/approve</span></div>
+        <img src="screens/approve.jpg" alt="Утверждение" loading="lazy" width="1440" height="900">
+        <figcaption>Вакансия Python уже active: это просмотр уже утверждённого комплекта, не экран «сейчас утверждаем». Пустой комплект и «уже одобрено» — другие состояния.</figcaption>
+        <p class="fix" data-kind="todo"><b>Осталось:</b> Когда действие доступно, нет сравнения версий: что меняется в v3 против v2. Это считает сервер.</p>
+      </figure>
+    </div>
+  </section>
+<section>
+    <div class="sec-head">
+      <div><h2>Эксперт</h2><p>Очередь задач и разбор отчёта.</p></div>
+      <span class="count">4</span>
+    </div>
+    <div class="grid">
+      <figure>
+        <div class="left"><span class="name">Кабинет эксперта</span><span class="route">/expert</span></div>
+        <img src="screens/expert.jpg" alt="Кабинет эксперта" loading="lazy" width="1440" height="900">
+        <figcaption>Сверху вакансии на калибровке с грейдом и числом требований, ниже отчёты на аудит.</figcaption>
+        
+      </figure>
+<figure>
+        <div class="left"><span class="name">Очередь аудитов</span><span class="route">/expert/queue</span></div>
+        <img src="screens/expert-queue.jpg" alt="Очередь аудитов" loading="lazy" width="1440" height="900">
+        <figcaption>Отдельный список убран: маршрут сразу открывает кабинет эксперта, чтобы не плодить второй такой же экран.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> /expert/queue — редирект на /expert. Старые ссылки не ломаются.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Список аудитов</span><span class="route">/audit/v-python</span></div>
+        <img src="screens/audit.jpg" alt="Список аудитов" loading="lazy" width="1440" height="900">
+        <figcaption>Имя кандидата, требование и причина запроса. Если очередь поля не прислала — честный пробел и «откройте карточку».</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Строка говорит, что именно проверить, без подстановки чужих навыков.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Карточка аудита</span><span class="route">/audit/v-python/i-lida</span></div>
+        <img src="screens/audit-card.jpg" alt="Карточка аудита" loading="lazy" width="1440" height="900">
+        <figcaption>Кто и о чём попросил, ответы цитатами. Эксперт отвечает здесь: данных хватает или нужен доп. вопрос.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> «Данных хватает» закрывает запрос, «нужен доп. вопрос» заказывает уточнение.</p>
+      </figure>
+    </div>
+  </section>
+<section>
+    <div class="sec-head">
+      <div><h2>Нанимающий менеджер</h2><p>Список встреч и одностраничник перед разговором.</p></div>
+      <span class="count">3</span>
+    </div>
+    <div class="grid">
+      <figure>
+        <div class="left"><span class="name">Встречи</span><span class="route">/manager</span></div>
+        <img src="screens/manager.jpg" alt="Встречи" loading="lazy" width="1440" height="900">
+        <figcaption>Заголовок «Встречи и запросы мнения». Есть дата передачи. В этом снимке один человек: Дмитрий, доступ handoff. Запрос мнения (opinion) — другой тип доступа, в этот момент его нет.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Лидия на доске ещё ждёт решения рекрутера — в списке менеджера её нет.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Карточка к встрече</span><span class="route">/manager/i-dmitry</span></div>
+        <img src="screens/manager-card.jpg" alt="Карточка к встрече" loading="lazy" width="1440" height="900">
+        <figcaption>Карточка Дмитрия: вакансия, кто передал и зачем, ответы, возврат к списку. Кнопок «берём / нет» нет.</figcaption>
+        <p class="fix" data-kind="todo"><b>Осталось:</b> Исход встречи записать некуда: в API нет ручки. Кнопки «берём / нет» без сохранения не рисуем.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Бриф</span><span class="route">/brief/v-python</span></div>
+        <img src="screens/brief.jpg" alt="Бриф" loading="lazy" width="1440" height="900">
+        <figcaption>Обезличенная сводка и сами обязательные навыки, которые формулировал менеджер.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Кроме цифр «приглашено / прошли / ждут» виден список требований.</p>
+      </figure>
+    </div>
+  </section>
+<section>
+    <div class="sec-head">
+      <div><h2>Пользователи</h2><p>Доступы сотрудников. Это право сессии, не роль администратора.</p></div>
+      <span class="count">1</span>
+    </div>
+    <div class="grid">
+      <figure>
+        <div class="left"><span class="name">Сотрудники</span><span class="route">/internal/users</span></div>
+        <img src="screens/users.jpg" alt="Сотрудники" loading="lazy" width="1440" height="900">
+        <figcaption>Роли recruiter, expert, hiring_manager — роли admin нет. Страница открывается по праву action.internal_users.manage. Заголовок «Пользователи».</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Управление списком — право сессии, не роль «администратор».</p>
+      </figure>
+    </div>
+  </section>
+<section>
+    <div class="sec-head">
+      <div><h2>Кандидат</h2><p>Шаги от приглашения до расшифровки. Оценку и решение кандидат не видит.</p></div>
+      <span class="count">12</span>
+    </div>
+    <div class="grid">
+      <figure>
+        <div class="left"><span class="name">Приглашение</span><span class="route">/i/lida</span></div>
+        <img src="screens/invite.jpg" alt="Приглашение" loading="lazy" width="1440" height="900">
+        <figcaption>Сколько вопросов, сколько займёт, до какой даты действует ссылка.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Срок из приглашения. Если даты нет — честно: смотрите письмо или напишите рекрутеру.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Согласие на запись</span><span class="route">/i/lida/consent</span></div>
+        <img src="screens/consent.jpg" alt="Согласие на запись" loading="lazy" width="1440" height="900">
+        <figcaption>Продолжить нельзя без отметки, причина рядом.</figcaption>
+        
+      </figure>
+<figure>
+        <div class="left"><span class="name">Проверка перед стартом</span><span class="route">/i/lida/check</span></div>
+        <img src="screens/check.jpg" alt="Проверка перед стартом" loading="lazy" width="1440" height="900">
+        <figcaption>Для голоса нужен микрофон, камера не обязательна. Кнопка «Проверить микрофон» — настоящая проверка, не декорация.</figcaption>
+        
+      </figure>
+<figure>
+        <div class="left"><span class="name">Правила</span><span class="route">/i/lida/rules</span></div>
+        <img src="screens/rules.jpg" alt="Правила" loading="lazy" width="1440" height="900">
+        <figcaption>Как устроены вопросы и что происходит с ответами.</figcaption>
+        
+      </figure>
+<figure>
+        <div class="left"><span class="name">Разминка</span><span class="route">/i/lida/practice</span></div>
+        <img src="screens/practice.jpg" alt="Разминка" loading="lazy" width="1440" height="900">
+        <figcaption>Не записывается и не идёт в отчёт — сказано в первой строке.</figcaption>
+        
+      </figure>
+<figure>
+        <div class="left"><span class="name">Возврат</span><span class="route">/i/lida/resume</span></div>
+        <img src="screens/resume.jpg" alt="Возврат" loading="lazy" width="1440" height="900">
+        <figcaption>Можно продолжить с того же места. Согласие уже есть — дальше чеклист или разговор.</figcaption>
+        
+      </figure>
+<figure>
+        <div class="left"><span class="name">Комната интервью</span><span class="route">/i/lida/live</span></div>
+        <img src="screens/live.jpg" alt="Комната интервью" loading="lazy" width="1440" height="900">
+        <figcaption>Микрофон обязателен, камера нет. Этот кадр — экран проверки устройств до входа в комнату: без выданного разрешения браузера живой LiveKit-звонок здесь не снять.</figcaption>
+        
+      </figure>
+<figure>
+        <div class="left"><span class="name">Готово</span><span class="route">/i/lida/done</span></div>
+        <img src="screens/done.jpg" alt="Готово" loading="lazy" width="1440" height="900">
+        <figcaption>Ответы приняты, рекрутер свяжется сам. Кнопки «Написать рекрутеру» нет. Срок приглашения здесь не выдаётся за дату ответа рекрутера.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> На «готово» нет обещания написать рекрутеру и нет чужой даты ответа.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Расшифровка</span><span class="route">/i/lida/transcript</span></div>
+        <img src="screens/transcript.jpg" alt="Расшифровка" loading="lazy" width="1440" height="900">
+        <figcaption>Свои ответы. Оценки нет. Пустое состояние честное, если расшифровка ещё не пришла.</figcaption>
+        
+      </figure>
+<figure>
+        <div class="left"><span class="name">Черновик заметки</span><span class="route">/i/lida/request</span></div>
+        <img src="screens/request.jpg" alt="Черновик заметки" loading="lazy" width="1440" height="900">
+        <figcaption>«Черновик заметки». Текст только в этом браузере — рекрутер его не получит.</figcaption>
+        <p class="fix" data-kind="done"><b>Сделано:</b> Кнопка называется «Сохранить заметку».</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Доп. вопрос</span><span class="route">/i/lida/extra/c1</span></div>
+        <img src="screens/extra.jpg" alt="Доп. вопрос" loading="lazy" width="1440" height="900">
+        <figcaption>Текст вопроса в этой ссылке недоступен. Срок доп. ответа из extra GET не приходит — срок приглашения сюда не подставляем.</figcaption>
+        <p class="fix" data-kind="todo"><b>Осталось:</b> В extra GET только id, status и extra_token. Текста вопроса и срока нет — это блокер контракта, не фронта.</p>
+      </figure>
+<figure>
+        <div class="left"><span class="name">Ссылка не работает</span><span class="route">/i/expired</span></div>
+        <img src="screens/expired.jpg" alt="Ссылка не работает" loading="lazy" width="1440" height="900">
+        <figcaption>Ссылка не работает. Нет «К выбору роли» и нет степпера — только что случилось и попросить новую ссылку у рекрутера.</figcaption>
+        
+      </figure>
+    </div>
+  </section>
+  <section>
+    <div class="sec-head">
+      <div><h2>Что ещё нельзя закрыть с фронта</h2><p>Эти задачи упираются в контракт API. Интерфейс под них не рисует фальшивый успех.</p></div>
+      <span class="count">7</span>
+    </div>
+    <div class="howto">
+      <h3>Упирается в бэкенд</h3>
+      <ol>
+        <li><b>Текст и срок доп. вопроса.</b> Ответ extra отдаёт id, status и extra_token. Текста вопроса и отдельного срока в этом ответе нет. Фронт не подставляет срок приглашения.</li>
+        <li><b>Разбор по требованиям.</b> На клиентском типе Interview нет разбора по требованиям. Фронт не подставляет фальшивый разбор.</li>
+        <li><b>Срок приглашения на живом бэкенде.</b> Срок часто отсутствует в ответе приглашения. Мок для экрана приглашения его отдаёт. Экран extra этот срок не наследует.</li>
+        <li><b>Слепок версии рубрики в отчёте.</b> Слепок версии в API есть, экран отчёта его не использует как разбор навыков.</li>
+        <li><b>Исход встречи у менеджера.</b> Нужна ручка записи исхода. Место на карточке есть, писать некуда. Кнопки «берём / нет» без сохранения не рисуем.</li>
+        <li><b>Таймкоды и запись.</b> Цитаты в отчёте станут кликабельными, когда в ответе появятся время начала и ссылка на запись. До этого плеер рисовать нечем.</li>
+        <li><b>Сравнение версий рубрики.</b> На утверждении нужен diff двух версий. Слепок требований в версии уже есть, сравнивать две версии должен сервер.</li>
+      </ol>
+    </div>
+  </section>
+</div>
+</body>
+</html>

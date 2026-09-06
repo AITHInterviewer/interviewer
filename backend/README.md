@@ -12,8 +12,6 @@
   `Question`/`Interview` (schema-only срез specs/003-recruiter-vacancy-management, без
   CRUD рекрутёра) + `Answer` (specs/004). Не прогонялось на реальном Postgres — см.
   `specs/004-candidate-interview-flow/tasks.md`, «Known Gaps».
-- `app/routers/mock_interview.py` — временный контур ручной проверки STT/TTS, не часть
-  боевой архитектуры (см. его docstring).
 - Реализован auth-контур для внутренних пользователей (specs/006-recruiter-auth,
   007-multi-role-assignment): ORM-модели `InternalUser`/`InternalRoleAssignment`,
   репозиторий, сервисы, DI-зависимости и Alembic-миграции.
@@ -38,7 +36,7 @@ uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
-API будет доступен на `http://localhost:8000/health`.
+API будет доступен на `http://localhost:8000/api/health`.
 
 Для хостового запуска `backend/.env` должен указывать на `localhost:5432`.
 Для `backend/docker-compose.yml` Postgres хост переопределяется на контейнерный `postgres`.

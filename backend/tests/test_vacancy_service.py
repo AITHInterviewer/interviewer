@@ -18,6 +18,7 @@ from app.services.vacancy_llm_service import GeneratedQuestion, GeneratedQuestio
 from app.services.vacancy_service import (
     InvalidQuestionError,
     VacancyLockedError,
+    VacancyMissingQuestionsError,
     VacancyNotReadyError,
     VacancyService,
 )
@@ -45,6 +46,22 @@ class FakeVacancyLLMService:
     async def generate_questions(self, vacancy) -> GeneratedQuestionSet:
         self.calls += 1
         return GeneratedQuestionSet(questions=self.questions)
+
+    async def generate_stt_terms(self, vacancy, questions) -> dict[str, list[str]]:
+        self.calls += 1
+        # эмулируем частичный ответ LLM: термины не для всех вопросов
+        return {str(questions[0].id): ["PostgreSQL", "B-tree"]}
+
+    async def generate_single_question(self, vacancy, existing) -> GeneratedQuestion:
+        self.calls += 1
+        return GeneratedQuestion(
+            text=f"Regenerated: {existing.text}",
+            role=existing.role,
+            skill_tag=["postgres"],
+            intent="Проверить знание индексов, переформулировано",
+            reference_answer="B-tree, GIN, ... (v2)",
+            estimated_duration_sec=200,
+        )
 
 
 async def _make_recruiter(session: AsyncSession) -> InternalUser:
@@ -94,7 +111,7 @@ async def test_generate_questions_replaces_base_generated_only(db_session: Async
     await service.generate_questions(vacancy.id)
     questions = await service.list_questions(vacancy.id)
 
-    assert vacancy.status == "pending_review"
+    assert vacancy.status == "extracted"
     assert llm.calls == 1
     sources = sorted(q.source for q in questions)
     assert sources == ["base_generated", "base_generated", "base_generated", "base_manual"]
@@ -104,6 +121,60 @@ async def test_generate_questions_replaces_base_generated_only(db_session: Async
     await service.generate_questions(vacancy.id)
     questions_after = await service.list_questions(vacancy.id)
     assert len(questions_after) == 4
+
+
+@pytest.mark.anyio
+async def test_send_to_expert_requires_at_least_one_question(db_session: AsyncSession) -> None:
+    recruiter = await _make_recruiter(db_session)
+    service = _make_service(db_session)
+
+    vacancy = await service.create_vacancy(
+        recruiter_id=recruiter.id,
+        title="Backend Developer",
+        description="...",
+        grade="middle",
+        required_skills=[],
+        nice_to_have_skills=[],
+    )
+
+    with pytest.raises(VacancyMissingQuestionsError):
+        await service.send_to_expert(vacancy.id)
+
+    await service.add_question(vacancy.id, text="Any question")
+    sent = await service.send_to_expert(vacancy.id)
+    assert sent.status == "calibration"
+
+
+@pytest.mark.anyio
+async def test_regenerate_question_keeps_id_and_role_replaces_content(db_session: AsyncSession) -> None:
+    recruiter = await _make_recruiter(db_session)
+    llm = FakeVacancyLLMService()
+    service = _make_service(db_session, llm_service=llm)
+
+    vacancy = await service.create_vacancy(
+        recruiter_id=recruiter.id,
+        title="Backend Developer",
+        description="...",
+        grade="middle",
+        required_skills=["postgres"],
+        nice_to_have_skills=[],
+    )
+    question = await service.add_question(
+        vacancy.id,
+        text="Original question",
+        role="assessment",
+        intent="original intent",
+        reference_answer="original answer",
+        skill_tag=["postgres"],
+    )
+
+    regenerated = await service.regenerate_question(vacancy.id, question.id)
+
+    assert regenerated.id == question.id
+    assert regenerated.role == "assessment"
+    assert regenerated.text == "Regenerated: Original question"
+    assert regenerated.reference_answer == "B-tree, GIN, ... (v2)"
+    assert llm.calls == 1
 
 
 @pytest.mark.anyio
@@ -128,6 +199,7 @@ async def test_approve_requires_non_empty_assessment_fields(db_session: AsyncSes
     # (e.g. LLM-generated then role changed).
     bad_question.role = "assessment"
     await db_session.commit()
+    await service.send_to_expert(vacancy.id)
 
     with pytest.raises(VacancyNotReadyError) as exc_info:
         await service.approve_vacancy(vacancy.id)
@@ -135,7 +207,7 @@ async def test_approve_requires_non_empty_assessment_fields(db_session: AsyncSes
 
 
 @pytest.mark.anyio
-async def test_approve_sets_status_ready_when_valid(db_session: AsyncSession) -> None:
+async def test_approve_activates_vacancy_when_valid(db_session: AsyncSession) -> None:
     recruiter = await _make_recruiter(db_session)
     service = _make_service(db_session)
 
@@ -155,10 +227,58 @@ async def test_approve_sets_status_ready_when_valid(db_session: AsyncSession) ->
         intent="intent",
         reference_answer="reference",
     )
-
+    await service.send_to_expert(vacancy.id)
     approved = await service.approve_vacancy(vacancy.id)
 
-    assert approved.status == "ready"
+    assert approved.status == "active"
+
+
+@pytest.mark.anyio
+async def test_approve_populates_stt_terms(db_session: AsyncSession) -> None:
+    recruiter = await _make_recruiter(db_session)
+    llm = FakeVacancyLLMService()
+    service = _make_service(db_session, llm_service=llm)
+
+    vacancy = await service.create_vacancy(
+        recruiter_id=recruiter.id, title="Backend", description="...", grade="middle",
+        required_skills=["python"], nice_to_have_skills=[],
+    )
+    q = await service.add_question(
+        vacancy.id, text="Расскажите про индексы в Postgres", role="assessment",
+        skill_tag=["postgres"], intent="intent", reference_answer="reference",
+    )
+    await service.send_to_expert(vacancy.id)
+    await service.approve_vacancy(vacancy.id)
+
+    await db_session.refresh(q)
+    assert q.stt_terms == ["PostgreSQL", "B-tree"]
+
+
+@pytest.mark.anyio
+async def test_approve_survives_stt_terms_failure(db_session: AsyncSession) -> None:
+    recruiter = await _make_recruiter(db_session)
+    llm = FakeVacancyLLMService()
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("LLM down")
+
+    llm.generate_stt_terms = _boom  # type: ignore[assignment]
+    service = _make_service(db_session, llm_service=llm)
+
+    vacancy = await service.create_vacancy(
+        recruiter_id=recruiter.id, title="Backend", description="...", grade="middle",
+        required_skills=["python"], nice_to_have_skills=[],
+    )
+    q = await service.add_question(
+        vacancy.id, text="Расскажите про индексы в Postgres", role="assessment",
+        skill_tag=["postgres"], intent="intent", reference_answer="reference",
+    )
+    await service.send_to_expert(vacancy.id)
+    approved = await service.approve_vacancy(vacancy.id)
+
+    assert approved.status == "active"
+    await db_session.refresh(q)
+    assert q.stt_terms is None
 
 
 @pytest.mark.anyio
@@ -182,6 +302,7 @@ async def test_ready_vacancy_locks_mutations(db_session: AsyncSession) -> None:
         intent="intent",
         reference_answer="reference",
     )
+    await service.send_to_expert(vacancy.id)
     await service.approve_vacancy(vacancy.id)
 
     with pytest.raises(VacancyLockedError):

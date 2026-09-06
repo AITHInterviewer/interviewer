@@ -32,7 +32,7 @@ export function InterviewEventsPanel({ interviewId }: InterviewEventsPanelProps)
         } else if (caughtError instanceof Error) {
           setError(caughtError.message);
         } else {
-          setError("Could not load interview events.");
+          setError("Не удалось загрузить ход интервью.");
         }
       })
       .finally(() => {
@@ -62,7 +62,7 @@ export function InterviewEventsPanel({ interviewId }: InterviewEventsPanelProps)
     <div className="interview-events-panel">
       <div className="section-heading">
         <div>
-          <h3>Answers</h3>
+          <h3>Ответы кандидата</h3>
         </div>
       </div>
       {data.answers.length > 0 ? (
@@ -70,17 +70,17 @@ export function InterviewEventsPanel({ interviewId }: InterviewEventsPanelProps)
           {data.answers.map((answer) => (
             <li className="candidate-card" key={answer.id}>
               <strong>{answer.question_text ?? answer.question_id}</strong>
-              <p>{answer.transcript_text || "(no transcript yet)"}</p>
+              <p>{answer.transcript_text || "Расшифровка ещё не готова."}</p>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="field-hint">No aggregated answers yet.</p>
+        <p className="field-hint">Ответов пока нет: кандидат ещё не сдал интервью.</p>
       )}
 
       <div className="section-heading">
         <div>
-          <h3>Event timeline</h3>
+          <h3>Ход интервью</h3>
         </div>
       </div>
       {data.events.length > 0 ? (
@@ -88,16 +88,44 @@ export function InterviewEventsPanel({ interviewId }: InterviewEventsPanelProps)
           {data.events.map((event) => (
             <li className="candidate-card" key={event.id}>
               <div className="candidate-card__top">
-                <span className="status">{event.event_type}</span>
-                <span className="field-hint">{event.created_at}</span>
+                <span className="status">{eventLabel(event.event_type)}</span>
+                <span className="field-hint">{formatMoment(event.created_at)}</span>
               </div>
-              <pre className="inline-code">{JSON.stringify(event.payload, null, 2)}</pre>
+              <details>
+                <summary className="field-hint">Технические подробности</summary>
+                <pre className="inline-code">{JSON.stringify(event.payload, null, 2)}</pre>
+              </details>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="field-hint">No events recorded yet.</p>
+        <p className="field-hint">Событий пока нет.</p>
       )}
     </div>
   );
+}
+
+/** События интервью словами: коды бэкенда в интерфейс не выносим. */
+const EVENT_LABEL: Record<string, string> = {
+  invited: "Приглашение создано",
+  opened: "Кандидат открыл ссылку",
+  consent_given: "Дал согласие на запись",
+  device_checked: "Проверил микрофон",
+  interview_started: "Начал интервью",
+  answer_submitted: "Отправил ответ",
+  interview_submitted: "Сдал интервью",
+  interview_interrupted: "Прервал интервью",
+  report_ready: "Отчёт готов",
+  extra_requested: "Запрошен доп. ответ",
+  extra_answered: "Кандидат ответил на доп. вопрос",
+};
+
+function eventLabel(code: string): string {
+  return EVENT_LABEL[code] ?? code.replaceAll("_", " ");
+}
+
+function formatMoment(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 }

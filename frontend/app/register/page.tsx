@@ -35,7 +35,7 @@ export default function RegisterPage() {
       if (caughtError instanceof ApiError) {
         setError(caughtError.message);
       } else {
-        setError("Could not create the recruiter account.");
+        setError("Не удалось создать аккаунт. Попробуйте ещё раз или напишите администратору.");
       }
     } finally {
       setSubmitting(false);
@@ -44,17 +44,17 @@ export default function RegisterPage() {
 
   return (
     <AuthShell
-      eyebrow="Internal / Register"
-      title="Create the first recruiter account"
-      description="Create a recruiter account to get started."
+      eyebrow="Регистрация сотрудника"
+      title="Регистрация рекрутера"
+      description="Аккаунт нужен, чтобы завести вакансию и приглашать кандидатов."
     >
       <form className="form-surface" onSubmit={handleSubmit}>
         <label>
-          Full name
+          Имя и фамилия
           <input name="name" value={name} onChange={(event) => setName(event.target.value)} required />
         </label>
         <label>
-          Work email
+          Рабочая почта
           <input
             name="email"
             type="email"
@@ -64,7 +64,7 @@ export default function RegisterPage() {
           />
         </label>
         <label>
-          Password
+          Пароль
           <input
             name="password"
             type="password"
@@ -77,10 +77,10 @@ export default function RegisterPage() {
         {error ? <p className="form-error">{error}</p> : null}
         <div className="form-actions">
           <button className="button button--primary" type="submit" disabled={submitting}>
-            {submitting ? "Creating account..." : "Create recruiter account"}
+            Создать аккаунт
           </button>
           <Link className="button button--secondary" href="/login">
-            I already have access
+            У меня уже есть доступ
           </Link>
         </div>
       </form>

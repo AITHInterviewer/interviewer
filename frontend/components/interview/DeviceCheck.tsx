@@ -111,11 +111,17 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     }
   }, []);
 
-  /** Собственно запрос доступа — только по явному вызову (клик), не при монтировании. */
+  /** Запрос доступа к камере/микрофону. Согласие на запись кандидат уже дал на
+   * предыдущем экране (ConsentStage в InterviewFlow.tsx), поэтому здесь системный
+   * диалог браузера запрашивается сразу при переходе на этот экран, без
+   * промежуточного экрана-заглушки с кнопкой. */
   const acquire = useCallback(async () => {
     setStatus("checking");
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: { echoCancellation: true } });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
@@ -147,6 +153,13 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     }
   }, [refreshDeviceList, startMicLevelLoop]);
 
+  useEffect(() => {
+    void acquire();
+    // Запрашиваем один раз при монтировании экрана — acquire меняется только по
+    // ссылкам на стабильные callbacks, повторный вызов эффекта не нужен.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** Переключение на конкретно выбранную камеру/микрофон — заменяет трек нужного вида
    * прямо в существующем `MediaStream` (не создаёт новый объект), чтобы ссылка на поток
    * оставалась стабильной для остального дерева компонентов. */
@@ -157,7 +170,7 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
       const constraints: MediaStreamConstraints =
         kind === "video"
           ? { video: { deviceId: { exact: deviceId } } }
-          : { audio: { deviceId: { exact: deviceId }, echoCancellation: true } };
+          : { audio: { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: true } };
       const replacement = await navigator.mediaDevices.getUserMedia(constraints);
       const newTrack = kind === "video" ? replacement.getVideoTracks()[0] : replacement.getAudioTracks()[0];
       const oldTracks = kind === "video" ? stream.getVideoTracks() : stream.getAudioTracks();
@@ -203,19 +216,8 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
     [stopMicLevelLoop],
   );
 
-  if (status === "idle") {
-    return (
-      <ScreenState
-        kind="empty"
-        title="Нужен доступ к камере и микрофону"
-        text="Без него интервью пройти нельзя."
-        action={
-          <Button type="button" onClick={() => void acquire()}>
-            Разрешить доступ к камере и микрофону
-          </Button>
-        }
-      />
-    );
+  if (status === "idle" || status === "checking") {
+    return <ScreenState kind="loading" title="Запрашиваем доступ к камере и микрофону…" text="Разрешите доступ в диалоге браузера." />;
   }
 
   if (status === "denied") {
@@ -239,71 +241,83 @@ export function DeviceCheck({ onGranted }: DeviceCheckProps) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="aspect-video w-full overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface-muted)]">
+    <div className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+      {/* Настоящая таблица 2×2 с общими границами строк (а не две независимые колонки):
+          видео и список устройств — верхняя строка, шкала микрофона и кнопка — нижняя,
+          поэтому верх и низ обеих колонок совпадают по уровню. */}
+      <div className="aspect-video w-full overflow-hidden rounded-[var(--radius-panel)] border border-[var(--border)] bg-[var(--surface-muted)] sm:col-start-1 sm:row-start-1">
         {/* Превью собственной камеры кандидата — без субтитров: контент не несёт информации для восприятия. */}
         <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
       </div>
 
-      <div className="device-check">
-        <div
-          className="wave-bars"
-          role="meter"
-          aria-label="Уровень микрофона"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(micLevel * 100)}
-        >
-          {barLevels.map((level, index) => (
-            <i key={index} style={{ height: `${Math.max(4, Math.round(level * 54))}px` }} />
-          ))}
-        </div>
-        <span className="text-[13px] text-[var(--ink-secondary)]">
-          {status === "checking" ? "Запрашиваем доступ к камере и микрофону…" : "Камера и микрофон готовы"}
-        </span>
-      </div>
-
-      {status === "granted" && (cameras.length > 1 || microphones.length > 1) && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {cameras.length > 1 && (
-            <label className="field-block">
-              <span className="text-[12px] text-[var(--ink-secondary)]">Камера</span>
+      {status === "granted" && (
+        <div className="space-y-2 sm:col-start-2 sm:row-start-1">
+          <div className="grid gap-1">
+            <span className="text-[12px] text-[var(--ink-secondary)]">Камера</span>
+            <select
+              className="min-h-[38px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-[13px] text-[var(--ink)]"
+              value={cameraId}
+              onChange={(event) => void switchDevice("video", event.target.value)}
+            >
+              {cameras.map((camera) => (
+                <option key={camera.deviceId} value={camera.deviceId}>
+                  {camera.label || "Камера"}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-1">
+            <span className="text-[12px] text-[var(--ink-secondary)]">Микрофон</span>
+            <select
+              className="min-h-[38px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-[13px] text-[var(--ink)]"
+              value={microphoneId}
+              onChange={(event) => void switchDevice("audio", event.target.value)}
+            >
+              {microphones.map((mic) => (
+                <option key={mic.deviceId} value={mic.deviceId}>
+                  {mic.label || "Микрофон"}
+                </option>
+              ))}
+            </select>
+          </div>
+          {CAN_SELECT_OUTPUT_DEVICE && (
+            <div className="grid gap-1">
+              <span className="text-[12px] text-[var(--ink-secondary)]">Динамики</span>
               <select
-                className="min-h-[42px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--ink)]"
-                value={cameraId}
-                onChange={(event) => void switchDevice("video", event.target.value)}
+                className="min-h-[38px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-2 text-[13px] text-[var(--ink)]"
+                value={speakerId}
+                onChange={(event) => setSpeakerId(event.target.value)}
               >
-                {cameras.map((camera) => (
-                  <option key={camera.deviceId} value={camera.deviceId}>
-                    {camera.label || "Камера"}
+                {speakers.map((speaker) => (
+                  <option key={speaker.deviceId} value={speaker.deviceId}>
+                    {speaker.label || "Динамики"}
                   </option>
                 ))}
               </select>
-            </label>
-          )}
-          {microphones.length > 1 && (
-            <label className="field-block">
-              <span className="text-[12px] text-[var(--ink-secondary)]">Микрофон</span>
-              <select
-                className="min-h-[42px] w-full rounded-[var(--radius-control)] border border-[var(--border)] bg-[var(--surface)] px-3 text-[var(--ink)]"
-                value={microphoneId}
-                onChange={(event) => void switchDevice("audio", event.target.value)}
-              >
-                {microphones.map((mic) => (
-                  <option key={mic.deviceId} value={mic.deviceId}>
-                    {mic.label || "Микрофон"}
-                  </option>
-                ))}
-              </select>
-            </label>
+            </div>
           )}
         </div>
       )}
 
+      <div
+        className="wave-bars sm:col-start-1 sm:row-start-2"
+        role="meter"
+        aria-label="Уровень микрофона"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(micLevel * 100)}
+      >
+        {barLevels.map((level, index) => (
+          <i key={index} style={{ height: `${Math.max(4, Math.round(level * 54))}px` }} />
+        ))}
+      </div>
+
       {status === "granted" && (
-        <Button type="button" onClick={confirm}>
-          Начать интервью
-        </Button>
+        <div className="flex items-center justify-end sm:col-start-2 sm:row-start-2">
+          <Button type="button" onClick={confirm}>
+            Начать интервью
+          </Button>
+        </div>
       )}
     </div>
   );

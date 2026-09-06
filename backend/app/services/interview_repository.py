@@ -39,6 +39,9 @@ class ConsentInfo(TypedDict):
     vacancy_title: str
     questions_total: int
     estimated_duration_min: DurationRange
+    # Текст ОСНОВНОГО вопроса, персистентный на бэке (см. Interview.current_question_text) —
+    # источник правды для reconnect/перезагрузки, не только текущий WS ControlEvent.
+    current_question_text: str | None
 
 
 async def get_interview_by_access_token(session: AsyncSession, access_token: str) -> Interview | None:
@@ -73,4 +76,5 @@ async def build_consent_info(session: AsyncSession, interview: Interview) -> Con
             "min": round(lower_bound_sec / 60),
             "max": round(upper_bound_sec / 60),
         },
+        "current_question_text": interview.current_question_text,
     }

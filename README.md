@@ -22,7 +22,7 @@ Baseline поднимает только:
 
 После старта ожидается:
 - frontend: `http://localhost:3000`
-- backend health: `http://localhost:8000/health`
+- backend health: `http://localhost:8000/api/health`
 
 ## Полный compose из корня
 
@@ -51,6 +51,7 @@ Baseline поднимает только:
 | livekit signaling | 3907 | `infra/docker-compose.yml` |
 | livekit tcp fallback | 3908 | `infra/docker-compose.yml` |
 | livekit media (UDP) | 50000-50100 | `infra/docker-compose.yml` (не менялся — отдельная проблема с Windows-раннером, см. `deploy-full.yml`) |
+| nginx (единая точка входа: `/` → frontend, `/api/` → backend, `/rtc/` → livekit-server) | 12345, вне пула 39xx — совпадает с портом, уже прокинутым наружу через сторонний туннель на раннере | `infra/docker-compose.yml` |
 
 Новый сервис — занимай следующий свободный номер в диапазоне (3909, 3910, …), не
 дефолтный порт образа.

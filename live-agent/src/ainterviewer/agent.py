@@ -34,20 +34,32 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
 from livekit.agents import Agent, AgentSession, JobContext, ModelSettings, WorkerOptions, cli
+from livekit.agents import tts as lk_tts
 from livekit.agents.llm import ChatContext
 from livekit.agents.voice.room_io import RoomInputOptions
+from livekit.agents.voice.turn import InterruptionOptions, TurnHandlingOptions
+from livekit.plugins import fishaudio
 from livekit.plugins import openai as lk_openai
 from livekit.plugins import silero
 
 from .control_bridge import RedisEventSink
+from .echo_filter import is_likely_echo
 from .events import EventLog, EventSink
-from .llm_client import ClaudeAgentSDKLiveControlLLM
+from .llm_client import (
+    AnthropicAPILiveControlLLM,
+    ClaudeAgentSDKLiveControlLLM,
+    LiveControlLLM,
+    MistralLiveControlLLM,
+    OpenRouterLiveControlLLM,
+)
 from .prompts import INTRO_PHRASE
-from .schema import InterviewInput
+from .schema import InterviewInput, Question, Vacancy
 from .state_machine import LiveContourEngine
 
 load_dotenv()
@@ -62,7 +74,7 @@ MOCK_PATH = Path(os.environ.get("MOCK_INTERVIEW_PATH", AGENT_ROOT / "mock_data" 
 
 
 class InterviewerAgent(Agent):
-    def __init__(self, engine: LiveContourEngine):
+    def __init__(self, engine: LiveContourEngine, stt: lk_openai.STT):
         # instructions не используется: llm_node переопределён целиком и не обращается
         # к self.llm/instructions — управление полностью у LiveContourEngine.
         #
@@ -84,6 +96,17 @@ class InterviewerAgent(Agent):
             ),
         )
         self.engine = engine
+        # STT-подсказка меняется при переходе на новый вопрос (см. llm_node): термины
+        # текущего вопроса + словарь навыков вакансии. Начальное значение (первый вопрос)
+        # ставится в entrypoint при конструировании STT.
+        self._stt = stt
+        self._stt_question_index = 0
+        # Раздел 2 задачи "live-interview quality pass" — эвристический фильтр эха
+        # собственной TTS-речи, просочившегося обратно через микрофон кандидата
+        # (см. echo_filter.is_likely_echo). Обновляется в трёх точках: сразу после
+        # вступления (тут же, при конструировании) и в llm_node — после бэкчаннела и
+        # после реальной реплики агента.
+        self._last_agent_utterance = ""
 
     async def llm_node(self, chat_ctx: ChatContext, tools: list, model_settings: ModelSettings):  # noqa: ARG002
         # ChatContext.messages — метод (список нужно ЗВАТЬ, `chat_ctx.messages()`), не
@@ -98,26 +121,63 @@ class InterviewerAgent(Agent):
         last_text = user_messages[-1].text_content or ""
         logger.info("llm_node: last_text=%r", last_text)
 
+        if is_likely_echo(last_text, self._last_agent_utterance):
+            logger.info("llm_node: last_text looks like agent echo, ignoring: %r", last_text)
+            return
+
         # Слой 1 — мгновенный бэкчаннел без LLM (раздел 9.2, п.4 архитектурного документа).
-        yield self.engine.backchannel_phrase()
+        # Временно отключён (2026-09-06, явный запрос пользователя) — engine.backchannel_phrase()
+        # оставлен как есть в state_machine.py, просто не вызываем/не озвучиваем здесь.
 
         # Слой 2 — собственно решение реактивного цикла (см. state_machine.py).
         logger.info("llm_node: calling engine.on_candidate_final_turn...")
         reply = await self.engine.on_candidate_final_turn(last_text)
         logger.info("llm_node: engine.on_candidate_final_turn returned %r", reply)
+        # Реплика движка могла увести нас на следующий вопрос (переход внутри
+        # on_candidate_final_turn) — обновляем STT-подсказку под новый вопрос ДО того, как
+        # кандидат начнёт на него отвечать. whisper-1 (не realtime) пересобирает конфиг
+        # транскрипции на каждый запрос, так что update_options здесь достаточно.
+        if self.engine.state.question_index != self._stt_question_index:
+            self._stt_question_index = self.engine.state.question_index
+            self._stt.update_options(
+                prompt=_build_stt_prompt(
+                    self.engine.state.input.vacancy, self.engine.state.current_question
+                )
+            )
+            logger.info(
+                "llm_node: STT prompt updated for question index %d", self._stt_question_index
+            )
+
         if reply:
+            self._last_agent_utterance = reply
             yield reply
 
 
-def _build_stt_vocabulary_prompt(interview: InterviewInput) -> str:
-    """Раздел 5, гипотеза H4 архитектурного документа: словарь терминов вакансии как
-    подсказка ASR. Whisper поддерживает это через параметр `prompt` (не через `keywords`
-    — тот работает только с realtime gpt-transcribe-моделями, whisper-1 его не понимает).
-    Термины вакансии — не "другой вопрос", а маленькая статическая подсказка на всё
-    интервью, поэтому не нарушает принцип "контекст только текущий вопрос" (раздел
-    prompts.py) — это не подмешивание чужого вопроса в LLM, а подсказка ASR-словарю."""
-    terms = [*interview.vacancy.required_skills, *interview.vacancy.nice_to_have_skills]
-    return ", ".join(terms)
+# Whisper обрезает `prompt` до ~224 токенов; держим подсказку заведомо короче, иначе
+# хвост (термины текущего вопроса) просто отбросится.
+_STT_PROMPT_MAX_CHARS = 800
+
+
+def _build_stt_prompt(vacancy: Vacancy, question: Question | None) -> str:
+    """Раздел 5, гипотеза H4 архитектурного документа: словарь терминов как подсказка ASR.
+    Whisper принимает это через `prompt` (не `keywords` — тот только у realtime
+    gpt-transcribe, whisper-1 его не понимает).
+
+    Две части: статичный словарь навыков вакансии на всё интервью + `stt_terms` текущего
+    вопроса (заполнены backend'ом при approve). Термины вопроса идут первыми — если Whisper
+    обрежет подсказку по лимиту, важное для текущего ответа переживёт обрезку. Это не
+    подмешивание чужого вопроса в LLM, а подсказка ASR-словарю, поэтому принцип "контекст
+    только текущий вопрос" не нарушается."""
+    parts = [*(question.stt_terms if question else []),
+             *vacancy.required_skills, *vacancy.nice_to_have_skills]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for term in parts:
+        key = term.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            ordered.append(term.strip())
+    return ", ".join(ordered)[:_STT_PROMPT_MAX_CHARS]
 
 
 def _build_event_sinks(interview_id: str) -> list[EventSink]:
@@ -135,58 +195,153 @@ def _build_event_sinks(interview_id: str) -> list[EventSink]:
     return [RedisEventSink(redis, interview_id)]
 
 
-async def entrypoint(ctx: JobContext) -> None:
-    interview = InterviewInput.model_validate_json(MOCK_PATH.read_text(encoding="utf-8"))
+def _room_name_is_interview_uuid(room_name: str | None) -> bool:
+    """Раздел 3 задачи "live-interview quality pass": реальные интервью диспетчатся
+    LiveKit в комнату, чьё имя — UUID интервью из Postgres (contracts/livekit-token.md).
+    Локальные/ручные прогоны (console, scripts/simulate.py, mock_driver.py) либо не имеют
+    комнаты вообще, либо используют произвольное имя вроде "demo-001" — это отличает
+    "нужно тянуть реальные вопросы с backend" от "оставить мок как есть"."""
+    if not room_name:
+        return False
+    try:
+        uuid.UUID(room_name)
+    except ValueError:
+        return False
+    return True
 
+
+async def _load_interview_input(room_name: str | None) -> InterviewInput:
+    """Грузит `InterviewInput` — с backend по реальному UUID интервью, либо (для
+    локальных/ручных прогонов) из MOCK_PATH, как и раньше.
+
+    Раздел 3 задачи "live-interview quality pass": сознательно БЕЗ тихого фолбэка на мок
+    при сбое реального запроса — прогнать реальное интервью кандидата по вопросам чужой
+    вакансии хуже, чем вообще не начать job (см. план, раздел 3), поэтому ошибка здесь
+    логируется и пробрасывается дальше.
+    """
+    if _room_name_is_interview_uuid(room_name):
+        assert room_name is not None
+        url = f"{os.environ.get('BACKEND_BASE_URL', 'http://backend:8000')}/api/v1/interviews/{room_name}/live-input"
+        headers = {"X-Live-Agent-Token": os.environ["LIVE_AGENT_TOKEN"]}
+        logger.info("_load_interview_input: fetching real interview input from %s", url)
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+        except httpx.HTTPError:
+            logger.exception("_load_interview_input: failed to fetch interview input from %s", url)
+            raise
+        interview = InterviewInput.model_validate_json(response.text)
+        logger.info("_load_interview_input: loaded real interview %s from backend", interview.interview_id)
+        return interview
+
+    interview = InterviewInput.model_validate_json(MOCK_PATH.read_text(encoding="utf-8"))
     # КРИТИЧНО для specs/004-candidate-interview-flow: backend подписывается на Redis-канал
     # `live-agent:events:{Interview.id из Postgres}` — тот же id, что выпущен в
-    # LiveKit-токене как `room_name` (contracts/livekit-token.md). Вопросы по-прежнему
-    # захардкожены в MOCK_PATH (хардкод вакансии/вопросов — принятое упрощение, см. чат
-    # 2026-09-04), но САМ id интервью должен браться из комнаты, в которую продиспатчило
-    # LiveKit, а не из мок-файла — иначе backend слушает канал с реальным UUID, а
-    # live-agent публикует в канал "demo-001" (id из мок-файла), и они никогда не
-    # встречаются: control-канал молча не получает ни одного события.
-    room_name = ctx.job.room.name
+    # LiveKit-токене как `room_name` (contracts/livekit-token.md). Даже когда вопросы
+    # берутся из мока (нет реального UUID-имени комнаты), id интервью должен браться из
+    # комнаты, в которую продиспатчило LiveKit, а не из мок-файла — иначе backend слушает
+    # канал с реальным UUID, а live-agent публикует в канал "demo-001" (id из мок-файла),
+    # и они никогда не встречаются: control-канал молча не получает ни одного события.
     if room_name:
         interview.interview_id = room_name
+    return interview
+
+
+async def entrypoint(ctx: JobContext) -> None:
+    room_name = ctx.job.room.name
+    interview = await _load_interview_input(room_name)
 
     events = EventLog(
         AGENT_ROOT / "out" / f"{interview.interview_id}.jsonl",
         sinks=_build_event_sinks(interview.interview_id),
     )
-    llm = ClaudeAgentSDKLiveControlLLM()
+    llm: LiveControlLLM
+    llm_provider = os.environ.get("LLM_PROVIDER", "claude_sdk")
+    if llm_provider == "mistral":
+        # Прямой REST к Mistral вместо Claude Agent SDK CLI — обходит харнесс-накладные
+        # расходы, см. llm_client.py. Опционально, включается явно (LLM_PROVIDER=mistral).
+        llm = MistralLiveControlLLM()
+    elif llm_provider == "anthropic_api":
+        # Прямой Anthropic Messages API (сам api.anthropic.com или совместимый прокси,
+        # см. ANTHROPIC_BASE_URL) вместо Claude Agent SDK CLI — та же цель, что у
+        # MistralLiveControlLLM, но остаётся на модели Claude. Дефолт деплоя с 2026-09-06 —
+        # см. LLM_PROVIDER=openrouter ниже, почему ушли от бесплатного тира.
+        llm = AnthropicAPILiveControlLLM()
+    elif llm_provider == "openrouter":
+        # Бесплатная модель через OpenRouter — БЫЛА дефолтом для рутинного тестирования,
+        # откачено 2026-09-06: бесплатный тир отдал 429 посреди живого интервью (квота
+        # исчерпалась в процессе разговора, не сразу), агент замолчал на все следующие
+        # ходы — кандидат решил, что сервис завис, и вышел (см. llm_client.py, retry/
+        # backoff смягчает короткие всплески, но не исчерпание квоты целиком). Оставлен
+        # как явная опция для тестирования без расхода платных токенов, не как дефолт.
+        llm = OpenRouterLiveControlLLM()
+    else:
+        llm = ClaudeAgentSDKLiveControlLLM()
     engine = LiveContourEngine(interview, llm, events)
+
+    stt = lk_openai.STT(
+        base_url=os.environ["STT_BASE_URL"],  # напр. http://localhost:8001/v1 (см. docker-compose.yml)
+        api_key=os.environ.get("STT_API_KEY", "not-needed"),
+        model=os.environ.get("STT_MODEL", "whisper-1"),
+        # Реальный найденный баг: у плагина language по умолчанию "en" — без явного
+        # переопределения faster-whisper-server честно транскрибировал русскую речь
+        # как английскую (не ошибка сервера, а то, что мы сами ему сказали).
+        language=os.environ.get("STT_LANGUAGE", "ru"),
+        # H4: словарь терминов как подсказка ASR. Начальное значение — под первый вопрос;
+        # дальше InterviewerAgent.llm_node подменяет `prompt` при каждом переходе на
+        # следующий вопрос (stt.update_options).
+        prompt=_build_stt_prompt(interview.vacancy, interview.questions[0] if interview.questions else None),
+    )
 
     session = AgentSession(
         vad=silero.VAD.load(),
-        stt=lk_openai.STT(
-            base_url=os.environ["STT_BASE_URL"],  # напр. http://localhost:8001/v1 (см. docker-compose.yml)
-            api_key=os.environ.get("STT_API_KEY", "not-needed"),
-            model=os.environ.get("STT_MODEL", "whisper-1"),
-            # Реальный найденный баг: у плагина language по умолчанию "en" — без явного
-            # переопределения faster-whisper-server честно транскрибировал русскую речь
-            # как английскую (не ошибка сервера, а то, что мы сами ему сказали).
-            language=os.environ.get("STT_LANGUAGE", "ru"),
-            # H4: словарь терминов вакансии — реальная жалоба на качество распознавания
-            # техтерминов, не гипотетическая.
-            prompt=_build_stt_vocabulary_prompt(interview),
-        ),
-        tts=lk_openai.TTS(
-            base_url=os.environ["TTS_BASE_URL"],  # напр. http://localhost:8002/v1
-            api_key=os.environ.get("TTS_API_KEY", "not-needed"),
-            voice=os.environ.get("TTS_VOICE", "irina"),
-            # Плагин по умолчанию шлёт model="gpt-4o-mini-tts" — реальный найденный баг,
-            # с ним падают все self-hosted TTS-сервисы (не облачные имена моделей). Для
-            # speaches.ai `model` — это полный HF repo id голоса
-            # (speaches-ai/piper-ru_RU-<имя>-medium), не просто псевдоним вроде "tts-1".
-            model=os.environ.get("TTS_MODEL", "speaches-ai/piper-ru_RU-irina-medium"),
+        stt=stt,
+        # fishaudio, не lk_openai.TTS — см. docker-compose.yml, сервис tts: Piper не мог
+        # прилично произносить английские термины вперемешку с русским (транслитерация
+        # через espeak-ng), Fish Speech — настоящая мультиязычная акустическая модель,
+        # код-свитчинг звучит естественно. Свой self-hosted сервер (не облако Fish Audio),
+        # но протокол/эндпоинты (POST {base_url}/v1/tts) у OSS-сервера те же, что и у
+        # облака — тот же клиентский плагин работает на оба.
+        #
+        # StreamAdapter — обязателен: плагин всегда объявляет capabilities.streaming=True
+        # (жёстко, не отключается параметром) и поэтому framework вызывает tts.stream(),
+        # который у fishaudio означает WS-эндпоинт /v1/tts/live — тот существует только в
+        # облаке Fish Audio, self-hosted v1.5.1-сервер отдаёт на него голый 404 (реальный
+        # найденный баг, 2026-09-06: "AgentSession is closing due to unrecoverable error").
+        # StreamAdapter извне навязывает синхронный путь — бьёт по HTTP /v1/tts (тот самый,
+        # что действительно есть у сервера) отдельно на каждое предложение.
+        tts=lk_tts.StreamAdapter(
+            tts=fishaudio.TTS(
+                base_url=os.environ["TTS_BASE_URL"],  # напр. http://tts:8080 (без /v1 — плагин сам добавляет)
+                # Self-hosted сервер не проверяет ключ — плагин всё равно требует непустую
+                # строку (иначе ValueError), реальный ключ Fish Audio тут не нужен.
+                api_key=os.environ.get("TTS_API_KEY", "not-needed"),
+                # "pushkin" — не UUID из облака Fish Audio (которого на self-hosted сервере
+                # нет), а id референсной папки references/pushkin/ (см. Dockerfile,
+                # ReferenceLoader.load_by_id) — клонирует голос из короткого сэмпла
+                # Russian LibriSpeech (public domain, LibriVox), а не дефолтный спикер
+                # чекпоинта.
+                voice_id=os.environ.get("TTS_VOICE_ID", "pushkin"),
+            ),
         ),
         # Пауза детектится по VAD (Silero), не через LLM — раздел 3 архитектурного
         # документа: "живая пауза" не должна ждать ещё один сетевой запрос сверху.
-        turn_detection="vad",
+        # turn_handling (не плоский turn_detection=) — раздел 1 задачи "live-interview
+        # quality pass" (2026-09-05): подтверждено интроспекцией пакета
+        # (livekit/agents/voice/turn.py), что плоские kwargs типа min_interruption_duration
+        # — deprecated-алиасы, транслируемые в TurnHandlingOptions (agent_session.py,
+        # _migrate_turn_handling). min_duration 0.5s -> 1.0s: полсекунды любого
+        # VAD-звука (шум помещения, эхо собственной речи агента, кашель) засчитывалось
+        # как прерывание. resume_false_interruption/false_interruption_timeout оставлены
+        # на дефолтах (True/2.0) — уже компенсируют ложные срабатывания.
+        turn_handling=TurnHandlingOptions(
+            turn_detection="vad",
+            interruption=InterruptionOptions(min_duration=1.0),
+        ),
     )
 
-    agent = InterviewerAgent(engine)
+    agent = InterviewerAgent(engine, stt)
 
     # Логи на каждом шаге — временно, для диагностики зависания без единой ошибки при
     # первом живом прогоне (2026-09-04): процесс тихо замирал где-то между регистрацией
@@ -221,6 +376,7 @@ async def entrypoint(ctx: JobContext) -> None:
     logger.info("entrypoint: session.start() done, engine.start()...")
 
     first_utterance = f"{INTRO_PHRASE} {await engine.start()}"
+    agent._last_agent_utterance = first_utterance
     logger.info("entrypoint: engine.start() done, session.say()...")
     # add_to_chat_ctx=False: это вступление не должно попасть в chat_ctx как "assistant"-реплика,
     # потому что мы им всё равно не пользуемся в llm_node (см. класс выше) — она там просто лишняя.

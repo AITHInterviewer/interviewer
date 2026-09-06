@@ -7,9 +7,10 @@
 
 ✅ `docker compose config` проходит без ошибок из корня репозитория (реально
 проверено — нашла и починила там же реальную YAML-опечатку в `LIVEKIT_KEYS`).
-⚠️ `livekit-egress-config.yaml` создан по документации LiveKit, ни разу не проверялся
-вживую (нет реальной WebRTC-комнаты с записью в этом проекте на момент написания).
-Бакет `ainterviewer-recordings` в MinIO конфиг не создаёт сам — см. TODO в файле.
+✅ `livekit-egress-config.yaml` теперь реально триггерится: `backend/app/services/livekit_egress.py`
+запускает Room Composite Egress при первом LiveKit-токене кандидата и останавливает его на
+`interview_completed` (см. `interview_event_service.py`). Бакет `ainterviewer-recordings`
+создаётся сам при первом запуске записи (`_ensure_recordings_bucket_sync`), руками не нужно.
 
 ## Что внутри
 
@@ -23,6 +24,7 @@
 | `minio` | S3-совместимое хранилище видео/аудио (раздел 4 архитектурного документа) | 3903 (API), 3904 (консоль) |
 | `livekit-server` | WebRTC SFU — комнаты кандидат↔live-agent | 3907-3908, 50000-50100/udp |
 | `livekit-egress` | Запись комнаты в S3 (см. «Как реально пишется запись» в архитектурном документе) | — |
+| `nginx` | Единая точка входа наружу: `/` → frontend, `/api/` → backend, `/rtc/` → livekit-server (см. `nginx/nginx.conf`) | 12345 (см. корневой README.md) |
 
 ## Запуск
 

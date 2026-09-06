@@ -1,17 +1,31 @@
-"""Бизнес-правила вакансии: переходы статуса (`draft → pending_review → ready`),
-инвариант approve-времени (`role=assessment` ⇒ непустые `intent`/`reference_answer`/
-`skill_tag`) и блокировка правок после `ready` (contracts/api.md).
+"""Бизнес-правила вакансии: draft → extracted → calibration → approved → active
+(specs/009-pilot-product-model). Правки блокируются после approved.
 """
 
 from __future__ import annotations
 
+import logging
+from typing import Any
 from uuid import UUID
 
+from sqlalchemy import func, select
+
 from app.models.question import Question
+from app.models.rubric_version import RubricVersion
 from app.models.vacancy import Vacancy
 from app.repositories.question_repository import QuestionRepository
 from app.repositories.vacancy_repository import VacancyRepository
 from app.services.vacancy_llm_service import VacancyLLMService
+
+logger = logging.getLogger(__name__)
+
+
+class _Unset:
+    """Сентинел для `update_vacancy`: отличает «поле не передали» от `None`
+    («явно снять назначение») на nullable-полях expert_id/hiring_manager_id."""
+
+
+_UNSET: Any = _Unset()
 
 
 class VacancyNotFoundError(Exception):
@@ -23,7 +37,15 @@ class QuestionNotFoundError(Exception):
 
 
 class VacancyLockedError(Exception):
-    """Вакансия уже `ready` — правки вакансии/вопросов/регенерация заблокированы (409)."""
+    """Вакансия уже одобрена или активна — правки заблокированы (409)."""
+
+
+class VacancyTransitionError(Exception):
+    """Недопустимый переход статуса."""
+
+
+class VacancyMissingQuestionsError(Exception):
+    """Нельзя отправить эксперту (и дальше по статусам) вакансию без единого вопроса."""
 
 
 class InvalidQuestionError(Exception):
@@ -65,9 +87,13 @@ class VacancyService:
         grade: str,
         required_skills: list[str],
         nice_to_have_skills: list[str],
+        expert_id: UUID | None = None,
+        hiring_manager_id: UUID | None = None,
     ) -> Vacancy:
         vacancy = Vacancy(
             recruiter_id=recruiter_id,
+            expert_id=expert_id,
+            hiring_manager_id=hiring_manager_id,
             title=title,
             description=description,
             grade=grade,
@@ -99,6 +125,8 @@ class VacancyService:
         grade: str | None = None,
         required_skills: list[str] | None = None,
         nice_to_have_skills: list[str] | None = None,
+        expert_id: UUID | None = _UNSET,
+        hiring_manager_id: UUID | None = _UNSET,
     ) -> Vacancy:
         vacancy = await self.get_vacancy(vacancy_id)
         self._ensure_unlocked(vacancy)
@@ -113,6 +141,13 @@ class VacancyService:
             vacancy.required_skills = list(required_skills)
         if nice_to_have_skills is not None:
             vacancy.nice_to_have_skills = list(nice_to_have_skills)
+        # `None` здесь — явное «снять назначение», а не «поле не менялось» (см.
+        # VacancyUpdate/роутер: kwarg просто не передаётся, если поля не было в запросе),
+        # поэтому проверяем на сентинел `_UNSET`, а не на `is not None`.
+        if expert_id is not _UNSET:
+            vacancy.expert_id = expert_id
+        if hiring_manager_id is not _UNSET:
+            vacancy.hiring_manager_id = hiring_manager_id
 
         await self.vacancy_repository.commit()
         return vacancy
@@ -145,9 +180,31 @@ class VacancyService:
             await self.question_repository.create(question)
             created.append(question)
 
-        vacancy.status = "pending_review"
+        vacancy.status = "extracted"
         await self.vacancy_repository.commit()
         return created
+
+    async def regenerate_question(self, vacancy_id: UUID, question_id: UUID) -> Question:
+        """Перегенерирует один вопрос через LLM на замену — роль (assessment/warmup/closing),
+        id, порядок и vacancy_id не меняются, остальные поля перезаписываются ответом LLM."""
+        vacancy = await self.get_vacancy(vacancy_id)
+        self._ensure_unlocked(vacancy)
+
+        question = await self.question_repository.get_by_id(question_id)
+        if question is None or question.vacancy_id != vacancy_id:
+            raise QuestionNotFoundError
+
+        generated = await self.llm_service.generate_single_question(vacancy, question)
+        question.text = generated.text
+        question.skill_tag = list(generated.skill_tag)
+        question.intent = generated.intent
+        question.reference_answer = generated.reference_answer
+        question.format = generated.format
+        question.difficulty = generated.difficulty
+        question.estimated_duration_sec = generated.estimated_duration_sec
+
+        await self.question_repository.commit()
+        return question
 
     async def add_question(
         self,
@@ -238,9 +295,11 @@ class VacancyService:
         await self.question_repository.delete(question)
         await self.question_repository.commit()
 
-    async def approve_vacancy(self, vacancy_id: UUID) -> Vacancy:
+    async def approve_vacancy(self, vacancy_id: UUID, *, approved_by_id: UUID | None = None) -> Vacancy:
         vacancy = await self.get_vacancy(vacancy_id)
         self._ensure_unlocked(vacancy)
+        if vacancy.status not in {"calibration", "pending_review"}:
+            raise VacancyTransitionError
 
         questions = await self.question_repository.list_for_vacancy(vacancy_id)
         offending = [
@@ -253,11 +312,121 @@ class VacancyService:
         if not questions or offending:
             raise VacancyNotReadyError(offending)
 
-        vacancy.status = "ready"
+        # Подтверждение вопросов — момент, когда набор зафиксирован: генерим термины-подсказки
+        # ASR для каждого вопроса (см. vacancy_stt_terms.txt), их отдаст live-agent'у
+        # /live-input. Best-effort: сбой LLM не должен блокировать подтверждение — интервью
+        # и без терминов работает на словаре навыков вакансии.
+        try:
+            terms_by_id = await self.llm_service.generate_stt_terms(vacancy, list(questions))
+        except Exception:  # noqa: BLE001
+            logger.warning("stt terms generation failed; approving vacancy %s without them",
+                           vacancy_id, exc_info=True)
+        else:
+            for question in questions:
+                terms = terms_by_id.get(str(question.id))
+                if terms:
+                    question.stt_terms = terms
+
+        questions_payload = [
+            {"id": str(q.id), "text": q.text, "skill_tag": list(q.skill_tag), "role": q.role}
+            for q in questions
+        ]
+        version_number = await self._next_rubric_version(vacancy_id)
+        self.vacancy_repository.session.add(
+            RubricVersion(
+                vacancy_id=vacancy_id,
+                version_number=version_number,
+                approved_by_id=approved_by_id,
+                snapshot={
+                    "title": vacancy.title,
+                    "required_skills": list(vacancy.required_skills),
+                    "nice_to_have_skills": list(vacancy.nice_to_have_skills),
+                    "questions": questions_payload,
+                },
+            )
+        )
+        # Раньше здесь был отдельный статус "approved" с ручным шагом "Активировать
+        # вакансию" — по запросу пользователя вакансия активируется сразу по факту
+        # подтверждения экспертом, без промежуточной кнопки (см. activate() ниже —
+        # оставлен нетронутым как отдельный API, просто больше не часть обычного флоу).
+        vacancy.status = "active"
         await self.vacancy_repository.commit()
         return vacancy
 
+    async def send_to_expert(self, vacancy_id: UUID) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status not in {"draft", "extracted", "changes_requested"}:
+            raise VacancyTransitionError
+        questions = await self.question_repository.list_for_vacancy(vacancy_id)
+        if not questions:
+            raise VacancyMissingQuestionsError
+        vacancy.status = "calibration"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def request_changes(self, vacancy_id: UUID, reason: str) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status not in {"calibration", "pending_review"}:
+            raise VacancyTransitionError
+        if not reason.strip():
+            raise VacancyTransitionError
+        vacancy.status = "changes_requested"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def activate(self, vacancy_id: UUID) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status != "approved":
+            raise VacancyTransitionError
+        vacancy.status = "active"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def pause(self, vacancy_id: UUID) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status != "active":
+            raise VacancyTransitionError
+        vacancy.status = "paused"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def resume(self, vacancy_id: UUID) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status != "paused":
+            raise VacancyTransitionError
+        vacancy.status = "active"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def archive(self, vacancy_id: UUID) -> Vacancy:
+        vacancy = await self.get_vacancy(vacancy_id)
+        if vacancy.status not in {"paused", "active", "approved"}:
+            raise VacancyTransitionError
+        vacancy.status = "archived"
+        await self.vacancy_repository.commit()
+        return vacancy
+
+    async def list_rubric_versions(self, vacancy_id: UUID) -> list[RubricVersion]:
+        await self.get_vacancy(vacancy_id)
+        result = await self.vacancy_repository.session.execute(
+            select(RubricVersion)
+            .where(RubricVersion.vacancy_id == vacancy_id)
+            .order_by(RubricVersion.version_number.desc())
+        )
+        return list(result.scalars().all())
+
+    async def _next_rubric_version(self, vacancy_id: UUID) -> int:
+        result = await self.vacancy_repository.session.execute(
+            select(func.max(RubricVersion.version_number)).where(RubricVersion.vacancy_id == vacancy_id)
+        )
+        current = result.scalar_one_or_none() or 0
+        return int(current) + 1
+
+    @staticmethod
+    def owner_next(status: str) -> str:
+        return "expert" if status == "calibration" else "recruiter"
+
     @staticmethod
     def _ensure_unlocked(vacancy: Vacancy) -> None:
-        if vacancy.status == "ready":
+        if vacancy.status in {"approved", "active", "paused", "archived"}:
             raise VacancyLockedError

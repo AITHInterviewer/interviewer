@@ -19,9 +19,15 @@ from app.dependencies.auth import require_any_capability, require_capability
 from app.models.user import InternalUser
 from app.repositories.question_repository import QuestionRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.roles.catalog import ACTION_QUESTIONS_EDIT, AREA_EXPERT_QUESTIONS, AREA_RECRUITER_WORKSPACE
+from app.roles.catalog import (
+    ACTION_QUESTIONS_EDIT,
+    AREA_EXPERT_QUESTIONS,
+    AREA_HIRING_MANAGER_REVIEW,
+    AREA_RECRUITER_WORKSPACE,
+)
 from app.schemas.interview import CreateInterviewResponse, InterviewListResponse, InterviewResponse
 from app.schemas.vacancy import (
+    ChangeRequestBody,
     GenerateQuestionsResponse,
     QuestionCreate,
     QuestionResponse,
@@ -36,9 +42,11 @@ from app.services.vacancy_service import (
     InvalidQuestionError,
     QuestionNotFoundError,
     VacancyLockedError,
+    VacancyMissingQuestionsError,
     VacancyNotFoundError,
     VacancyNotReadyError,
     VacancyService,
+    VacancyTransitionError,
 )
 
 router = APIRouter(prefix="/api/v1/vacancies", tags=["vacancies"])
@@ -46,6 +54,9 @@ router = APIRouter(prefix="/api/v1/vacancies", tags=["vacancies"])
 require_recruiter = require_capability(AREA_RECRUITER_WORKSPACE)
 require_expert = require_capability(ACTION_QUESTIONS_EDIT)
 require_reader = require_any_capability(AREA_RECRUITER_WORKSPACE, AREA_EXPERT_QUESTIONS)
+require_brief = require_any_capability(
+    AREA_RECRUITER_WORKSPACE, AREA_EXPERT_QUESTIONS, AREA_HIRING_MANAGER_REVIEW
+)
 
 
 def get_vacancy_service(session: Annotated[AsyncSession, Depends(get_db_session)]) -> VacancyService:
@@ -76,6 +87,8 @@ async def create_vacancy(
         grade=payload.grade,
         required_skills=payload.required_skills,
         nice_to_have_skills=payload.nice_to_have_skills,
+        expert_id=payload.expert_id,
+        hiring_manager_id=payload.hiring_manager_id,
     )
     return await _vacancy_response(service, vacancy)
 
@@ -93,7 +106,7 @@ async def list_vacancies(
 @router.get("/{vacancy_id}", response_model=VacancyResponse)
 async def get_vacancy(
     vacancy_id: UUID,
-    _: Annotated[InternalUser, Depends(require_reader)],
+    _: Annotated[InternalUser, Depends(require_brief)],
     service: Annotated[VacancyService, Depends(get_vacancy_service)],
 ) -> VacancyResponse:
     try:
@@ -157,6 +170,24 @@ async def add_question(
     return QuestionResponse.model_validate(question)
 
 
+@router.post("/{vacancy_id}/questions/{question_id}/regenerate", response_model=QuestionResponse)
+async def regenerate_question(
+    vacancy_id: UUID,
+    question_id: UUID,
+    _: Annotated[InternalUser, Depends(require_recruiter)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> QuestionResponse:
+    try:
+        question = await service.regenerate_question(vacancy_id, question_id)
+    except VacancyNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found.") from exc
+    except QuestionNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Question not found.") from exc
+    except VacancyLockedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vacancy is already ready.") from exc
+    return QuestionResponse.model_validate(question)
+
+
 @router.patch("/{vacancy_id}/questions/{question_id}", response_model=QuestionResponse)
 async def update_question(
     vacancy_id: UUID,
@@ -203,21 +234,178 @@ async def delete_question(
 @router.post("/{vacancy_id}/approve", response_model=VacancyResponse)
 async def approve_vacancy(
     vacancy_id: UUID,
-    _: Annotated[InternalUser, Depends(require_expert)],
+    actor: Annotated[InternalUser, Depends(require_expert)],
     service: Annotated[VacancyService, Depends(get_vacancy_service)],
 ) -> VacancyResponse:
     try:
-        vacancy = await service.approve_vacancy(vacancy_id)
+        vacancy = await service.approve_vacancy(vacancy_id, approved_by_id=actor.id)
     except VacancyNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found.") from exc
     except VacancyLockedError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vacancy is already ready.") from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vacancy is locked.") from exc
     except VacancyNotReadyError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Vacancy has invalid assessment questions: {[str(qid) for qid in exc.question_ids]}",
         ) from exc
+    except VacancyTransitionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Invalid vacancy transition."
+        ) from exc
     return await _vacancy_response(service, vacancy)
+
+
+_TRANSITION_ERRORS = (
+    VacancyNotFoundError,
+    VacancyTransitionError,
+    VacancyLockedError,
+    VacancyMissingQuestionsError,
+)
+
+
+def _transition_http(exc: Exception) -> HTTPException:
+    if isinstance(exc, VacancyNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found.")
+    if isinstance(exc, VacancyTransitionError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Invalid vacancy transition.")
+    if isinstance(exc, VacancyLockedError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Vacancy is locked.")
+    if isinstance(exc, VacancyMissingQuestionsError):
+        return HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Vacancy has no questions yet.",
+        )
+    raise exc
+
+
+@router.post("/{vacancy_id}/send-to-expert", response_model=VacancyResponse)
+async def send_to_expert(
+    vacancy_id: UUID,
+    _: Annotated[InternalUser, Depends(require_recruiter)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> VacancyResponse:
+    try:
+        vacancy = await service.send_to_expert(vacancy_id)
+    except _TRANSITION_ERRORS as exc:
+        raise _transition_http(exc) from exc
+    return await _vacancy_response(service, vacancy)
+
+
+@router.post("/{vacancy_id}/request-changes", response_model=VacancyResponse)
+async def request_changes(
+    vacancy_id: UUID,
+    payload: ChangeRequestBody,
+    _: Annotated[InternalUser, Depends(require_expert)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> VacancyResponse:
+    try:
+        vacancy = await service.request_changes(vacancy_id, payload.reason)
+    except _TRANSITION_ERRORS as exc:
+        raise _transition_http(exc) from exc
+    return await _vacancy_response(service, vacancy)
+
+
+@router.post("/{vacancy_id}/activate", response_model=VacancyResponse)
+async def activate_vacancy(
+    vacancy_id: UUID,
+    _: Annotated[InternalUser, Depends(require_recruiter)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> VacancyResponse:
+    try:
+        vacancy = await service.activate(vacancy_id)
+    except _TRANSITION_ERRORS as exc:
+        raise _transition_http(exc) from exc
+    return await _vacancy_response(service, vacancy)
+
+
+@router.post("/{vacancy_id}/pause", response_model=VacancyResponse)
+async def pause_vacancy(
+    vacancy_id: UUID,
+    _: Annotated[InternalUser, Depends(require_recruiter)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> VacancyResponse:
+    try:
+        vacancy = await service.pause(vacancy_id)
+    except _TRANSITION_ERRORS as exc:
+        raise _transition_http(exc) from exc
+    return await _vacancy_response(service, vacancy)
+
+
+@router.post("/{vacancy_id}/resume", response_model=VacancyResponse)
+async def resume_vacancy(
+    vacancy_id: UUID,
+    _: Annotated[InternalUser, Depends(require_recruiter)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> VacancyResponse:
+    try:
+        vacancy = await service.resume(vacancy_id)
+    except _TRANSITION_ERRORS as exc:
+        raise _transition_http(exc) from exc
+    return await _vacancy_response(service, vacancy)
+
+
+@router.post("/{vacancy_id}/archive", response_model=VacancyResponse)
+async def archive_vacancy(
+    vacancy_id: UUID,
+    _: Annotated[InternalUser, Depends(require_recruiter)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> VacancyResponse:
+    try:
+        vacancy = await service.archive(vacancy_id)
+    except _TRANSITION_ERRORS as exc:
+        raise _transition_http(exc) from exc
+    return await _vacancy_response(service, vacancy)
+
+
+@router.get("/{vacancy_id}/rubric-versions")
+async def list_rubric_versions(
+    vacancy_id: UUID,
+    _: Annotated[InternalUser, Depends(require_brief)],
+    service: Annotated[VacancyService, Depends(get_vacancy_service)],
+) -> dict:
+    try:
+        versions = await service.list_rubric_versions(vacancy_id)
+    except VacancyNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found.") from exc
+    return {
+        "items": [
+            {
+                "id": str(item.id),
+                "vacancy_id": str(item.vacancy_id),
+                "version_number": item.version_number,
+                "approved_at": item.approved_at.isoformat() if item.approved_at else None,
+                "snapshot": item.snapshot,
+            }
+            for item in versions
+        ]
+    }
+
+
+@router.get("/{vacancy_id}/anonymized-stats")
+async def anonymized_stats(
+    vacancy_id: UUID,
+    _: Annotated[
+        InternalUser,
+        Depends(
+            require_any_capability(
+                AREA_RECRUITER_WORKSPACE, AREA_EXPERT_QUESTIONS, AREA_HIRING_MANAGER_REVIEW
+            )
+        ),
+    ],
+    vacancy_service: Annotated[VacancyService, Depends(get_vacancy_service)],
+    interview_service: Annotated[InterviewAdminService, Depends(get_interview_admin_service)],
+) -> dict:
+    try:
+        await vacancy_service.get_vacancy(vacancy_id)
+    except VacancyNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vacancy not found.") from exc
+    interviews = await interview_service.list_interviews(vacancy_id)
+    invited_states = {"invited", "opened", "consented", "device_checked", "ready", "expired", "declined"}
+    return {
+        "invited": sum(1 for item in interviews if item.product_state in invited_states),
+        "completed": sum(1 for item in interviews if item.status == "completed"),
+        "awaiting_decision": sum(1 for item in interviews if item.recruiter_decision == "awaiting"),
+    }
 
 
 @router.post(
@@ -255,7 +443,7 @@ async def create_interview(
 @router.get("/{vacancy_id}/interviews", response_model=InterviewListResponse)
 async def list_interviews(
     vacancy_id: UUID,
-    _: Annotated[InternalUser, Depends(require_recruiter)],
+    _: Annotated[InternalUser, Depends(require_reader)],
     vacancy_service: Annotated[VacancyService, Depends(get_vacancy_service)],
     interview_service: Annotated[InterviewAdminService, Depends(get_interview_admin_service)],
 ) -> InterviewListResponse:

@@ -4,12 +4,23 @@ import { useEffect, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
+import { AssigneeField } from "@/components/chrome/AssigneeField";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import type { VacancyDetail } from "@/lib/api";
-import { loadVacancy, updateManagedVacancy } from "@/lib/auth";
+import { Button } from "@/components/ui/button";
+import { Modal, ModalActions } from "@/components/ui/overlay";
+import type { InternalUser, VacancyDetail } from "@/lib/api";
+import {
+  archiveManagedVacancy,
+  getSession,
+  loadInternalUsers,
+  loadVacancy,
+  pauseManagedVacancy,
+  resumeManagedVacancy,
+  updateManagedVacancy,
+} from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav } from "@/lib/nav";
+import { buildNav, GRADE_OPTIONS, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
 
@@ -22,6 +33,7 @@ function splitSkills(value: string): string[] {
 
 export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   const { landing, loading } = useProtectedLanding({ requiredArea: RECRUITER_AREA });
+  const currentUser = getSession()?.user;
 
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [vacancyLoading, setVacancyLoading] = useState(true);
@@ -32,9 +44,14 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   const [grade, setGrade] = useState("");
   const [requiredSkills, setRequiredSkills] = useState("");
   const [niceToHaveSkills, setNiceToHaveSkills] = useState("");
+  const [expertId, setExpertId] = useState<string | null>(null);
+  const [hiringManagerId, setHiringManagerId] = useState<string | null>(null);
+  const [users, setUsers] = useState<InternalUser[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   useEffect(() => {
     if (!landing) {
@@ -54,15 +71,29 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
         setGrade(detail.grade);
         setRequiredSkills(detail.required_skills.join(", "));
         setNiceToHaveSkills(detail.nice_to_have_skills.join(", "));
+        setExpertId(detail.expert_id ?? null);
+        setHiringManagerId(detail.hiring_manager_id ?? null);
       })
       .catch((caughtError: unknown) => {
         if (!cancelled) {
-          setVacancyError(normalizeError(caughtError, "Could not load the vacancy."));
+          setVacancyError(normalizeError(caughtError, "Не удалось открыть вакансию."));
         }
       })
       .finally(() => {
         if (!cancelled) {
           setVacancyLoading(false);
+        }
+      });
+
+    void loadInternalUsers()
+      .then((response) => {
+        if (!cancelled) {
+          setUsers(response.items);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUsers([]);
         }
       });
 
@@ -74,9 +105,30 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   if (loading || !landing) {
     return (
       <main className="workspace">
-        <ScreenState kind="loading" title="Loading" text="Checking your session..." />
+        <ScreenState kind="loading" title="Проверяю доступ" text="Секунду, читаю вашу сессию." />
       </main>
     );
+  }
+
+  async function runLifecycle(
+    run: () => Promise<{ status: VacancyDetail["status"] }>,
+    fallback: string,
+    successText: string,
+  ): Promise<boolean> {
+    setLifecycleBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const updated = await run();
+      setVacancy((current) => (current ? { ...current, ...updated } : current));
+      setStatus(successText);
+      return true;
+    } catch (caughtError) {
+      setError(normalizeError(caughtError, fallback));
+      return false;
+    } finally {
+      setLifecycleBusy(false);
+    }
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -92,11 +144,13 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
         grade,
         requiredSkills: splitSkills(requiredSkills),
         niceToHaveSkills: splitSkills(niceToHaveSkills),
+        expertId,
+        hiringManagerId,
       });
       setVacancy((current) => (current ? { ...current, ...updated } : current));
-      setStatus("Vacancy updated.");
+      setStatus("Изменения сохранены.");
     } catch (caughtError) {
-      setError(normalizeError(caughtError, "Could not update the vacancy."));
+      setError(normalizeError(caughtError, "Не удалось сохранить изменения."));
     } finally {
       setSubmitting(false);
     }
@@ -105,29 +159,94 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
   const nav = buildNav(landing);
 
   return (
-    <AppShell nav={nav} title="Vacancy settings">
+    <AppShell nav={nav} title="Настройки вакансии">
       <div className="workspace workspace--form">
-        <PageHeader path={`Vacancies / ${vacancy?.title ?? vacancyId}`} title="Settings" />
+        <PageHeader
+          breadcrumbs={vacancyBreadcrumbs(vacancyId, vacancy?.title ?? vacancyId, "Настройки")}
+          title="Настройки"
+        />
 
-        {vacancyLoading ? <ScreenState kind="loading" title="Loading" text="Loading vacancy..." /> : null}
-        {vacancyError ? <ScreenState kind="error" title="Could not load vacancy" text={vacancyError} /> : null}
+        {vacancyLoading ? <ScreenState kind="loading" title="Загружаю" text="Открываю вакансию." /> : null}
+        {vacancyError ? <ScreenState kind="error" title="Вакансия не открылась" text={vacancyError} /> : null}
 
         {!vacancyLoading && vacancy ? (
-          <form className="form-surface" onSubmit={handleSubmit}>
+          <>
+          <section className="form-panel">
+            <div className="form-surface">
+            <h2>Статус вакансии</h2>
+            <p>Сейчас: {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}.</p>
+            {vacancy.status === "active" ||
+            vacancy.status === "paused" ||
+            vacancy.status === "approved" ? (
+              <div className="form-actions">
+                {vacancy.status === "active" ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    loading={lifecycleBusy}
+                    onClick={() =>
+                      void runLifecycle(
+                        () => pauseManagedVacancy(vacancyId),
+                        "Не удалось поставить на паузу.",
+                        "Вакансия на паузе.",
+                      )
+                    }
+                  >
+                    Приостановить
+                  </Button>
+                ) : null}
+                {vacancy.status === "paused" ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    loading={lifecycleBusy}
+                    onClick={() =>
+                      void runLifecycle(
+                        () => resumeManagedVacancy(vacancyId),
+                        "Не удалось возобновить вакансию.",
+                        "Вакансия снова активна.",
+                      )
+                    }
+                  >
+                    Возобновить
+                  </Button>
+                ) : null}
+                <Button type="button" variant="secondary" disabled={lifecycleBusy} onClick={() => setArchiveOpen(true)}>
+                  Архивировать
+                </Button>
+              </div>
+            ) : (
+              <p className="disabled-hint">
+                Пауза и архив доступны, когда вакансия одобрена, активна или уже на паузе.
+              </p>
+            )}
+            </div>
+          </section>
+
+          <form className="form-panel form-surface" onSubmit={handleSubmit}>
             <label>
-              Title
+              Название
               <input value={title} onChange={(event) => setTitle(event.target.value)} required />
             </label>
             <label>
-              Description
+              Описание
               <textarea value={description} onChange={(event) => setDescription(event.target.value)} required />
             </label>
             <label>
-              Grade
-              <input value={grade} onChange={(event) => setGrade(event.target.value)} required />
+              Грейд
+              <select value={grade} onChange={(event) => setGrade(event.target.value)}>
+                {(GRADE_OPTIONS.some((option) => option.value === grade)
+                  ? GRADE_OPTIONS
+                  : [...GRADE_OPTIONS, { value: grade, label: grade }]
+                ).map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
-              Required skills
+              Обязательные навыки
               <input
                 value={requiredSkills}
                 onChange={(event) => setRequiredSkills(event.target.value)}
@@ -135,21 +254,67 @@ export function VacancySettingsClient({ vacancyId }: { vacancyId: string }) {
               />
             </label>
             <label>
-              Nice-to-have skills
+              Желательные навыки
               <input
                 value={niceToHaveSkills}
                 onChange={(event) => setNiceToHaveSkills(event.target.value)}
                 placeholder="docker, kubernetes"
               />
             </label>
+            <AssigneeField
+              label="Эксперт"
+              roleCode="expert"
+              users={users}
+              value={expertId}
+              onChange={setExpertId}
+              currentUserId={currentUser?.id}
+            />
+            <AssigneeField
+              label="Менеджер"
+              roleCode="hiring_manager"
+              users={users}
+              value={hiringManagerId}
+              onChange={setHiringManagerId}
+              currentUserId={currentUser?.id}
+            />
             {error ? <p className="form-error">{error}</p> : null}
             {status ? <p className="success-message">{status}</p> : null}
             <div className="form-actions">
               <button className="button button--primary" type="submit" disabled={submitting}>
-                {submitting ? "Saving..." : "Save changes"}
+                Сохранить
               </button>
             </div>
           </form>
+
+          <Modal open={archiveOpen} title="Архивировать вакансию?" onClose={() => setArchiveOpen(false)}>
+            <p>
+              «{vacancy.title}» уйдёт из активных. Новых приглашений не будет. Уже выданные ссылки мы
+              не отменяем — кандидаты смогут продолжить, если интервью ещё не завершено.
+            </p>
+            {error ? <p className="form-error">{error}</p> : null}
+            <ModalActions>
+              <Button type="button" variant="secondary" data-modal-initial-focus onClick={() => setArchiveOpen(false)}>
+                Отмена
+              </Button>
+              <Button
+                type="button"
+                loading={lifecycleBusy}
+                loadingLabel="Архивируем…"
+                onClick={() =>
+                  void runLifecycle(
+                    () => archiveManagedVacancy(vacancyId),
+                    "Не удалось архивировать вакансию.",
+                    "Вакансия в архиве.",
+                  ).then((ok) => {
+                    if (ok) setArchiveOpen(false);
+                  })
+                }
+              >
+                Архивировать
+              </Button>
+            </ModalActions>
+          </Modal>
+          </>
         ) : null}
       </div>
     </AppShell>

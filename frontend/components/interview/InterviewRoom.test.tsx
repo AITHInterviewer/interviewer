@@ -41,6 +41,8 @@ vi.mock("@/lib/livekit-client", () => ({
       disconnect: vi.fn(),
       onAgentPresenceChange: vi.fn().mockReturnValue(() => {}),
       switchDevice: vi.fn().mockResolvedValue(undefined),
+      getLocalVideoTrack: vi.fn().mockReturnValue(null),
+      getLocalAudioTrack: vi.fn().mockReturnValue(null),
     };
     liveKitInstances.push(instance);
     return instance;
@@ -54,9 +56,10 @@ vi.mock("@/lib/api", () => ({
     ws_url: "ws://localhost:3907",
     expires_at: "2026-09-04T12:00:00Z",
   }),
+  resolveLiveKitWsUrl: (wsUrl: string) => `ws://${window.location.host}${new URL(wsUrl).pathname}`,
 }));
 
-const fakeStream = { getTracks: () => [], getAudioTracks: () => [] } as unknown as MediaStream;
+const fakeStream = { getTracks: () => [], getAudioTracks: () => [], getVideoTracks: () => [] } as unknown as MediaStream;
 
 describe("InterviewRoom", () => {
   beforeEach(() => {
@@ -74,7 +77,7 @@ describe("InterviewRoom", () => {
     await waitFor(() => expect(channelInstances).toHaveLength(1));
     expect(channelInstances[0].connect).toHaveBeenCalled();
     await waitFor(() =>
-      expect(liveKitInstances[0].connect).toHaveBeenCalledWith("ws://localhost:3907", "jwt", fakeStream, undefined),
+      expect(liveKitInstances[0].connect).toHaveBeenCalledWith(`ws://${window.location.host}/`, "jwt", fakeStream, undefined),
     );
   });
 
@@ -88,6 +91,37 @@ describe("InterviewRoom", () => {
     });
 
     expect(await screen.findByText("Расскажите про индексы")).toBeInTheDocument();
+  });
+
+  it("наводящий вопрос от LLM не стирает основной вопрос — показывает оба", async () => {
+    render(<InterviewRoom sessionId="tok" stream={fakeStream} />);
+    await waitFor(() => expect(channelInstances).toHaveLength(1));
+
+    channelInstances[0].listener?.({
+      status: "question_active",
+      event: { type: "question", question_id: "q1", text: "Расскажите про индексы", input_format: "none", ts: "" },
+    });
+    expect(await screen.findByText("Расскажите про индексы")).toBeInTheDocument();
+
+    channelInstances[0].listener?.({
+      status: "question_active",
+      event: {
+        type: "adaptive_question",
+        question_id: "q1",
+        text: "А что насчёт B-tree?",
+        input_format: "none",
+        ts: "",
+      },
+    });
+
+    expect(await screen.findByText("А что насчёт B-tree?")).toBeInTheDocument();
+    expect(screen.getByText("Расскажите про индексы")).toBeInTheDocument();
+  });
+
+  it("сразу показывает вопрос с бэка (initialQuestionText), до первого ControlEvent", async () => {
+    render(<InterviewRoom sessionId="tok" stream={fakeStream} initialQuestionText="Сохранённый вопрос" />);
+
+    expect(await screen.findByText("Сохранённый вопрос")).toBeInTheDocument();
   });
 
   it("показывает финальный экран на completed", async () => {

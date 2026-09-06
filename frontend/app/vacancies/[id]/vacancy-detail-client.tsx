@@ -1,75 +1,153 @@
 "use client";
 
+import { Check, Copy, Paperclip, X } from "@phosphor-icons/react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { InterviewEventsPanel } from "@/components/auth/interview-events-panel";
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
-import { PageHeader } from "@/components/chrome/PageHeader";
+import { AssigneeField } from "@/components/chrome/AssigneeField";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import type { Interview, VacancyDetail } from "@/lib/api";
-import { createManagedInterview, generateVacancyQuestions, loadInterviews, loadVacancy } from "@/lib/auth";
+import { SearchField, SelectField, Toolbar } from "@/components/chrome/Toolbar";
+import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/shadcn/popover";
+import { Modal, ModalActions } from "@/components/ui/overlay";
+import { Button } from "@/components/ui/button";
+import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { Tag } from "@/components/ui/tag";
+import { AvatarGroup, type AvatarPerson } from "@/components/ui/avatar";
+import { CandidateCard } from "@/components/ui/candidate-card";
+import { QuestionsPanel } from "@/components/vacancies/QuestionsPanel";
+import type { AnonymizedStats, InternalUser, Interview, VacancyDetail } from "@/lib/api";
+import {
+  createManagedInterview,
+  generateVacancyQuestions,
+  getSession,
+  loadAnonymizedStats,
+  loadInterviews,
+  loadInternalUsers,
+  loadVacancy,
+  pauseManagedVacancy,
+  resumeManagedVacancy,
+  updateManagedVacancy,
+} from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav } from "@/lib/nav";
+import { buildNav, gradeLabel, vacancyBreadcrumbs, VACANCY_STATUS_LABEL } from "@/lib/nav";
+import { groupInterviews, interviewColumn, interviewStageLabel, KANBAN_COLUMNS } from "@/lib/pipeline";
 
 const RECRUITER_AREA = "area.recruiter_workspace";
+const QUESTIONS_EDIT_ACTION = "action.questions.edit";
+const LOCKED_STATUSES = new Set(["approved", "active", "paused", "archived", "ready"]);
 
-function statusTone(status: VacancyDetail["status"]): "positive" | "warning" | undefined {
-  if (status === "ready") return "positive";
-  if (status === "pending_review") return "warning";
-  return undefined;
+/** Пустая колонка говорит, чего в ней ждать, а не молчит белым полем. */
+const COLUMN_EMPTY: Record<string, string> = {
+  invited: "Никого ещё не приглашали",
+  live: "Сейчас никто не отвечает",
+  action: "Ничего не ждёт вашего вмешательства",
+  decide: "Готовых отчётов нет",
+  done: "Решений пока не было",
+};
+const STAGE_EMPTY_NOW = "Сейчас в этой стадии никого нет";
+
+function emptyColumnCopy(columnId: string, totalInterviews: number): string {
+  if (columnId === "invited" && totalInterviews > 0) {
+    return STAGE_EMPTY_NOW;
+  }
+  return COLUMN_EMPTY[columnId];
 }
 
-function candidateLink(accessToken: string): string {
-  if (typeof window === "undefined") {
-    return `/interview/${accessToken}`;
+const HIRING_MANAGER_AREA = "area.hiring_manager_review";
+
+function statusTone(status: VacancyDetail["status"]): StatusTone {
+  if (status === "active" || status === "ready" || status === "approved") return "positive";
+  if (status === "calibration" || status === "pending_review" || status === "changes_requested") {
+    return "warning";
   }
-  return `${window.location.origin}/interview/${accessToken}`;
+  return "neutral";
+}
+
+function inviteLink(accessToken: string): string {
+  if (typeof window === "undefined") {
+    return `/i/${accessToken}`;
+  }
+  return `${window.location.origin}/i/${accessToken}`;
+}
+
+function formatCreatedAt(value: string): string {
+  return new Date(value).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
 }
 
 export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const { landing, loading } = useProtectedLanding();
+  const currentUser = getSession()?.user;
 
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [vacancyLoading, setVacancyLoading] = useState(true);
   const [vacancyError, setVacancyError] = useState<string | null>(null);
 
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
-
   const [interviews, setInterviews] = useState<Interview[]>([]);
   const [interviewsLoading, setInterviewsLoading] = useState(true);
   const [interviewsError, setInterviewsError] = useState<string | null>(null);
-  const [expandedInterviewId, setExpandedInterviewId] = useState<string | null>(null);
+
+  const [stats, setStats] = useState<AnonymizedStats | null>(null);
+
+  const [users, setUsers] = useState<InternalUser[]>([]);
 
   const [candidateName, setCandidateName] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [interviewFormError, setInterviewFormError] = useState<string | null>(null);
-  const [interviewFormStatus, setInterviewFormStatus] = useState<string | null>(null);
   const [interviewFormSubmitting, setInterviewFormSubmitting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
+  const [invitedCandidateName, setInvitedCandidateName] = useState("");
+  const [inviteMessageCopied, setInviteMessageCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<"dashboard" | "questions" | "candidates" | null>(null);
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const [candidateStageFilter, setCandidateStageFilter] = useState("all");
 
   const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
+  const hasEditAction = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
+  const isHiringManager = landing?.available_areas.some((area) => area.id === HIRING_MANAGER_AREA) ?? false;
+  const showAnonymized = isHiringManager && !canManage;
+  const vacancyUnlocked = vacancy ? !LOCKED_STATUSES.has(vacancy.status) : false;
 
   async function refreshVacancy() {
+    setVacancyLoading(true);
+    setVacancyError(null);
     try {
-      setVacancyError(null);
       const detail = await loadVacancy(vacancyId);
       setVacancy(detail);
     } catch (caughtError) {
-      setVacancyError(normalizeError(caughtError, "Could not load the vacancy."));
+      setVacancyError(normalizeError(caughtError, "Не удалось загрузить вакансию."));
     } finally {
       setVacancyLoading(false);
     }
   }
 
   async function refreshInterviews() {
+    setInterviewsLoading(true);
+    setInterviewsError(null);
     try {
-      setInterviewsError(null);
       const response = await loadInterviews(vacancyId);
       setInterviews(response.items);
     } catch (caughtError) {
-      setInterviewsError(normalizeError(caughtError, "Could not load interviews."));
+      setInterviewsError(normalizeError(caughtError, "Не удалось загрузить интервью."));
+    } finally {
+      setInterviewsLoading(false);
+    }
+  }
+
+  async function refreshStats() {
+    setInterviewsLoading(true);
+    setInterviewsError(null);
+    try {
+      const next = await loadAnonymizedStats(vacancyId);
+      setStats(next);
+    } catch (caughtError) {
+      setInterviewsError(normalizeError(caughtError, "Не удалось загрузить сводку."));
     } finally {
       setInterviewsLoading(false);
     }
@@ -79,65 +157,168 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     if (!landing) {
       return;
     }
+    // Первичная загрузка данных экрана: состояние меняется уже после await,
+    // но правило видит вызов из тела эффекта. Каскадных перерисовок здесь нет.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshVacancy();
-    void refreshInterviews();
-    // Re-fetch only when the signed-in session or the vacancy id changes.
+    if (showAnonymized) {
+      void refreshStats();
+    } else {
+      void refreshInterviews();
+    }
+    if (canManage) {
+      void loadInternalUsers()
+        .then((response) => setUsers(response.items))
+        .catch(() => setUsers([]));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [landing, vacancyId]);
+  }, [landing, vacancyId, showAnonymized, canManage]);
 
-  async function handleGenerateQuestions() {
-    setGenerating(true);
-    setGenerateError(null);
+  const grouped = useMemo(() => groupInterviews(interviews), [interviews]);
+  const filteredCandidates = useMemo(() => {
+    const needle = candidateSearch.trim().toLowerCase();
+    return interviews.filter((interview) => {
+      const matchesStage =
+        candidateStageFilter === "all" || interviewColumn(interview) === candidateStageFilter;
+      const matchesSearch = (interview.candidate_name ?? "Без имени").toLowerCase().includes(needle);
+      return matchesStage && matchesSearch;
+    });
+  }, [interviews, candidateSearch, candidateStageFilter]);
+  const canInvite = vacancy?.status === "active";
+  const showPause = canManage && vacancy?.status === "active";
+  const showResume = canManage && vacancy?.status === "paused";
+  const canManageQuestions = canManage && vacancyUnlocked;
+  const canEditQuestionContent = hasEditAction && vacancyUnlocked;
+  // По умолчанию: активная вакансия открывается на дашборде кандидатов, вакансия
+  // на проверке у эксперта — на вопросах. Once пользователь сам переключил вкладку,
+  // его выбор не трогаем, даже если статус вакансии сменится.
+  const defaultTab =
+    vacancy?.status === "calibration" || vacancy?.status === "pending_review" ? "questions" : "dashboard";
+  const effectiveTab = activeTab ?? defaultTab;
 
+  const assignedPeople: AvatarPerson[] = vacancy
+    ? [
+        ...(users.find((user) => user.id === vacancy.recruiter_id)
+          ? [{ name: users.find((user) => user.id === vacancy.recruiter_id)!.name, role: "Рекрутер" }]
+          : []),
+        ...(vacancy.expert_id
+          ? [{ name: users.find((user) => user.id === vacancy.expert_id)?.name ?? "?", role: "Эксперт" }]
+          : []),
+        ...(vacancy.hiring_manager_id
+          ? [
+              {
+                name: users.find((user) => user.id === vacancy.hiring_manager_id)?.name ?? "?",
+                role: "Менеджер",
+              },
+            ]
+          : []),
+      ]
+    : [];
+
+  async function applyVacancyUpdate(run: () => Promise<{ status: VacancyDetail["status"] }>, fallback: string) {
+    setActionBusy(true);
+    setActionError(null);
     try {
-      await generateVacancyQuestions(vacancyId);
-      await refreshVacancy();
+      const updated = await run();
+      setVacancy((current) => (current ? { ...current, ...updated } : current));
     } catch (caughtError) {
-      setGenerateError(normalizeError(caughtError, "Could not generate questions."));
+      setActionError(normalizeError(caughtError, fallback));
     } finally {
-      setGenerating(false);
+      setActionBusy(false);
+    }
+  }
+
+  async function handleAssigneeChange(field: "expertId" | "hiringManagerId", value: string | null) {
+    setActionError(null);
+    try {
+      const updated = await updateManagedVacancy(vacancyId, { [field]: value });
+      setVacancy((current) => (current ? { ...current, ...updated } : current));
+    } catch (caughtError) {
+      setActionError(normalizeError(caughtError, "Не удалось сохранить назначение."));
     }
   }
 
   async function handleCreateInterview(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!candidateName.trim()) {
+      setInterviewFormError("Укажите ФИО кандидата.");
+      return;
+    }
     if (!resumeFile) {
-      setInterviewFormError("A resume file is required.");
+      setInterviewFormError("Приложите резюме: без него эксперт не поймёт контекст ответов.");
       return;
     }
 
     setInterviewFormSubmitting(true);
     setInterviewFormError(null);
-    setInterviewFormStatus(null);
 
     try {
       const response = await createManagedInterview(vacancyId, {
         resumeFile,
-        candidateName: candidateName || undefined,
+        candidateName,
       });
-      setInterviewFormStatus(`Interview created. Candidate link: ${response.candidate_link}`);
+      setCreatedInviteLink(inviteLink(response.interview.access_token));
+      setInvitedCandidateName(candidateName);
       setCandidateName("");
       setResumeFile(null);
+      setInviteOpen(false);
+      setLinkModalOpen(true);
       await refreshInterviews();
     } catch (caughtError) {
-      setInterviewFormError(normalizeError(caughtError, "Could not create the interview."));
+      setInterviewFormError(normalizeError(caughtError, "Не удалось создать приглашение."));
     } finally {
       setInterviewFormSubmitting(false);
     }
   }
 
-  async function copyCandidateLink(accessToken: string) {
+  function handleOpenInvite() {
+    setCreatedInviteLink(null);
+    setInterviewFormError(null);
+    setInviteOpen(true);
+  }
+
+  function buildInviteMessage(): string {
+    if (!createdInviteLink) {
+      return "";
+    }
+    const name = invitedCandidateName.trim();
+    const greeting = name ? `Здравствуйте, ${name}!` : "Здравствуйте!";
+    const position = vacancy ? ` на позицию «${vacancy.title}»` : "";
+    return `${greeting} Приглашаем вас пройти асинхронное техническое интервью${position}. Перейдите по ссылке, чтобы начать: ${createdInviteLink}`;
+  }
+
+  async function handleCopyInviteMessage() {
+    const message = buildInviteMessage();
+    if (!message) return;
     try {
-      await navigator.clipboard.writeText(candidateLink(accessToken));
+      await navigator.clipboard?.writeText(message);
+      setInviteMessageCopied(true);
+      setTimeout(() => setInviteMessageCopied(false), 1500);
     } catch {
-      // Clipboard access can fail silently (e.g. insecure context); the link is still visible.
+      // Буфер обмена недоступен (например, нет разрешения) — сообщение всё равно
+      // видно текстом, можно выделить и скопировать руками.
+    }
+  }
+
+  async function handleGenerateQuestions() {
+    setGenerating(true);
+    setActionError(null);
+    try {
+      await generateVacancyQuestions(vacancyId);
+      // Эндпоинт возвращает только сгенерированные вопросы, не всю вакансию —
+      // перечитываем детали целиком, чтобы не разъезжались статус/грейд/т.д.
+      await refreshVacancy();
+    } catch (caughtError) {
+      setActionError(normalizeError(caughtError, "Не удалось собрать вопросы."));
+    } finally {
+      setGenerating(false);
     }
   }
 
   if (loading || !landing) {
     return (
       <main className="workspace">
-        <ScreenState kind="loading" title="Loading" text="Checking your session..." />
+        <ScreenState kind="loading" title="Загрузка" text="Проверяем сессию…" />
       </main>
     );
   }
@@ -145,157 +326,428 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const nav = buildNav(landing);
 
   return (
-    <AppShell nav={nav} title="Vacancy">
-      <div className="workspace">
-        {vacancyLoading ? <ScreenState kind="loading" title="Loading" text="Loading vacancy..." /> : null}
-        {vacancyError ? <ScreenState kind="error" title="Could not load vacancy" text={vacancyError} /> : null}
+    <AppShell nav={nav} title="Вакансия">
+      <div className="workspace workspace--wide">
+        {vacancyLoading ? <ScreenState kind="loading" title="Загрузка" text="Загружаем вакансию…" /> : null}
+        {vacancyError ? (
+          <ScreenState
+            kind="error"
+            title="Не удалось загрузить вакансию"
+            text={vacancyError}
+            action={
+              <Button type="button" variant="secondary" onClick={() => void refreshVacancy()}>
+                Повторить
+              </Button>
+            }
+          />
+        ) : null}
 
         {!vacancyLoading && vacancy ? (
           <>
-            <PageHeader
-              path="Vacancies"
-              title={vacancy.title}
-              description={vacancy.description}
-              actions={
-                <>
-                  <span className="status" data-tone={statusTone(vacancy.status)}>
-                    {vacancy.status}
-                  </span>
-                  {canManage ? (
+            <nav className="path path--breadcrumbs" aria-label="Хлебные крошки">
+              {vacancyBreadcrumbs(vacancyId, vacancy.title, "Доска").map((item, index) => (
+                <span className="path__segment" key={`${item.label}-${index}`}>
+                  {index > 0 ? (
+                    <span className="path__sep" aria-hidden="true">
+                      {" "}
+                      /{" "}
+                    </span>
+                  ) : null}
+                  {item.href ? <Link href={item.href}>{item.label}</Link> : <span>{item.label}</span>}
+                </span>
+              ))}
+            </nav>
+
+            <section className="vacancy-info-card">
+              <div className="vacancy-info-card__main">
+              <div className="vacancy-info-card__header">
+                <h1>
+                  {vacancy.title}
+                  {vacancy.grade !== "unspecified" ? ` (${gradeLabel(vacancy.grade)})` : null}
+                </h1>
+                <StatusPill tone={statusTone(vacancy.status)}>
+                  {VACANCY_STATUS_LABEL[vacancy.status] ?? vacancy.status}
+                </StatusPill>
+                <Popover>
+                  <PopoverTrigger asChild>
                     <button
-                      className="button button--secondary"
                       type="button"
-                      disabled={vacancy.status === "ready" || generating}
-                      onClick={() => void handleGenerateQuestions()}
+                      className="vacancy-assignees-trigger"
+                      aria-label="Назначенные на вакансию"
                     >
-                      {generating ? "Generating..." : "Generate questions"}
+                      {assignedPeople.length > 0 ? (
+                        <AvatarGroup people={assignedPeople} />
+                      ) : (
+                        <span className="avatar avatar--placeholder">+</span>
+                      )}
                     </button>
-                  ) : null}
-                  <Link className="button button--secondary" href={`/vacancies/${vacancy.id}/questions`}>
-                    Questions ({vacancy.questions.length})
-                  </Link>
-                  {canManage ? (
-                    <Link className="button button--secondary" href={`/vacancies/${vacancy.id}/settings`}>
-                      Settings
-                    </Link>
-                  ) : null}
-                  <Link className="button button--secondary" href="/vacancies/demo/board">
-                    View demo evidence report
-                  </Link>
-                </>
-              }
-            />
-
-            {generateError ? <p className="form-error">{generateError}</p> : null}
-
-            <div className="field-block">
-              <span className="path">Grade</span>
-              <strong>{vacancy.grade}</strong>
-            </div>
-            <div className="field-block">
-              <span className="path">Required skills</span>
-              <span>{vacancy.required_skills.join(", ") || "—"}</span>
-            </div>
-            <div className="field-block">
-              <span className="path">Nice-to-have skills</span>
-              <span>{vacancy.nice_to_have_skills.join(", ") || "—"}</span>
-            </div>
-
-            <section className="plain-section">
-              <div className="section-heading">
-                <div>
-                  <h2>Interviews</h2>
-                </div>
+                  </PopoverTrigger>
+                  <PopoverContent className="vacancy-assignees-popover" align="start">
+                    <PopoverTitle>Назначенные на вакансию</PopoverTitle>
+                    <div className="vacancy-assignee-row">
+                      <span className="vacancy-assignee__role">Рекрутер</span>
+                      <span className="vacancy-assignee__name">
+                        {users.find((user) => user.id === vacancy.recruiter_id)?.name ?? "—"}
+                      </span>
+                    </div>
+                    {canManage ? (
+                      <>
+                        <AssigneeField
+                          label="Эксперт"
+                          roleCode="expert"
+                          users={users}
+                          value={vacancy.expert_id ?? null}
+                          onChange={(value) => void handleAssigneeChange("expertId", value)}
+                          currentUserId={currentUser?.id}
+                        />
+                        <AssigneeField
+                          label="Менеджер"
+                          roleCode="hiring_manager"
+                          users={users}
+                          value={vacancy.hiring_manager_id ?? null}
+                          onChange={(value) => void handleAssigneeChange("hiringManagerId", value)}
+                          currentUserId={currentUser?.id}
+                        />
+                      </>
+                    ) : null}
+                  </PopoverContent>
+                </Popover>
               </div>
 
-              {interviewsLoading ? (
-                <ScreenState kind="loading" title="Loading" text="Loading interviews..." />
-              ) : null}
-              {interviewsError ? (
-                <ScreenState kind="error" title="Could not load interviews" text={interviewsError} />
-              ) : null}
+              <div className="vacancy-info-card__meta">
+                <span>Создана {formatCreatedAt(vacancy.created_at)}</span>
+              </div>
 
-              {!interviewsLoading && !interviewsError ? (
-                interviews.length > 0 ? (
-                  <div className="stack-list">
-                    {interviews.map((interview) => (
-                      <article className="candidate-card" key={interview.id}>
-                        <div className="candidate-card__top">
-                          <strong>{interview.candidate_name ?? "Unnamed candidate"}</strong>
-                          <span className="status">{interview.status}</span>
-                        </div>
-                        <p>{candidateLink(interview.access_token)}</p>
-                        <div className="page-actions">
-                          <button
-                            className="button button--secondary"
-                            type="button"
-                            onClick={() => void copyCandidateLink(interview.access_token)}
-                          >
-                            Copy link
-                          </button>
-                          <button
-                            className="button button--secondary"
-                            type="button"
-                            onClick={() =>
-                              setExpandedInterviewId((current) => (current === interview.id ? null : interview.id))
-                            }
-                          >
-                            {expandedInterviewId === interview.id ? "Hide events" : "View events"}
-                          </button>
-                        </div>
-                        {expandedInterviewId === interview.id ? (
-                          <InterviewEventsPanel interviewId={interview.id} />
-                        ) : null}
-                      </article>
+              <div className="vacancy-info-card__body">
+                <p className="vacancy-info-card__description">{vacancy.description}</p>
+
+                {vacancy.required_skills.length > 0 ? (
+                  <div className="vacancy-info-card__skills">
+                    {vacancy.required_skills.map((skill) => (
+                      <Tag key={skill} label={skill} />
                     ))}
                   </div>
-                ) : (
+                ) : null}
+              </div>
+              </div>
+
+              <div className="vacancy-info-card__invite">
+                {showPause ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={actionBusy}
+                    onClick={() =>
+                      void applyVacancyUpdate(() => pauseManagedVacancy(vacancyId), "Не удалось поставить на паузу.")
+                    }
+                  >
+                    {actionBusy ? "Приостанавливаем…" : "Приостановить"}
+                  </Button>
+                ) : null}
+                {showResume ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={actionBusy}
+                    onClick={() =>
+                      void applyVacancyUpdate(() => resumeManagedVacancy(vacancyId), "Не удалось возобновить вакансию.")
+                    }
+                  >
+                    {actionBusy ? "Возобновляем…" : "Возобновить"}
+                  </Button>
+                ) : null}
+                {canManage ? (
+                  <Button type="button" disabled={!canInvite} onClick={() => handleOpenInvite()}>
+                    Пригласить кандидата
+                  </Button>
+                ) : null}
+              </div>
+
+              {actionError ? <p className="form-error">{actionError}</p> : null}
+            </section>
+
+            <div className="tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                data-active={effectiveTab === "questions" ? "true" : undefined}
+                onClick={() => setActiveTab("questions")}
+              >
+                Вопросы
+              </button>
+              <button
+                type="button"
+                role="tab"
+                data-active={effectiveTab === "dashboard" ? "true" : undefined}
+                onClick={() => setActiveTab("dashboard")}
+              >
+                Дашборд
+              </button>
+              <button
+                type="button"
+                role="tab"
+                data-active={effectiveTab === "candidates" ? "true" : undefined}
+                onClick={() => setActiveTab("candidates")}
+              >
+                Кандидаты
+              </button>
+            </div>
+
+            {effectiveTab === "questions" ? (
+              <QuestionsPanel
+                vacancyId={vacancyId}
+                vacancyStatus={vacancy.status}
+                requiredSkills={vacancy.required_skills}
+                questions={vacancy.questions}
+                canManage={canManageQuestions}
+                canEditContent={canEditQuestionContent}
+                generating={generating}
+                onGenerate={() => void handleGenerateQuestions()}
+                onQuestionsChanged={refreshVacancy}
+              />
+            ) : vacancy.questions.length === 0 ? (
+              <ScreenState
+                kind="empty"
+                title="Сначала соберите вопросы"
+                text="Дашборд и список кандидатов появятся, как только у вакансии будет хотя бы один вопрос."
+                action={
+                  <Button type="button" variant="secondary" onClick={() => setActiveTab("questions")}>
+                    К вопросам
+                  </Button>
+                }
+              />
+            ) : effectiveTab === "candidates" ? (
+              <section className="candidates-table-section">
+                <Toolbar>
+                  <SearchField
+                    className="search-field--grow"
+                    label="Поиск по имени кандидата"
+                    placeholder="Поиск кандидата"
+                    value={candidateSearch}
+                    onChange={setCandidateSearch}
+                  />
+                  <SelectField
+                    label="Стадия"
+                    value={candidateStageFilter}
+                    onChange={setCandidateStageFilter}
+                    options={[
+                      { value: "all", label: "Любая стадия" },
+                      ...KANBAN_COLUMNS.map((column) => ({ value: column.id, label: column.title })),
+                    ]}
+                  />
+                </Toolbar>
+                {interviewsLoading ? (
+                  <ScreenState kind="loading" title="Загрузка" text="Загружаем кандидатов…" />
+                ) : interviewsError ? (
+                  <ScreenState
+                    kind="error"
+                    title="Не удалось загрузить интервью"
+                    text={interviewsError}
+                    action={
+                      <Button type="button" variant="secondary" onClick={() => void refreshInterviews()}>
+                        Повторить
+                      </Button>
+                    }
+                  />
+                ) : filteredCandidates.length === 0 ? (
                   <ScreenState
                     kind="empty"
-                    title="No interviews yet"
-                    text="Create an interview once the vacancy is ready."
+                    title="Никого не нашли"
+                    text="Снимите фильтры или измените поиск."
                   />
-                )
-              ) : null}
-
-              {canManage ? (
-                <form className="form-surface" onSubmit={handleCreateInterview}>
-                  <p className="path">Create interview</p>
+                ) : (
+                  <table className="vacancies-table">
+                    <thead>
+                      <tr>
+                        <th>Имя</th>
+                        <th>Стадия</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredCandidates.map((interview) => {
+                        const name = interview.candidate_name ?? "Без имени";
+                        return (
+                          <tr key={interview.id}>
+                            <td>{name}</td>
+                            <td>{interviewStageLabel(interview)}</td>
+                            <td>
+                              <Link
+                                href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
+                                aria-label={`Открыть ${name}`}
+                              >
+                                Открыть
+                              </Link>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </section>
+            ) : showAnonymized ? (
+              <section className="plain-section">
+                <h2>Сводка без имён</h2>
+                {interviewsLoading ? <ScreenState kind="loading" title="Загрузка" text="Считаем статусы…" /> : null}
+                {interviewsError ? (
+                  <ScreenState
+                    kind="error"
+                    title="Нет сводки"
+                    text={interviewsError}
+                    action={
+                      <Button type="button" variant="secondary" onClick={() => void refreshStats()}>
+                        Повторить
+                      </Button>
+                    }
+                  />
+                ) : null}
+                {stats ? (
                   <p>
-                    {vacancy.status === "ready"
-                      ? "Upload the candidate's resume to generate a shareable interview link."
-                      : "The vacancy must be approved (status = ready) before an interview can be created."}
+                    Приглашены: {stats.invited}. Завершили: {stats.completed}. Ждут решения:{" "}
+                    {stats.awaiting_decision}. Имена откроются после явной передачи от рекрутера.
                   </p>
+                ) : null}
+              </section>
+            ) : (
+              <>
+                {interviewsLoading ? (
+                  <ScreenState kind="loading" title="Загрузка" text="Загружаем кандидатов…" />
+                ) : null}
+                {interviewsError ? (
+                  <ScreenState
+                    kind="error"
+                    title="Не удалось загрузить интервью"
+                    text={interviewsError}
+                    action={
+                      <Button type="button" variant="secondary" onClick={() => void refreshInterviews()}>
+                        Повторить
+                      </Button>
+                    }
+                  />
+                ) : null}
+
+                {!interviewsLoading && !interviewsError ? (
+                  <>
+                    <section className="kanban" aria-label="Кандидаты по этапам">
+                      {KANBAN_COLUMNS.map((column) => {
+                        const items = grouped[column.id];
+                        return (
+                          <div className="kanban-column" key={column.id}>
+                            <div className="kanban-column__header">
+                              <h2>{column.title}</h2>
+                              <span>{items.length}</span>
+                            </div>
+                            <div className="candidate-stack">
+                              {items.length === 0 ? (
+                                <p className="kanban-column__empty">
+                                  {emptyColumnCopy(column.id, interviews.length)}
+                                </p>
+                              ) : (
+                                items.map((interview) => {
+                                  const name = interview.candidate_name ?? "Без имени";
+                                  return (
+                                    <CandidateCard
+                                      key={interview.id}
+                                      name={name}
+                                      stage={interviewStageLabel(interview)}
+                                      href={`/vacancies/${vacancyId}/candidates/${interview.id}`}
+                                      action={`Открыть ${name}`}
+                                    />
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </section>
+                  </>
+                ) : null}
+              </>
+            )}
+
+            {canManage ? (
+              <Modal open={inviteOpen} title="Пригласить кандидата" onClose={() => setInviteOpen(false)}>
+                <form className="form-surface" onSubmit={handleCreateInterview}>
                   <label>
-                    Candidate name (optional)
+                    ФИО кандидата
                     <input
                       value={candidateName}
                       onChange={(event) => setCandidateName(event.target.value)}
-                      disabled={vacancy.status !== "ready"}
+                      disabled={!canInvite}
+                      required
                     />
                   </label>
-                  <label>
-                    Resume file
-                    <input
-                      type="file"
-                      onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
-                      disabled={vacancy.status !== "ready"}
-                    />
-                  </label>
-                  {interviewFormError ? <p className="form-error">{interviewFormError}</p> : null}
-                  {interviewFormStatus ? <p className="success-message">{interviewFormStatus}</p> : null}
-                  <div className="form-actions">
-                    <button
-                      className="button button--primary"
-                      type="submit"
-                      disabled={vacancy.status !== "ready" || interviewFormSubmitting}
-                    >
-                      {interviewFormSubmitting ? "Creating..." : "Create interview"}
-                    </button>
+                  <div className="attachment-field">
+                    <span className="attachment-field__label">Резюме кандидата</span>
+                    <span className="attachment-field__row">
+                      <label className="attachment-field__button" data-disabled={!canInvite || undefined}>
+                        <Paperclip size={16} />
+                        {resumeFile ? "Заменить файл" : "Прикрепить файл"}
+                        <input
+                          type="file"
+                          aria-label="Резюме кандидата"
+                          onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
+                          disabled={!canInvite}
+                        />
+                      </label>
+                      {resumeFile ? (
+                        <span className="attachment-field__name">
+                          {resumeFile.name}
+                          <button
+                            type="button"
+                            aria-label="Убрать файл"
+                            onClick={() => setResumeFile(null)}
+                            disabled={!canInvite}
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ) : null}
+                    </span>
                   </div>
+                  {interviewFormError ? <p className="form-error">{interviewFormError}</p> : null}
+                  <ModalActions>
+                    <Button type="button" variant="secondary" data-modal-initial-focus onClick={() => setInviteOpen(false)}>
+                      Отмена
+                    </Button>
+                    <Button
+                      type="submit"
+                      disabled={!canInvite}
+                      loading={interviewFormSubmitting}
+                      loadingLabel="Приглашаем…"
+                    >
+                      Пригласить
+                    </Button>
+                  </ModalActions>
                 </form>
-              ) : null}
-            </section>
+              </Modal>
+            ) : null}
+
+            {canManage ? (
+              <Modal
+                open={linkModalOpen}
+                title="Кандидат приглашён"
+                onClose={() => setLinkModalOpen(false)}
+              >
+                <div className="form-surface">
+                  {createdInviteLink ? (
+                    <div className="invite-message" aria-label="Сообщение для кандидата">
+                      <button
+                        type="button"
+                        className="invite-message__copy"
+                        aria-label="Скопировать сообщение"
+                        onClick={() => void handleCopyInviteMessage()}
+                      >
+                        {inviteMessageCopied ? <Check size={16} /> : <Copy size={16} />}
+                      </button>
+                      <pre>{buildInviteMessage()}</pre>
+                    </div>
+                  ) : null}
+                </div>
+              </Modal>
+            ) : null}
           </>
         ) : null}
       </div>

@@ -42,5 +42,5 @@ async def test_landing_for_single_role_user_is_role_scoped(client) -> None:
     landing = response.json()
     assert landing["roles"] == ["expert"]
     assert [area["id"] for area in landing["available_areas"]] == ["area.expert_questions"]
-    assert landing["default_path"] == "/vacancies"
+    assert landing["default_path"] == "/expert"
     assert "action.questions.edit" in landing["available_actions"]

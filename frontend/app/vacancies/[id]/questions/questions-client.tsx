@@ -1,10 +1,14 @@
 "use client";
 
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
+import { CalibrationSubnav } from "@/components/chrome/CalibrationSubnav";
 import { PageHeader } from "@/components/chrome/PageHeader";
+import { ViewModeBanner } from "@/components/chrome/ViewModeBanner";
 import { ScreenState } from "@/components/chrome/ScreenState";
 import {
   QuestionEditForm,
@@ -13,7 +17,7 @@ import {
   toQuestionInput,
   type QuestionFormState,
 } from "@/components/vacancies/question-edit-form";
-import type { Question, VacancyDetail } from "@/lib/api";
+import type { Question, VacancyDetail, VacancyStatus } from "@/lib/api";
 import {
   addManagedQuestion,
   approveManagedVacancy,
@@ -22,12 +26,21 @@ import {
   updateManagedQuestion,
 } from "@/lib/auth";
 import { normalizeError } from "@/lib/errors";
-import { buildNav } from "@/lib/nav";
+import { buildNav, isRecruiterViewMode, vacancyBreadcrumbs } from "@/lib/nav";
+import {
+  QUESTION_DIFFICULTY_LABEL,
+  QUESTION_FORMAT_LABEL,
+  QUESTION_ROLE_LABEL,
+} from "@/lib/pipeline";
 
 const QUESTIONS_EDIT_ACTION = "action.questions.edit";
+const RECRUITER_AREA = "area.recruiter_workspace";
+const APPROVABLE_STATUSES: VacancyStatus[] = ["calibration", "pending_review"];
 
 export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
   const { landing, loading } = useProtectedLanding();
+  const searchParams = useSearchParams();
+  const fromRecruiter = isRecruiterViewMode(searchParams.get("from"));
 
   const [vacancy, setVacancy] = useState<VacancyDetail | null>(null);
   const [vacancyLoading, setVacancyLoading] = useState(true);
@@ -42,15 +55,27 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
   const [approveStatus, setApproveStatus] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
 
-  const canEditQuestions = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
+  const hasEditAction = landing?.available_actions.includes(QUESTIONS_EDIT_ACTION) ?? false;
+  const canManage = landing?.available_areas.some((area) => area.id === RECRUITER_AREA) ?? false;
+  const canEditQuestions = hasEditAction && !fromRecruiter;
+  const canApprove = vacancy ? APPROVABLE_STATUSES.includes(vacancy.status) : false;
+
+  /** Теги вопроса, которых нет среди требований вакансии: вопрос ни за что не отвечает. */
+  function orphanTags(question: Question): string[] {
+    if (!vacancy) return [];
+    const known = [...vacancy.required_skills, ...vacancy.nice_to_have_skills].map((skill) =>
+      skill.trim().toLowerCase(),
+    );
+    return (question.skill_tag ?? []).filter((tag) => !known.includes(tag.trim().toLowerCase()));
+  }
 
   async function refreshVacancy() {
     try {
-      setVacancyError(null);
       const detail = await loadVacancy(vacancyId);
+      setVacancyError(null);
       setVacancy(detail);
     } catch (caughtError) {
-      setVacancyError(normalizeError(caughtError, "Could not load the vacancy."));
+      setVacancyError(normalizeError(caughtError, "Не удалось открыть вакансию."));
     } finally {
       setVacancyLoading(false);
     }
@@ -60,6 +85,9 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
     if (!landing) {
       return;
     }
+    // Первичная загрузка данных экрана: состояние меняется уже после await,
+    // но правило видит вызов из тела эффекта. Каскадных перерисовок здесь нет.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void refreshVacancy();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [landing, vacancyId]);
@@ -77,7 +105,7 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
       setIsAddFormOpen(false);
       await refreshVacancy();
     } catch (caughtError) {
-      setQuestionActionError(normalizeError(caughtError, "Could not add the question."));
+      setQuestionActionError(normalizeError(caughtError, "Не удалось добавить вопрос."));
     } finally {
       setQuestionActionSubmitting(false);
     }
@@ -95,7 +123,7 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
       setEditingQuestionId(null);
       await refreshVacancy();
     } catch (caughtError) {
-      setQuestionActionError(normalizeError(caughtError, "Could not update the question."));
+      setQuestionActionError(normalizeError(caughtError, "Не удалось сохранить вопрос."));
     } finally {
       setQuestionActionSubmitting(false);
     }
@@ -111,7 +139,7 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
       await deleteManagedQuestion(vacancy.id, question.id);
       await refreshVacancy();
     } catch (caughtError) {
-      setQuestionActionError(normalizeError(caughtError, "Could not delete the question."));
+      setQuestionActionError(normalizeError(caughtError, "Не удалось удалить вопрос."));
     }
   }
 
@@ -125,10 +153,10 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
 
     try {
       await approveManagedVacancy(vacancy.id);
-      setApproveStatus("Vacancy approved.");
+      setApproveStatus("Версия утверждена");
       await refreshVacancy();
     } catch (caughtError) {
-      setApproveError(normalizeError(caughtError, "Could not approve the vacancy."));
+      setApproveError(normalizeError(caughtError, "Не удалось утвердить версию."));
     } finally {
       setApproving(false);
     }
@@ -137,27 +165,29 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
   if (loading || !landing) {
     return (
       <main className="workspace">
-        <ScreenState kind="loading" title="Loading" text="Checking your session..." />
+        <ScreenState kind="loading" title="Проверяю доступ" text="Секунду, читаю вашу сессию." />
       </main>
     );
   }
 
   const nav = buildNav(landing);
+  const querySuffix = fromRecruiter ? "?from=recruiter" : "";
 
   return (
-    <AppShell nav={nav} title="Questions">
+    <AppShell nav={nav} title="Вопросы">
       <div className="workspace">
-        {vacancyLoading ? <ScreenState kind="loading" title="Loading" text="Loading vacancy..." /> : null}
-        {vacancyError ? <ScreenState kind="error" title="Could not load vacancy" text={vacancyError} /> : null}
+        {vacancyLoading ? <ScreenState kind="loading" title="Загружаю" text="Открываю вакансию." /> : null}
+        {vacancyError ? <ScreenState kind="error" title="Вакансия не открылась" text={vacancyError} /> : null}
 
         {!vacancyLoading && vacancy ? (
           <>
             <PageHeader
-              path={`Vacancies / ${vacancy.title}`}
-              title="Questions"
-              description={`${vacancy.questions.length} question(s) · status: ${vacancy.status}`}
+              breadcrumbs={vacancyBreadcrumbs(vacancy.id, vacancy.title, "Вопросы")}
+              title="Вопросы"
+              description={`Комплект из ${vacancy.questions.length} вопросов. Одинаковые основные вопросы для всех кандидатов.`}
             />
-
+            <CalibrationSubnav vacancyId={vacancy.id} />
+            {fromRecruiter ? <ViewModeBanner /> : null}
             {questionActionError ? <p className="form-error">{questionActionError}</p> : null}
 
             {vacancy.questions.length > 0 ? (
@@ -167,7 +197,7 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
                     {editingQuestionId === question.id ? (
                       <QuestionEditForm
                         initial={questionToForm(question)}
-                        submitLabel="Save question"
+                        submitLabel="Сохранить вопрос"
                         submitting={questionActionSubmitting}
                         onSubmit={(form) => void handleUpdateQuestion(question, form)}
                       />
@@ -175,13 +205,23 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
                       <>
                         <div className="candidate-card__top">
                           <strong>{question.text}</strong>
-                          <span className="status">{question.role}</span>
+                          <span className="status">{QUESTION_ROLE_LABEL[question.role] ?? question.role}</span>
                         </div>
                         <div className="candidate-card__meta">
-                          <span>{question.format}</span>
-                          <span>{question.difficulty}</span>
-                          <span>{question.skill_tag.join(", ") || "no skill tags"}</span>
+                          <span>{QUESTION_FORMAT_LABEL[question.format] ?? question.format}</span>
+                          <span>{QUESTION_DIFFICULTY_LABEL[question.difficulty] ?? question.difficulty}</span>
+                          <span>
+                            {question.skill_tag?.length
+                              ? `Требование: ${question.skill_tag.join(", ")}`
+                              : "Требование не указано"}
+                          </span>
                         </div>
+                        {orphanTags(question).length > 0 ? (
+                          <p className="disabled-hint">
+                            {orphanTags(question).join(", ")} нет среди требований вакансии: ответ на
+                            этот вопрос ничего не закроет в отчёте.
+                          </p>
+                        ) : null}
                         {canEditQuestions ? (
                           <div className="page-actions">
                             <button
@@ -189,14 +229,14 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
                               type="button"
                               onClick={() => setEditingQuestionId(question.id)}
                             >
-                              Edit
+                              Изменить
                             </button>
                             <button
                               className="button button--secondary"
                               type="button"
                               onClick={() => void handleDeleteQuestion(question)}
                             >
-                              Delete
+                              Удалить
                             </button>
                           </div>
                         ) : null}
@@ -208,8 +248,8 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
             ) : (
               <ScreenState
                 kind="empty"
-                title="No questions yet"
-                text="Generate questions from the vacancy page or add one manually."
+                title="Вопросов пока нет"
+                text="Соберите комплект на странице вакансии или добавьте вопрос вручную."
               />
             )}
 
@@ -221,13 +261,13 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
                     type="button"
                     onClick={() => setIsAddFormOpen((value) => !value)}
                   >
-                    {isAddFormOpen ? "Hide add form" : "Add question"}
+                    {isAddFormOpen ? "Свернуть форму" : "Добавить вопрос"}
                   </button>
                 </div>
                 {isAddFormOpen ? (
                   <QuestionEditForm
                     initial={emptyQuestionForm()}
-                    submitLabel="Add question"
+                    submitLabel="Добавить вопрос"
                     submitting={questionActionSubmitting}
                     onSubmit={(form) => void handleAddQuestion(form)}
                   />
@@ -239,12 +279,17 @@ export function VacancyQuestionsClient({ vacancyId }: { vacancyId: string }) {
                   <button
                     className="button button--primary"
                     type="button"
-                    disabled={approving || vacancy.status === "ready"}
+                    disabled={approving || !canApprove}
                     onClick={() => void handleApprove()}
                   >
-                    {approving ? "Approving..." : "Approve vacancy"}
+                    {approving ? "Одобряем…" : "Утвердить версию"}
                   </button>
                 </div>
+                {!canApprove ? (
+                  <p className="disabled-hint">
+                    Одобрить можно, когда вакансия на калибровке, в черновике или после извлечения требований.
+                  </p>
+                ) : null}
               </>
             ) : null}
           </>

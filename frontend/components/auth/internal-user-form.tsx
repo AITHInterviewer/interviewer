@@ -36,7 +36,7 @@ export function InternalUserForm({ onCreated, hidden = false }: InternalUserForm
       })
       .catch(() => {
         if (!cancelled) {
-          setError("Could not load assignable roles.");
+          setError("Не удалось загрузить список ролей.");
         }
       });
 
@@ -78,7 +78,7 @@ export function InternalUserForm({ onCreated, hidden = false }: InternalUserForm
       } else if (caughtError instanceof Error) {
         setError(caughtError.message);
       } else {
-        setError("Could not create the internal user.");
+        setError("Не удалось завести сотрудника. Проверьте почту и попробуйте ещё раз.");
       }
     } finally {
       setSubmitting(false);
@@ -93,15 +93,15 @@ export function InternalUserForm({ onCreated, hidden = false }: InternalUserForm
       </div>
 
       <label>
-        Full name
+        Имя и фамилия
         <input value={name} onChange={(event) => setName(event.target.value)} name="name" required />
       </label>
       <label>
-        Work email
+        Рабочая почта
         <input value={email} onChange={(event) => setEmail(event.target.value)} name="email" type="email" required />
       </label>
       <fieldset>
-        <legend>Roles</legend>
+        <legend>Роли</legend>
         {availableRoles.length > 0 ? (
           availableRoles.map((role) => (
             <label key={role.code} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
@@ -116,12 +116,12 @@ export function InternalUserForm({ onCreated, hidden = false }: InternalUserForm
             </label>
           ))
         ) : (
-          <p className="field-hint">Loading assignable roles...</p>
+          <p className="field-hint">Загружаю доступные роли…</p>
         )}
-        <span className="field-hint">Assign one or more roles from the role registry.</span>
+        <span className="field-hint">Одна роль или несколько: они определяют, какие разделы человек увидит.</span>
       </fieldset>
       <label>
-        Temporary password
+        Временный пароль
         <input
           value={temporaryPassword}
           onChange={(event) => setTemporaryPassword(event.target.value)}
@@ -130,15 +130,13 @@ export function InternalUserForm({ onCreated, hidden = false }: InternalUserForm
           minLength={8}
           required
         />
-        <span className="field-hint">Share this password manually with the new internal user.</span>
+        <span className="field-hint">Передайте пароль сотруднику лично: письма из системы не уходят.</span>
       </label>
 
       <div className="auth-inline-note">
-        <div>
-          <span className="path">Ownership</span>
-          <strong>Scoped to current recruiter</strong>
-        </div>
-        <p className="field-hint">New accounts will appear only inside the signed-in recruiter workspace.</p>
+        <p className="field-hint">
+          Новый аккаунт увидит только тот рекрутер, который его завёл.
+        </p>
       </div>
 
       {error ? <p className="field-error">{error}</p> : null}
@@ -150,7 +148,7 @@ export function InternalUserForm({ onCreated, hidden = false }: InternalUserForm
           type="submit"
           disabled={submitting || selectedRoles.length === 0}
         >
-          {submitting ? "Creating..." : "Create internal user"}
+          {submitting ? "Создаю…" : "Завести сотрудника"}
         </button>
       </div>
     </form>

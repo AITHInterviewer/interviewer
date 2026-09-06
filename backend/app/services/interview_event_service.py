@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -28,6 +29,9 @@ from app.models.evaluation_job import EvaluationJob
 from app.models.interview import Interview
 from app.models.interview_event import InterviewEvent
 from app.models.question import Question
+from app.services.livekit_egress import EgressError, stop_recording
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_question_id(raw: Any) -> uuid.UUID | None:
@@ -77,9 +81,26 @@ class InterviewEventService:
             )
         )
         await self._apply_aggregation(interview_id, raw_event)
-        if str(raw_event.get("type")) == "interview_completed":
+        if raw_event.get("type") == "question_started":
+            await self._update_current_question(interview_id, raw_event)
+        completed = str(raw_event.get("type")) == "interview_completed"
+        if completed:
             await self._handle_interview_completed(interview_id)
         await self.session.commit()
+        if completed:
+            await self._stop_recording(interview_id)
+
+    async def _update_current_question(self, interview_id: uuid.UUID, raw_event: dict[str, Any]) -> None:
+        """Только `question_started` (НИКОГДА checkin/adaptive_question_asked) — см.
+        `Interview.current_question_text` докстринг в модели: доп./наводящий вопрос от LLM
+        не должен стирать текст основного вопроса. `question_id` иногда не резолвится в
+        Postgres UUID (мок-вакансия/дев-данные, см. control_channel.py) — текст всё равно
+        пишем, `current_question_id` в этом случае остаётся NULL."""
+        interview = await self.session.get(Interview, interview_id)
+        if interview is None:
+            return
+        interview.current_question_id = _parse_question_id(raw_event.get("question_id"))
+        interview.current_question_text = raw_event.get("payload", {}).get("text")
 
     async def record_candidate_input(self, interview_id: uuid.UUID | str, message: dict[str, Any]) -> None:
         interview_id = uuid.UUID(str(interview_id))
@@ -102,6 +123,20 @@ class InterviewEventService:
                 {"ts": datetime.now(UTC).isoformat(), "content": content},
             ]
 
+        await self.session.commit()
+
+    async def record_security_signal(self, interview_id: uuid.UUID | str, message: dict[str, Any]) -> None:
+        """«Блок безопасности» на карточке кандидата (см. `control-channel.ts` на фронте) —
+        переключение вкладки/пропадание камеры. Только сырой лог, никакой агрегации в
+        Answer и никакого вердикта тут — recruiter сам решает, что с этим делать."""
+        interview_id = uuid.UUID(str(interview_id))
+        self.session.add(
+            InterviewEvent(
+                interview_id=interview_id,
+                event_type=f"security:{message.get('signal', 'unknown')}",
+                payload=message,
+            )
+        )
         await self.session.commit()
 
     async def _apply_aggregation(self, interview_id: uuid.UUID | str, raw_event: dict[str, Any]) -> None:
@@ -149,16 +184,32 @@ class InterviewEventService:
         return answer
 
     async def _handle_interview_completed(self, interview_id: uuid.UUID) -> None:
-        """Transactional outbox: interview completed -> create evaluation_job."""
+        """Transactional outbox: interview completed -> create evaluation_job.
+
+        Оценка больше НЕ synchronous тут (бывший `_complete_interview` из main): контур
+        отдан evaluation-agent — бэкенд только ставит `product_state="report_processing"`
+        для продуктовой оси (канбан/фронт, см. frontend/lib/pipeline.ts) и кладёт задачу
+        в outbox. Результат агент присылает через POST /evaluation (см.
+        `evaluation_service.py`), там же `product_state` дойдёт до "report_ready"."""
         interview = await self.session.get(Interview, interview_id)
         if interview is not None:
             interview.status = "completed"
             interview.completed_at = datetime.now(UTC)
+            interview.product_state = "report_processing"
 
         existing = await self.session.scalar(
             select(EvaluationJob).where(EvaluationJob.interview_id == interview_id)
         )
         if existing is None:
-            self.session.add(
-                EvaluationJob(interview_id=interview_id, status="pending")
-            )
+            self.session.add(EvaluationJob(interview_id=interview_id, status="pending"))
+
+    async def _stop_recording(self, interview_id: uuid.UUID) -> None:
+        """Остановка LiveKit Egress-записи — после коммита: не отменяем запись, даже
+        если транзакция completion'а вдруг откатилась (как в бывшем `_complete_interview`)."""
+        interview = await self.session.get(Interview, interview_id)
+        if interview is None or interview.recording_egress_id is None:
+            return
+        try:
+            await stop_recording(interview.recording_egress_id)
+        except EgressError:
+            logger.exception("livekit_egress: не удалось остановить запись интервью %s", interview_id)

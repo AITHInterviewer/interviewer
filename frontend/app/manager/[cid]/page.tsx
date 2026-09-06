@@ -2,157 +2,226 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Play } from "@phosphor-icons/react";
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 
 import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
-import { HumanNote } from "@/components/evidence/AiNote";
 import { Button } from "@/components/ui/button";
+import { StatusPill } from "@/components/ui/status-pill";
+import { ApiError } from "@/lib/api";
+import type { InterviewEventsResponse, ManagerCandidate, RubricVersion } from "@/lib/api";
+import { loadInterviewEvents, loadManagerCandidate, loadRubricVersions } from "@/lib/auth";
+import { normalizeError } from "@/lib/errors";
 import { buildNav } from "@/lib/nav";
-import { getCandidateById } from "@/lib/demo/candidates";
-import { getRequirement } from "@/lib/demo/rubric";
-import { readStore } from "@/lib/demo/recruiter-store";
-import { vacancy } from "@/lib/demo/vacancies";
 
-function subscribe() {
-  return () => undefined;
-}
+const HIRING_MANAGER_AREA = "area.hiring_manager_review";
 
-export default function ManagerBriefPage() {
-  const { landing, loading } = useProtectedLanding();
+export default function ManagerCandidatePage() {
   const params = useParams<{ cid: string }>();
-  const candidate = getCandidateById(params.cid);
-  const [decision, setDecision] = useState("");
-  const [note, setNote] = useState("");
-  const last = useSyncExternalStore(
-    subscribe,
-    () => (candidate ? readStore().decisions[candidate.id]?.at(-1) : undefined),
-    () => undefined,
-  );
+  const { landing, loading } = useProtectedLanding({ requiredArea: HIRING_MANAGER_AREA });
+  const [candidate, setCandidate] = useState<ManagerCandidate | null>(null);
+  const [rubric, setRubric] = useState<RubricVersion | null>(null);
+  const [events, setEvents] = useState<InterviewEventsResponse | null>(null);
+  const [answersDenied, setAnswersDenied] = useState(false);
+  const [denied, setDenied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
+
+  useEffect(() => {
+    if (!landing) {
+      return;
+    }
+    let cancelled = false;
+
+    async function loadCard() {
+      try {
+        const item = await loadManagerCandidate(params.cid);
+        if (cancelled) {
+          return;
+        }
+        setCandidate(item);
+        // Ответы кандидата менеджеру может не отдать бэкенд: тогда честно об этом пишем.
+        const answersPayload = await loadInterviewEvents(item.interview.id).catch(() => null);
+        if (!cancelled) {
+          setEvents(answersPayload);
+          setAnswersDenied(answersPayload === null);
+        }
+        if (item.interview.rubric_version_id) {
+          try {
+            const versions = await loadRubricVersions(item.interview.vacancy_id);
+            if (cancelled) {
+              return;
+            }
+            setRubric(versions.items.find((version) => version.id === item.interview.rubric_version_id) ?? null);
+          } catch {
+            if (!cancelled) {
+              setRubric(null);
+            }
+          }
+        }
+      } catch (caughtError) {
+        if (cancelled) {
+          return;
+        }
+        if (caughtError instanceof ApiError && caughtError.status === 403) {
+          setDenied(true);
+        } else {
+          setError(normalizeError(caughtError, "Не удалось открыть карточку."));
+        }
+      } finally {
+        if (!cancelled) {
+          setPageLoading(false);
+        }
+      }
+    }
+
+    void loadCard();
+    return () => {
+      cancelled = true;
+    };
+  }, [landing, params.cid]);
 
   if (loading || !landing) {
     return (
       <main className="workspace">
-        <ScreenState kind="loading" title="Loading" text="Checking your session..." />
+        <ScreenState kind="loading" title="Загрузка" text="Проверяем сессию…" />
       </main>
     );
   }
 
-  const nav = buildNav(landing, { includeDemo: true });
+  const nav = buildNav(landing);
 
-  if (!candidate) {
+  if (denied) {
     return (
       <AppShell nav={nav} title="Менеджер">
-        <main className="workspace">
+        <div className="workspace">
           <ScreenState
             kind="error"
-            title="Кандидат не найден"
-            text="Такой карточки к встрече в демо нет. Откройте список встреч."
+            title="Доступа к карточке нет"
+            text="Этот кандидат вам ещё не передан. Дождитесь передачи или запроса мнения."
             action={
               <Button asChild variant="secondary">
                 <Link href="/manager">К встречам</Link>
               </Button>
             }
           />
-        </main>
+        </div>
       </AppShell>
     );
   }
 
-  const confirmed = candidate.report
-    .filter((item) => item.status === "Подтверждено")
-    .map((item) => getRequirement(item.requirementId)?.title)
-    .filter(Boolean);
-  const talkAbout = candidate.report
-    .filter((item) => item.status === "Недостаточно данных" || item.status === "Частично" || item.status === "Не проверено")
-    .slice(0, 4);
+  if (pageLoading) {
+    return (
+      <AppShell nav={nav} title="Менеджер">
+        <div className="workspace">
+          <ScreenState kind="loading" title="Загрузка" text="Открываем карточку…" />
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (error || !candidate) {
+    return (
+      <AppShell nav={nav} title="Менеджер">
+        <div className="workspace">
+          <ScreenState
+            kind="error"
+            title="Карточка недоступна"
+            text={error ?? "Кандидат не найден."}
+            action={
+              <Button asChild variant="secondary">
+                <Link href="/manager">К встречам</Link>
+              </Button>
+            }
+          />
+        </div>
+      </AppShell>
+    );
+  }
+
+  const isHandoff = candidate.access === "handoff";
 
   return (
-    <AppShell nav={nav} title="Перед встречей">
-      <main className="manager-brief">
+    <AppShell nav={nav} title={isHandoff ? "Перед встречей" : "Запрос мнения"}>
+      <div className="workspace">
         <PageHeader
-          path={`${candidate.name} · ${vacancy.title}`}
-          title={candidate.name}
+          path="Встречи"
+          title={candidate.interview.candidate_name ?? "Кандидат без имени"}
           description={
             <>
-              Рекрутер {vacancy.recruiterName}: передаёт
-              {last ? ` · ${last.kind}` : ""}.
-              {last?.comment ? ` Комментарий: ${last.comment}` : ""}
+              <p>
+                {candidate.vacancy_title}.{" "}
+                {isHandoff
+                  ? `Передал ${candidate.from_recruiter_name ?? "рекрутер"}: с человеком нужна встреча.`
+                  : "Рекрутер спросил ваше мнение: кандидат вам не передан."}
+              </p>
+              <p className="muted-copy">
+                Здесь только то, что нужно перед разговором. Прокторинга и оценки тут нет: решение
+                принимает человек.
+              </p>
+              <p className="muted-copy">
+                Результат встречи здесь не сохраняется. Сообщите его рекрутеру вне сервиса.
+              </p>
             </>
           }
           actions={
-            <button className="text-button no-print" type="button" onClick={() => window.print()}>
-              Печать
-            </button>
+            <>
+              <StatusPill tone={isHandoff ? "warning" : "neutral"}>
+                {isHandoff ? "Передан вам, нужна встреча" : "Спросили мнение"}
+              </StatusPill>
+              <Button asChild variant="secondary">
+                <Link href="/manager">К встречам</Link>
+              </Button>
+            </>
           }
         />
-        {last ? (
-          <HumanNote label={`Решение: ${last.author}, ${last.at}`}>
-            {last.kind}
-          </HumanNote>
-        ) : null}
-        <section className="meeting-sheet">
-          <div className="meeting-confirmed">
-            <h2>Подтверждено - можно не проверять повторно</h2>
-            <p>{confirmed.join(", ") || "Пока нет"}</p>
-          </div>
-          <div className="meeting-topics">
-            <h2>О чём стоит поговорить</h2>
-            <ol>
-              {talkAbout.map((item) => {
-                const req = getRequirement(item.requirementId);
-                return (
-                  <li key={item.requirementId}>
-                    <div>
-                      <strong>
-                        {req?.title} · {item.status}
-                      </strong>
-                      <p>{item.whyStatus}</p>
-                      {item.timecode && item.quoteFoundInTranscript ? (
-                        <button className="time-link" type="button">
-                          <Play size={14} weight="fill" />
-                          Фрагмент {item.timecode}
-                        </button>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-          <div className="meeting-strength">
-            <h2>Сильная сторона для команды</h2>
-            <p>{candidate.strengths[0] ?? "Смотрите отчёт рекрутера"}</p>
-          </div>
-          <div className="meeting-decision no-print">
-            <div>
-              <h2>После встречи</h2>
-              <p>{decision ? `Решение: ${decision}` : "Зафиксируйте результат и расхождение с отчётом."}</p>
-              <textarea
-                style={{ marginTop: 10 }}
-                placeholder="Что не совпало с отчётом"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-              />
-            </div>
-            <div>
-              {["Берём", "Ещё этап", "Нет"].map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  data-active={decision === item}
-                  onClick={() => setDecision(item)}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          </div>
+        <section className="plain-section">
+          <h2>Что передал рекрутер</h2>
+          <p>{candidate.summary || "Рекрутер не оставил комментарий: смотрите ответы ниже."}</p>
         </section>
-      </main>
+
+        <section className="plain-section">
+          <h2>Что человек уже рассказал</h2>
+          <p className="muted-copy">
+            Начните с того, что человек уже рассказал; при необходимости уточните детали.
+          </p>
+          {events?.answers.length ? (
+            <ul className="stack-list">
+              {events.answers.map((answer) => (
+                <li className="answer-record" key={answer.id}>
+                  <strong>{answer.question_text ?? "Вопрос без текста"}</strong>
+                  {answer.transcript_text ? (
+                    <blockquote>{answer.transcript_text}</blockquote>
+                  ) : (
+                    <p className="muted-copy">Расшифровка этого ответа ещё не готова.</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : answersDenied ? (
+            <p className="muted-copy">
+              Ответы вам пока не открыты. Попросите рекрутера прислать отчёт или откройте встречу без них.
+            </p>
+          ) : (
+            <p className="muted-copy">Расшифровок нет: кандидат сдал интервью недавно.</p>
+          )}
+        </section>
+        {candidate.interview.rubric_version_id ? (
+          <section className="plain-section">
+            <h2>По какой версии требований оценивали</h2>
+            {rubric ? (
+              <p>
+                Версия {rubric.version_number}
+                {rubric.approved_at ? `, ${new Date(rubric.approved_at).toLocaleString("ru-RU", { day: "numeric", month: "long" })}` : ""}
+              </p>
+            ) : (
+              <p>Версия {candidate.interview.rubric_version_id}</p>
+            )}
+          </section>
+        ) : null}
+      </div>
     </AppShell>
   );
 }

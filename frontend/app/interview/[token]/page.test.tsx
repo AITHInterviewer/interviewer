@@ -22,6 +22,13 @@ function mockFetchOnce(body: unknown, status = 200) {
   );
 }
 
+/** Флоу теперь три экрана: согласие → устройства → интервью. Тесты про device-check
+ * должны сперва пройти экран согласия — как реальный кандидат. */
+async function passConsentScreen() {
+  fireEvent.click(await screen.findByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: /начать/i }));
+}
+
 describe("InterviewPage", () => {
   beforeEach(() => {
     vi.stubGlobal("navigator", {
@@ -42,14 +49,14 @@ describe("InterviewPage", () => {
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
 
-    expect(await screen.findByRole("heading", { name: /перед началом интервью/i })).toBeInTheDocument();
-    expect(screen.getByText(/backend-разработчик/i)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /вас пригласили на интервью/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/backend-разработчик/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/25–40 минут/)).toBeInTheDocument();
     // Device-check не должен запрашивать доступ, пока кандидат явно не нажал кнопку разрешения.
     expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
   });
 
-  it("requests camera/mic access after clicking the permission button and shows a live preview once granted", async () => {
+  it("requests camera/mic access automatically once the device-check screen mounts, and shows a live preview once granted", async () => {
     mockFetchOnce(CONSENT_INFO);
     const fakeStream = {
       getTracks: () => [],
@@ -60,14 +67,13 @@ describe("InterviewPage", () => {
 
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
-
-    fireEvent.click(await screen.findByRole("button", { name: /разрешить доступ/i }));
+    await passConsentScreen();
 
     await waitFor(() => expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
       video: true,
-      audio: { echoCancellation: true },
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
     }));
-    expect(await screen.findByText(/камера и микрофон готовы/i)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /начать интервью/i })).toBeInTheDocument();
   });
 
   it("blocks progression and offers a retry when camera/mic access is denied", async () => {
@@ -78,11 +84,10 @@ describe("InterviewPage", () => {
 
     const ui = await InterviewPage({ params: Promise.resolve({ token: "demo-token" }) });
     render(ui);
-
-    fireEvent.click(await screen.findByRole("button", { name: /разрешить доступ/i }));
+    await passConsentScreen();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/нет доступа к камере или микрофону/i);
-    expect(screen.queryByText(/камера и микрофон готовы/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /начать интервью/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /запросить доступ снова/i })).toBeInTheDocument();
   });
 
@@ -92,7 +97,7 @@ describe("InterviewPage", () => {
     render(ui);
 
     expect(await screen.findByText(/уже пройдено/i)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /разрешить доступ/i })).not.toBeInTheDocument();
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
   });
 
   it("shows an invalid-link message for an unknown token", async () => {

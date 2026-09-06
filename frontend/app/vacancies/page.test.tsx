@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replace = vi.fn();
@@ -56,11 +56,13 @@ describe("VacanciesPage", () => {
   });
 
   it("shows an access-denied state for users with neither recruiter nor question-review access", async () => {
-    vi.mocked(loadLanding).mockResolvedValue(landingFor([{ id: "area.hiring_manager_review", label: "Hiring manager", path: "/internal/hiring-manager" }]));
+    vi.mocked(loadLanding).mockResolvedValue(
+      landingFor([{ id: "area.hiring_manager_review", label: "Hiring manager", path: "/internal/hiring-manager" }]),
+    );
 
     renderPage();
 
-    expect(await screen.findByText(/access denied/i)).toBeInTheDocument();
+    expect(await screen.findByText(/доступа к вакансиям нет/i)).toBeInTheDocument();
   });
 
   it("shows the empty state and a create-vacancy action for recruiters", async () => {
@@ -70,8 +72,8 @@ describe("VacanciesPage", () => {
 
     renderPage();
 
-    expect(await screen.findByText(/no vacancies yet/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /create vacancy/i })).toHaveAttribute("href", "/vacancies/new");
+    expect(await screen.findByText(/вакансий пока нет/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /новая вакансия/i })).toHaveAttribute("href", "/vacancies/new");
   });
 
   it("lists vacancies for experts without showing the create action", async () => {
@@ -88,7 +90,7 @@ describe("VacanciesPage", () => {
           grade: "middle",
           required_skills: [],
           nice_to_have_skills: [],
-          status: "pending_review",
+          status: "calibration",
           created_at: "2026-01-01T00:00:00Z",
         },
       ],
@@ -97,6 +99,74 @@ describe("VacanciesPage", () => {
     renderPage();
 
     expect(await screen.findByText(/backend developer/i)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /create vacancy/i })).not.toBeInTheDocument();
+    // Статус есть и в карточке, и в фильтре — проверяем именно пилюлю в карточке.
+    const card = (await screen.findByText(/backend developer/i)).closest("a");
+    expect(card).not.toBeNull();
+    expect(within(card as HTMLElement).getAllByText(/на проверке у эксперта/i)).toHaveLength(2);
+    expect(within(card as HTMLElement).queryByText(/^Эксперт$/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /новая вакансия/i })).not.toBeInTheDocument();
+  });
+
+  it("distinguishes an empty catalog from an empty filter", async () => {
+    vi.mocked(loadLanding).mockResolvedValue(
+      landingFor([{ id: "area.recruiter_workspace", label: "Recruiter workspace", path: "/vacancies" }]),
+    );
+    vi.mocked(loadVacancies).mockResolvedValue({
+      items: [
+        {
+          id: "v1",
+          recruiter_id: "r1",
+          title: "Backend Developer",
+          description: "...",
+          grade: "middle",
+          required_skills: [],
+          nice_to_have_skills: [],
+          status: "active",
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+
+    renderPage();
+
+    expect(await screen.findByText(/backend developer/i)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/поиск по названию/i), { target: { value: "zzz" } });
+
+    expect(await screen.findByText(/по выбранным условиям вакансий нет/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /сбросить фильтры/i })).toBeInTheDocument();
+    expect(screen.queryByText(/вакансий пока нет/i)).not.toBeInTheDocument();
+  });
+
+  it("retries loading vacancies after an error and does not show an empty list", async () => {
+    vi.mocked(loadLanding).mockResolvedValue(
+      landingFor([{ id: "area.recruiter_workspace", label: "Recruiter workspace", path: "/vacancies" }]),
+    );
+    vi.mocked(loadVacancies)
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({
+        items: [
+          {
+            id: "v1",
+            recruiter_id: "r1",
+            title: "Backend Developer",
+            description: "...",
+            grade: "middle",
+            required_skills: [],
+            nice_to_have_skills: [],
+            status: "active",
+            created_at: "2026-01-01T00:00:00Z",
+          },
+        ],
+      });
+
+    renderPage();
+
+    expect(await screen.findByText(/не удалось загрузить вакансии/i)).toBeInTheDocument();
+    expect(screen.queryByText(/вакансий пока нет/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /повторить/i }));
+
+    expect(await screen.findByText(/backend developer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/не удалось загрузить вакансии/i)).not.toBeInTheDocument();
   });
 });

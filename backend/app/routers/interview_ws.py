@@ -28,7 +28,7 @@ _CLOSE_INVALID_TOKEN = 4401
 _CLOSE_ALREADY_COMPLETED = 4409
 
 
-@router.websocket("/ws/interview/{access_token}")
+@router.websocket("/api/ws/interview/{access_token}")
 async def interview_control_channel(websocket: WebSocket, access_token: str) -> None:
     async with SessionLocal() as session:
         interview = await get_interview_by_access_token(session, access_token)
@@ -46,10 +46,11 @@ async def interview_control_channel(websocket: WebSocket, access_token: str) -> 
 
     relay_task = asyncio.create_task(_relay_control_events(websocket, redis, interview_id))
     try:
-        # Единственный тип сообщения от кандидата в этом канале — `candidate_input`
-        # (contracts/control-channel.md). Пересылка в сторону live-agent-моста — T028,
-        # ещё не реализована; здесь MVP-персистенция (`record_candidate_input`) —
-        # см. план, «Recording depth: MVP».
+        # От кандидата в этом канале два типа сообщений: `candidate_input`
+        # (contracts/control-channel.md; пересылка в сторону live-agent-моста — T028, ещё
+        # не реализована, здесь MVP-персистенция) и `security_signal` — блок безопасности
+        # на карточке кандидата (переключение вкладки/камера, см. control-channel.ts на
+        # фронте), только логирование, без агрегации в Answer.
         while True:
             raw = await websocket.receive_text()
             try:
@@ -57,10 +58,12 @@ async def interview_control_channel(websocket: WebSocket, access_token: str) -> 
             except json.JSONDecodeError:
                 logger.warning("interview_ws: не-JSON сообщение от кандидата, интервью %s", interview_id)
                 continue
-            if message.get("type") != "candidate_input":
-                continue
+            message_type = message.get("type")
             async with SessionLocal() as session:
-                await InterviewEventService(session).record_candidate_input(interview_id, message)
+                if message_type == "candidate_input":
+                    await InterviewEventService(session).record_candidate_input(interview_id, message)
+                elif message_type == "security_signal":
+                    await InterviewEventService(session).record_security_signal(interview_id, message)
     except WebSocketDisconnect:
         pass
     finally:

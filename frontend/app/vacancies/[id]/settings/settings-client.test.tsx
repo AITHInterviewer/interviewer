@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const replace = vi.fn();
@@ -8,6 +8,14 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/vacancies/v1/settings",
 }));
 
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...props }: React.ComponentProps<"a">) => (
+    <a href={href as string} {...props}>
+      {children}
+    </a>
+  ),
+}));
+
 vi.mock("@/lib/auth", async () => {
   const actual = await vi.importActual<typeof import("@/lib/auth")>("@/lib/auth");
   return {
@@ -15,10 +23,13 @@ vi.mock("@/lib/auth", async () => {
     loadLanding: vi.fn(),
     loadVacancy: vi.fn(),
     updateManagedVacancy: vi.fn(),
+    archiveManagedVacancy: vi.fn(),
+    pauseManagedVacancy: vi.fn(),
+    resumeManagedVacancy: vi.fn(),
   };
 });
 
-import { loadLanding, loadVacancy, updateManagedVacancy } from "@/lib/auth";
+import { archiveManagedVacancy, loadLanding, loadVacancy, updateManagedVacancy } from "@/lib/auth";
 import { ThemeProvider } from "@/lib/theme";
 import { VacancySettingsClient } from "./settings-client";
 
@@ -79,11 +90,11 @@ describe("VacancySettingsClient", () => {
 
     renderClient("v1");
 
-    const titleInput = (await screen.findByLabelText(/title/i)) as HTMLInputElement;
+    const titleInput = (await screen.findByLabelText(/название/i)) as HTMLInputElement;
     expect(titleInput.value).toBe("Backend Developer");
 
     fireEvent.change(titleInput, { target: { value: "Senior Backend Developer" } });
-    fireEvent.submit(screen.getByRole("button", { name: /save changes/i }).closest("form")!);
+    fireEvent.submit(screen.getByRole("button", { name: /сохранить/i }).closest("form")!);
 
     await waitFor(() =>
       expect(updateManagedVacancy).toHaveBeenCalledWith("v1", {
@@ -92,8 +103,30 @@ describe("VacancySettingsClient", () => {
         grade: "middle",
         requiredSkills: ["python"],
         niceToHaveSkills: [],
+        expertId: null,
+        hiringManagerId: null,
       }),
     );
-    await waitFor(() => expect(screen.getByText(/vacancy updated/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/изменения сохранены/i)).toBeInTheDocument());
+  });
+
+  it("asks for confirmation before archiving", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "active" });
+    vi.mocked(archiveManagedVacancy).mockResolvedValue({ ...baseVacancy, status: "archived" });
+
+    renderClient("v1");
+
+    expect(await screen.findByRole("button", { name: /приостановить/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^архивировать$/i }));
+    const dialog = screen.getByRole("dialog", { name: /архивировать вакансию/i });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText(/backend developer/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/не отменяем/i)).toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^архивировать$/i }));
+
+    await waitFor(() => expect(archiveManagedVacancy).toHaveBeenCalledWith("v1"));
+    await waitFor(() => expect(screen.getByText(/вакансия в архиве/i)).toBeInTheDocument());
   });
 });

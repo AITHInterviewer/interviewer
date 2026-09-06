@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ChevronLeft, ChevronRight, Check, Camera, Mic, Volume2, MoreVertical } from "lucide-react";
 
-import { apiFetch } from "@/lib/api";
+import { apiFetch, resolveLiveKitWsUrl } from "@/lib/api";
 import { ControlChannel, type ChannelState } from "@/lib/control-channel";
 import { LiveKitSession, type AgentPresence } from "@/lib/livekit-client";
 
@@ -24,27 +24,52 @@ export function InterviewRoom({
   sessionId,
   stream,
   initialSpeakerId,
-  onRoadmapChange,
+  initialQuestionText,
 }: {
   sessionId: string;
   stream: MediaStream | null;
   initialSpeakerId?: string | null;
-  /** Поднимает роадмап наверх (InterviewFlow → CandidateShell), чтобы им управлял
-   * реальный `<Stepper>` в шапке кандидатского флоу, а не дублирующийся визуал здесь. */
-  onRoadmapChange?: (roadmap: { index: number; total: number } | null) => void;
+  // Персистентный на бэке текст текущего ОСНОВНОГО вопроса (см.
+  // Interview.current_question_text) — переживает reconnect/перезагрузку страницы, пока
+  // не придёт первый ControlEvent.type==="question" по WS.
+  initialQuestionText?: string | null;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const liveKitRef = useRef<LiveKitSession | null>(null);
   const [channelState, setChannelState] = useState<ChannelState>({ status: "connecting" });
   const [agentPresence, setAgentPresence] = useState<AgentPresence>("absent");
-  const [error, setError] = useState<string | null>(null);
-  const candidateSpeaking = useMicSpeaking(stream);
+  // Неустранимая ошибка звонка (например, LiveKit не смог установить signal-соединение
+  // за отведённое время) — дальше ждать нечего, показываем экран выхода вместо того,
+  // чтобы кандидат смотрел на мёртвую комнату с текстом ошибки под вопросом.
+  const [fatalError, setFatalError] = useState<string | null>(null);
+  // После switchDevice LiveKit пересоздаёт трек. Превью и индикатор речи читают
+  // эти значения из state, а не из ref во время рендера.
+  const [activeVideoTrack, setActiveVideoTrack] = useState<MediaStreamTrack | null>(
+    () => stream?.getVideoTracks()[0] ?? null,
+  );
+  const [activeAudioTrack, setActiveAudioTrack] = useState<MediaStreamTrack | null>(
+    () => stream?.getAudioTracks()[0] ?? null,
+  );
+
+  const syncActiveTracks = (session: LiveKitSession | null) => {
+    setActiveVideoTrack(session?.getLocalVideoTrack() ?? stream?.getVideoTracks()[0] ?? null);
+    setActiveAudioTrack(session?.getLocalAudioTrack() ?? stream?.getAudioTracks()[0] ?? null);
+  };
+  const candidateSpeaking = useMicSpeaking(activeAudioTrack);
   // Роадмап считает только "оригинальные" вопросы (ControlEvent.type === "question") —
   // checkin/adaptive_question не несут question_index/questions_total (см.
   // control-channel.ts) и намеренно не двигают роадмап: это уточнения в рамках текущего
   // вопроса, не отдельный шаг. Держим последний известный index/total отдельно от
   // channelState, потому что тот может в любой момент стать checkin-событием.
   const [roadmap, setRoadmap] = useState<{ index: number; total: number } | null>(null);
+  // Реальный найденный баг (2026-09-06): текст вопроса брался из ПОСЛЕДНЕГО ControlEvent
+  // без разбора типа — checkin/adaptive_question (доп./наводящий вопрос от LLM) тем же
+  // полем стирал основной вопрос, кандидат его больше не видел, решил, что агент завис.
+  // baseQuestionText обновляется ТОЛЬКО на type==="question", тем же паттерном "adjusting
+  // state during render", что и roadmap чуть выше; доп./наводящий вопрос — отдельно, ниже,
+  // не заменяет основной.
+  const [baseQuestionText, setBaseQuestionText] = useState<string | null>(initialQuestionText ?? null);
+  const [lastBaseQuestionEvent, setLastBaseQuestionEvent] = useState<unknown>(null);
   // Не useEffect, а "adjusting state during render" (react.dev/learn/you-might-not-need-an-effect,
   // «Storing information from previous renders») — refs недоступны во время рендера
   // (react-hooks/refs), поэтому "предыдущее" значение хранится тоже в state.
@@ -59,16 +84,27 @@ export function InterviewRoom({
       setRoadmap({ index: event.question_index, total: event.questions_total });
     }
   }
+  if (
+    (channelState.status === "question_active" || channelState.status === "completed") &&
+    channelState.event.type === "question" &&
+    channelState.event !== lastBaseQuestionEvent
+  ) {
+    setLastBaseQuestionEvent(channelState.event);
+    setBaseQuestionText(channelState.event.text);
+  }
+  // Доп./наводящий вопрос от LLM — не персистентный, не двигает baseQuestionText, просто
+  // текущее значение канала, пока оно активно.
+  const followUpText =
+    channelState.status === "question_active" &&
+    (channelState.event.type === "checkin" || channelState.event.type === "adaptive_question")
+      ? channelState.event.text
+      : null;
 
   useEffect(() => {
-    onRoadmapChange?.(roadmap);
-  }, [roadmap, onRoadmapChange]);
-
-  useEffect(() => {
-    if (videoRef.current && stream) {
-      videoRef.current.srcObject = stream;
+    if (videoRef.current && activeVideoTrack) {
+      videoRef.current.srcObject = new MediaStream([activeVideoTrack]);
     }
-  }, [stream]);
+  }, [activeVideoTrack]);
 
   useEffect(() => {
     if (!stream) return;
@@ -81,17 +117,37 @@ export function InterviewRoom({
     const unsubscribeChannel = channel.subscribe(setChannelState);
     channel.connect();
 
-    apiFetch<LiveKitTokenResponse>(`/interview/${sessionId}/livekit-token`, { method: "POST" })
+    // Блок безопасности на карточке кандидата (см. control-channel.ts) — переключение
+    // вкладки видно из document.visibilitychange, отключение камеры — из mute/unmute
+    // на самом видеотреке (не через LiveKit API: кандидат ничего не выключает сам в этом
+    // UI, это сигнал устройства/ОС — закрыл крышку, забрал разрешение и т.п.).
+    const handleVisibility = () => {
+      channel.sendSecuritySignal(document.hidden ? "tab_hidden" : "tab_visible");
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    const videoTrack = stream.getVideoTracks()[0];
+    const handleTrackMute = () => channel.sendSecuritySignal("camera_muted");
+    const handleTrackUnmute = () => channel.sendSecuritySignal("camera_unmuted");
+    videoTrack?.addEventListener("mute", handleTrackMute);
+    videoTrack?.addEventListener("unmute", handleTrackUnmute);
+
+    apiFetch<LiveKitTokenResponse>(`/api/interview/${sessionId}/livekit-token`, { method: "POST" })
       .then((tokenResponse) => {
         if (cancelled) return undefined;
-        return liveKit.connect(tokenResponse.ws_url, tokenResponse.token, stream, initialSpeakerId);
+        return liveKit.connect(resolveLiveKitWsUrl(tokenResponse.ws_url), tokenResponse.token, stream, initialSpeakerId);
       })
       .then(() => {
         if (cancelled) return;
         unsubscribePresence = liveKit.onAgentPresenceChange(setAgentPresence);
+        syncActiveTracks(liveKit);
       })
       .catch((cause) => {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : "Не удалось подключиться к звонку");
+        if (cancelled) return;
+        setFatalError(cause instanceof Error ? cause.message : "Не удалось подключиться к звонку");
+        // Дальше ждать нечего — останавливаем оба канала, не дожидаясь размонтирования.
+        channel.close();
+        liveKit.disconnect();
       });
 
     return () => {
@@ -99,6 +155,9 @@ export function InterviewRoom({
       liveKitRef.current = null;
       unsubscribeChannel();
       unsubscribePresence?.();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      videoTrack?.removeEventListener("mute", handleTrackMute);
+      videoTrack?.removeEventListener("unmute", handleTrackUnmute);
       channel.close();
       liveKit.disconnect();
     };
@@ -107,70 +166,117 @@ export function InterviewRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, stream]);
 
-  const questionText =
-    channelState.status === "question_active" || channelState.status === "completed"
-      ? channelState.event.text
-      : null;
+  const hasCamera = Boolean(activeVideoTrack);
 
   if (channelState.status === "completed") {
     return (
-      <div className="completion-stage">
-        <Check size={40} />
+      <section className="setup-stage">
+        <Check size={32} className="text-[var(--positive)]" />
         <h1>Интервью завершено</h1>
-        <p>Спасибо, ответы отправлены на обработку.</p>
-      </div>
+        <p>
+          Спасибо, ваши ответы записаны и сейчас обрабатываются. Итоги и обратную связь по
+          результатам передаст рекрутёр вакансии — свяжитесь с ним позже.
+        </p>
+      </section>
+    );
+  }
+
+  if (fatalError) {
+    return (
+      <section className="setup-stage">
+        <h1>Интервью прервано</h1>
+        <p>Причина: {fatalError}</p>
+        <p>
+          Попробуйте открыть эту же ссылку ещё раз. Если не получится — часть ответов уже записана,
+          рекрутёр вакансии свяжется с вами по итогам.
+        </p>
+      </section>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* 260px справа — камера кандидата + плашка интервьюера, симметричный пустой
-          спейсер слева той же ширины, чтобы центральная колонка с вопросом была
-          визуально центрирована в viewport, а не просто занимала оставшийся `1fr`. */}
-      <div className="grid gap-4 sm:grid-cols-[260px_1fr_260px]">
-        <div className="hidden sm:block" aria-hidden="true" />
+    <div className="relative">
+      {/* Ячейка вопроса — тот же .setup-stage, что и на экране "Устройства" (тот же размер
+          и вид карточки). Камера кандидата и плашка интервьюера здесь не участвуют в этой
+          ширине вовсе — на десктопе они прижаты прямо к правому краю страницы. */}
+      <section className="setup-stage flex flex-col items-center justify-center gap-4 text-center">
+        <p className="text-2xl font-medium leading-snug">
+          {baseQuestionText ?? "Подключаемся к интервью…"}
+        </p>
+        {followUpText ? <p className="question-followup">{followUpText}</p> : null}
+        <StatusLine channelState={channelState} />
+      </section>
 
-        <div className="flex min-h-[220px] flex-col items-center justify-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] p-6 text-center">
-          <p className="text-xl font-medium leading-snug">{questionText ?? "Подключаемся к интервью…"}</p>
-          <StatusLine channelState={channelState} />
-          {error && <p className="text-sm text-[var(--danger)]">{error}</p>}
-        </div>
-
-        <div className="space-y-3">
-          {/* relative-обёртка снаружи overflow-hidden-плитки видео — иначе всплывающее
-              меню DeviceSettings обрезается границами плитки (overflow-hidden), даже
-              будучи абсолютно спозиционированным поверх неё. */}
-          <div className="relative">
-            <div
-              className={`aspect-video overflow-hidden rounded-xl border-4 bg-[var(--surface-muted)] transition-colors duration-150 ${
-                candidateSpeaking
-                  ? "border-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_25%,transparent)]"
-                  : "border-transparent"
-              }`}
-            >
-              <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
-              <div
-                className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-medium text-[var(--accent-ink)] transition-opacity ${
-                  candidateSpeaking ? "opacity-100" : "opacity-0"
+      {roadmap && (
+        <ol className="hidden sm:fixed sm:left-6 sm:top-1/2 sm:block sm:w-[180px] sm:-translate-y-1/2 sm:space-y-2.5 sm:text-sm">
+          {Array.from({ length: roadmap.total }, (_, i) => {
+            const done = i < roadmap.index;
+            const active = i === roadmap.index;
+            return (
+              <li
+                key={i}
+                className={`flex items-center gap-2 ${
+                  active
+                    ? "font-semibold text-[var(--accent)]"
+                    : done
+                      ? "text-[var(--positive)]"
+                      : "text-[var(--ink-tertiary)]"
                 }`}
               >
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--accent-ink)]" />
-                Вы говорите
-              </div>
-            </div>
-            <div className="absolute right-2 top-2">
-              <DeviceSettings liveKitRef={liveKitRef} />
-            </div>
-          </div>
+                {done ? (
+                  <Check size={14} className="shrink-0" />
+                ) : (
+                  <span
+                    className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ background: active ? "var(--accent)" : "var(--ink-tertiary)" }}
+                  />
+                )}
+                Вопрос {i + 1}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      <div className="mt-6 space-y-3 sm:fixed sm:right-6 sm:top-1/2 sm:mt-0 sm:w-[220px] sm:-translate-y-1/2">
+        {/* relative-обёртка снаружи overflow-hidden-плитки видео — иначе всплывающее
+            меню DeviceSettings обрезается границами плитки (overflow-hidden), даже
+            будучи абсолютно спозиционированным поверх неё. */}
+        <div className="relative">
           <div
-            className={`flex aspect-video items-center justify-center rounded-xl border text-sm ${
-              agentPresence === "speaking"
-                ? "border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] text-[var(--accent)]"
-                : "border-[var(--border)] bg-[var(--surface-muted)] text-[var(--ink-secondary)]"
+            className={`relative aspect-video overflow-hidden rounded-xl border-4 bg-[var(--surface-muted)] transition-colors duration-150 ${
+              candidateSpeaking
+                ? "border-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_25%,transparent)]"
+                : "border-transparent"
             }`}
           >
-            {agentPresence === "speaking" ? "Интервьюер говорит…" : agentPresence === "present" ? "Интервьюер" : "Ожидаем интервьюера…"}
+            <video ref={videoRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+            {!hasCamera ? (
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-[var(--ink-secondary)]">
+                Камера выключена
+              </div>
+            ) : null}
+            <div
+              className={`absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-2.5 py-1 text-xs font-medium text-[var(--accent-ink)] transition-opacity ${
+                candidateSpeaking ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--accent-ink)]" />
+              Вы говорите
+            </div>
           </div>
+          <div className="absolute right-2 top-2">
+            <DeviceSettings liveKitRef={liveKitRef} onDeviceSwitched={() => syncActiveTracks(liveKitRef.current)} />
+          </div>
+        </div>
+        <div
+          className={`flex aspect-video items-center justify-center rounded-xl border-4 text-sm transition-colors duration-150 ${
+            agentPresence === "speaking"
+              ? "border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_10%,transparent)] text-[var(--accent)] shadow-[0_0_0_4px_color-mix(in_srgb,var(--accent)_25%,transparent)]"
+              : "border-transparent bg-[var(--surface-muted)] text-[var(--ink-secondary)]"
+          }`}
+        >
+          {agentPresence === "speaking" ? "Интервьюер говорит…" : agentPresence === "present" ? "Интервьюер" : "Ожидаем интервьюера…"}
         </div>
       </div>
     </div>
@@ -184,7 +290,7 @@ function StatusLine({ channelState }: { channelState: ChannelState }) {
     case "reconnecting":
       return <p className="text-sm text-[var(--danger)]">Потеряна связь — переподключаемся…</p>;
     case "completed":
-      // Недостижимо: InterviewRoom рендерит .completion-stage раньше StatusLine (см. выше).
+      // Недостижимо: InterviewRoom рендерит экран завершения раньше StatusLine (см. выше).
       return null;
     case "closed":
       return <p className="text-sm text-[var(--ink-secondary)]">Соединение закрыто.</p>;
@@ -205,13 +311,22 @@ type MenuView = "main" | MediaDeviceKind;
  * Google Meet: карточка с рядами иконка+название+шеврон, клик по ряду открывает список
  * устройств этого вида (radio-стиль с галочкой у текущего), "назад" возвращает в главное
  * меню. */
-function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSession | null> }) {
+function DeviceSettings({
+  liveKitRef,
+  onDeviceSwitched,
+}: {
+  liveKitRef: React.RefObject<LiveKitSession | null>;
+  /** Камера/микрофон реально переключились в комнате — вызывающая сторона должна
+   * перечитать активный трек (превью, индикатор речи). Для динамиков не значим. */
+  onDeviceSwitched?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<MenuView>("main");
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [speakers, setSpeakers] = useState<MediaDeviceInfo[]>([]);
   const [selected, setSelected] = useState<Partial<Record<MediaDeviceKind, string>>>({});
+  const [switchError, setSwitchError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -235,10 +350,16 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, [open]);
 
-  const switchDevice = (kind: MediaDeviceKind, deviceId: string) => {
-    setSelected((current) => ({ ...current, [kind]: deviceId }));
-    void liveKitRef.current?.switchDevice(kind, deviceId);
+  const switchDevice = async (kind: MediaDeviceKind, deviceId: string) => {
+    setSwitchError(null);
     setView("main");
+    try {
+      await liveKitRef.current?.switchDevice(kind, deviceId);
+      setSelected((current) => ({ ...current, [kind]: deviceId }));
+      if (kind !== "audiooutput") onDeviceSwitched?.();
+    } catch {
+      setSwitchError("Не удалось переключить устройство. Попробуйте ещё раз.");
+    }
   };
 
   const rows: DeviceRow[] = [
@@ -262,6 +383,9 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
 
       {open && (
         <div className="absolute right-0 top-11 z-10 w-72 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-raised)] text-sm shadow-lg">
+          {switchError && (
+            <p className="border-b border-[var(--border)] px-4 py-2 text-xs text-[var(--danger)]">{switchError}</p>
+          )}
           {view === "main" ? (
             <div className="py-1">
               {rows.map((row, index) => {
@@ -329,11 +453,11 @@ function DeviceSettings({ liveKitRef }: { liveKitRef: React.RefObject<LiveKitSes
  * а не LiveKit `room.activeSpeakers` — тот теоретически тоже должен срабатывать, но
  * не проверен вживую как надёжный источник для этой цели, а порог/задержка SFU-стороны
  * не под нашим контролем. Простой RMS по последнему буферу, порог — эмпирический. */
-function useMicSpeaking(stream: MediaStream | null): boolean {
+function useMicSpeaking(track: MediaStreamTrack | null): boolean {
   const [speaking, setSpeaking] = useState(false);
 
   useEffect(() => {
-    if (!stream || stream.getAudioTracks().length === 0) {
+    if (!track) {
       return;
     }
     const AudioContextCtor =
@@ -341,7 +465,7 @@ function useMicSpeaking(stream: MediaStream | null): boolean {
     if (!AudioContextCtor) return;
 
     const audioContext = new AudioContextCtor();
-    const source = audioContext.createMediaStreamSource(stream);
+    const source = audioContext.createMediaStreamSource(new MediaStream([track]));
     const analyser = audioContext.createAnalyser();
     analyser.fftSize = 512;
     source.connect(analyser);
@@ -368,7 +492,7 @@ function useMicSpeaking(stream: MediaStream | null): boolean {
       audioContext.close().catch(() => {});
       setSpeaking(false);
     };
-  }, [stream]);
+  }, [track]);
 
   return speaking;
 }
