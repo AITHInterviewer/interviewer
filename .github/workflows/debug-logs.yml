@@ -48,9 +48,10 @@ jobs:
           Write-Output "--- container status (live-agent stack) ---"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -a
 
-          # Не печатаем сам ANTHROPIC_BASE_URL/ключ — только код ответа/ошибку curl, чтобы
-          # понять, реально ли live-agent видит прокси по сети (ConnectTimeout в логах —
-          # это может быть сам прокси недоступен, а не проблема с ключом).
+          # Не печатаем сам ANTHROPIC_BASE_URL/ключ — только код ответа/ошибку, чтобы понять,
+          # реально ли live-agent видит прокси по сети (ConnectTimeout в логах — это может
+          # быть сам прокси недоступен, а не проблема с ключом). curl нет в образе (найдено
+          # 2026-09-06) — используем python (уже есть в рантайме) через httpx.
           Write-Output "--- anthropic proxy reachability (from inside live-agent container) ---"
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent `
-            sh -c 'curl -s -o /dev/null -w "HTTP %{http_code} (connect: %{time_connect}s, total: %{time_total}s)\n" --max-time 8 "$ANTHROPIC_BASE_URL/v1/messages" -X POST -H "x-api-key: $ANTHROPIC_API_KEY" -H "anthropic-version: 2023-06-01" -H "content-type: application/json" -d "{}" || echo "curl failed (exit $?)"'
+          $pyCheck = "import os,time`nimport httpx`nu=os.environ['ANTHROPIC_BASE_URL'].rstrip('/')+'/v1/messages'`ns=time.monotonic()`ntry:`n r=httpx.post(u,headers={'x-api-key':os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'},json={},timeout=8.0)`n print('HTTP',r.status_code,'after',round(time.monotonic()-s,2),'s')`nexcept Exception as exc:`n print(type(exc).__name__,str(exc),'after',round(time.monotonic()-s,2),'s')"
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python -c $pyCheck
