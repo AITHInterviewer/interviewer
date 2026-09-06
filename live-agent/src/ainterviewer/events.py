@@ -37,6 +37,7 @@ class EventType(str, Enum):
     AGENT_UTTERANCE = "agent_utterance"
     ADAPTIVE_QUESTION_ASKED = "adaptive_question_asked"
     CHECKIN_USED = "checkin_used"
+    NUDGE_PLAYED = "nudge_played"
     QUESTION_COMPLETED = "question_completed"
     INTERVIEW_COMPLETED = "interview_completed"
 

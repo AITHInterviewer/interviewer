@@ -22,14 +22,20 @@ from app.models.question import Question
 logger = logging.getLogger(__name__)
 
 # data-model.md, «Маппинг live-agent EventType → ControlEvent.type». Остальные EventType
-# (backchannel_played, candidate_utterance, live_control_decision, agent_utterance,
-# interview_started) сознательно не транслируются — избыточны для UI.
+# (backchannel_played, live_control_decision, interview_started) сознательно не
+# транслируются — избыточны для UI.
+#
+# candidate_utterance/agent_utterance транслируются как субтитры (транскрипт ответа
+# кандидата и реплики интервьюера внизу экрана, выключаемые кандидатом) — это НЕ управление
+# ходом интервью, а зеркало уже произнесённого, поэтому FR-011 не нарушается.
 _TRANSLATED_EVENT_TYPES = {
     "question_started": "question",
     "checkin_used": "checkin",
     "adaptive_question_asked": "adaptive_question",
     "question_completed": "transition",
     "interview_completed": "completed",
+    "candidate_utterance": "subtitle_candidate",
+    "agent_utterance": "subtitle_agent",
 }
 
 # data-model.md, «input_format по Question.format».
@@ -52,6 +58,8 @@ class ControlEvent(TypedDict, total=False):
     # отдельные шаги роадмапа, а уточнения в рамках текущего оригинального вопроса.
     question_index: int | None
     questions_total: int | None
+    # только у type="question": отведённое на вопрос время (таймер на карточке кандидата).
+    time_limit_sec: int | None
 
 
 def redis_channel_name(interview_id: str) -> str:
@@ -103,6 +111,12 @@ async def to_control_event(session: AsyncSession, raw_event: dict[str, Any]) -> 
         payload_text = "Спасибо, ответы отправлены на обработку"
         return ControlEvent(type="completed", text=payload_text, ts=ts)
 
+    if control_type in ("subtitle_candidate", "subtitle_agent"):
+        text = raw_event.get("payload", {}).get("text")
+        if not text:
+            return None
+        return ControlEvent(type=control_type, question_id=question_id, text=text, ts=ts)
+
     input_format, code_language = await _resolve_input_format(session, question_id)
     payload = raw_event.get("payload", {})
     event = ControlEvent(
@@ -116,6 +130,8 @@ async def to_control_event(session: AsyncSession, raw_event: dict[str, Any]) -> 
     if control_type == "question":
         event["question_index"] = payload.get("index")
         event["questions_total"] = payload.get("questions_total")
+        if payload.get("estimated_duration_sec") is not None:
+            event["time_limit_sec"] = payload["estimated_duration_sec"]
     return event
 
 

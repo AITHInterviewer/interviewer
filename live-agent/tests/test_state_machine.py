@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from ainterviewer.events import EventLog, EventType  # noqa: E402
 from ainterviewer.llm_client import FakeLLM  # noqa: E402
+from ainterviewer.prompts import NUDGE_PHRASES  # noqa: E402
 from ainterviewer.schema import Candidate, InterviewInput, Question, Vacancy  # noqa: E402
 from ainterviewer.state_machine import LiveContourEngine, Phase  # noqa: E402
 
@@ -96,6 +97,33 @@ async def test_interview_completes_after_last_question(engine):
     assert engine.state.phase != Phase.DONE
     await engine.on_candidate_final_turn("Развёрнутый ответ на второй вопрос, тоже достаточный.")
     assert engine.state.phase == Phase.DONE
+
+
+@pytest.mark.asyncio
+async def test_nudge_once_only_while_candidate_silent(engine):
+    await engine.start()
+    first = engine.nudge()
+    assert first in NUDGE_PHRASES
+    assert engine.nudge() is None  # не более одной подсказки на вопрос
+    assert engine.state.current.nudge_used is True
+
+
+@pytest.mark.asyncio
+async def test_nudge_noop_after_candidate_spoke(engine):
+    await engine.start()
+    await engine.on_candidate_final_turn("эм, секунду...")  # continue — остаёмся на вопросе
+    assert engine.nudge() is None  # кандидат уже что-то сказал — не подбадриваем
+
+
+@pytest.mark.asyncio
+async def test_skip_current_question_advances(engine):
+    await engine.start()
+    assert engine.state.question_index == 0
+    reply = await engine.skip_current_question(reason="candidate_skip")
+    assert engine.state.question_index == 1
+    assert "Вопрос 2?" in reply
+    reasons = [e.payload.get("reason") for e in engine.events.events if e.type == EventType.QUESTION_COMPLETED]
+    assert "candidate_skip" in reasons
 
 
 @pytest.mark.asyncio

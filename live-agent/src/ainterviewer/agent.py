@@ -32,8 +32,12 @@ LLM с накопленной историей чата (`chat_ctx`) и гене
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
 import logging
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -59,7 +63,7 @@ from .llm_client import (
 )
 from .prompts import INTRO_PHRASE
 from .schema import InterviewInput, Question, Vacancy
-from .state_machine import LiveContourEngine
+from .state_machine import LiveContourEngine, Phase
 
 load_dotenv()
 
@@ -106,6 +110,39 @@ class InterviewerAgent(Agent):
         # вступления (тут же, при конструировании) и в llm_node — после бэкчаннела и
         # после реальной реплики агента.
         self._last_agent_utterance = ""
+        # Граф live-контура не потокобезопасен: обычный ход кандидата (llm_node) и
+        # принудительный переход (таймер отведённого времени / кнопка «Дальше», см.
+        # entrypoint) могут прийти одновременно — сериализуем их через один лок.
+        self._engine_lock = asyncio.Lock()
+
+    def _sync_stt_prompt(self) -> None:
+        """Подсказка Whisper под текущий вопрос — вызывать после любого перехода на
+        следующий вопрос (обычного или принудительного)."""
+        if self.engine.state.question_index == self._stt_question_index:
+            return
+        self._stt_question_index = self.engine.state.question_index
+        self._stt.update_options(
+            prompt=_build_stt_prompt(self.engine.state.input.vacancy, self.engine.state.current_question)
+        )
+        logger.info("STT prompt updated for question index %d", self._stt_question_index)
+
+    async def force_advance(self, session: AgentSession, reason: str) -> None:
+        """Принудительный переход к следующему вопросу извне реактивного цикла — по кнопке
+        «Дальше» кандидата или по истечении отведённого на вопрос времени."""
+        async with self._engine_lock:
+            reply = await self.engine.skip_current_question(reason=reason)
+            self._sync_stt_prompt()
+        if reply:
+            self._last_agent_utterance = reply
+            await session.say(reply, add_to_chat_ctx=False)
+
+    async def maybe_nudge(self, session: AgentSession) -> None:
+        """Половина отведённого времени истекла, кандидат молчит — одна мягкая подсказка."""
+        async with self._engine_lock:
+            phrase = self.engine.nudge()
+        if phrase:
+            self._last_agent_utterance = phrase
+            await session.say(phrase, add_to_chat_ctx=False)
 
     async def llm_node(self, chat_ctx: ChatContext, tools: list, model_settings: ModelSettings):  # noqa: ARG002
         # ChatContext.messages — метод (список нужно ЗВАТЬ, `chat_ctx.messages()`), не
@@ -130,22 +167,14 @@ class InterviewerAgent(Agent):
 
         # Слой 2 — собственно решение реактивного цикла (см. state_machine.py).
         logger.info("llm_node: calling engine.on_candidate_final_turn...")
-        reply = await self.engine.on_candidate_final_turn(last_text)
+        async with self._engine_lock:
+            reply = await self.engine.on_candidate_final_turn(last_text)
+            # Реплика движка могла увести нас на следующий вопрос (переход внутри
+            # on_candidate_final_turn) — обновляем STT-подсказку под новый вопрос ДО того,
+            # как кандидат начнёт на него отвечать. whisper-1 (не realtime) пересобирает
+            # конфиг транскрипции на каждый запрос, так что update_options здесь достаточно.
+            self._sync_stt_prompt()
         logger.info("llm_node: engine.on_candidate_final_turn returned %r", reply)
-        # Реплика движка могла увести нас на следующий вопрос (переход внутри
-        # on_candidate_final_turn) — обновляем STT-подсказку под новый вопрос ДО того, как
-        # кандидат начнёт на него отвечать. whisper-1 (не realtime) пересобирает конфиг
-        # транскрипции на каждый запрос, так что update_options здесь достаточно.
-        if self.engine.state.question_index != self._stt_question_index:
-            self._stt_question_index = self.engine.state.question_index
-            self._stt.update_options(
-                prompt=_build_stt_prompt(
-                    self.engine.state.input.vacancy, self.engine.state.current_question
-                )
-            )
-            logger.info(
-                "llm_node: STT prompt updated for question index %d", self._stt_question_index
-            )
 
         if reply:
             self._last_agent_utterance = reply
@@ -245,6 +274,64 @@ async def _load_interview_input(room_name: str | None) -> InterviewInput:
     if room_name:
         interview.interview_id = room_name
     return interview
+
+
+def commands_channel_name(interview_id: str) -> str:
+    """Канал команд кандидат→live-agent (кнопка «Дальше» на карточке кандидата). Backend
+    публикует сюда, получив сообщение по control-WS; ответная сторона control_bridge
+    (события live-agent→UI) — отдельный канал `live-agent:events:{id}`."""
+    return f"live-agent:commands:{interview_id}"
+
+
+async def _question_timer_loop(session: AgentSession, agent: InterviewerAgent) -> None:
+    """Таймер отведённого на вопрос времени для обычных (assessment) вопросов. Пока кандидат
+    не сказал ни слова: на половине лимита — одна подсказка (agent.maybe_nudge), по
+    истечении — принудительный переход к следующему вопросу. Как только кандидат начал
+    отвечать, дальнейший ход вопроса ведёт обычный реактивный цикл (llm_node)."""
+    engine = agent.engine
+    tracked_index = -1
+    started_at = 0.0
+    nudged = advanced = False
+    while engine.state.phase != Phase.DONE:
+        await asyncio.sleep(2.0)
+        st = engine.state
+        if st.current is None or not engine.silence_timer_enabled():
+            tracked_index = st.question_index
+            continue
+        if st.question_index != tracked_index:
+            tracked_index = st.question_index
+            started_at = time.monotonic()
+            nudged = advanced = False
+            continue
+        if st.current.dialogue:
+            continue
+        elapsed = time.monotonic() - started_at
+        limit = engine.time_limit_sec()
+        if not nudged and elapsed >= limit / 2:
+            nudged = True
+            await agent.maybe_nudge(session)
+        elif not advanced and elapsed >= limit:
+            advanced = True
+            await agent.force_advance(session, reason="time_limit")
+
+
+async def _command_loop(session: AgentSession, agent: InterviewerAgent, redis, interview_id: str) -> None:
+    pubsub = redis.pubsub()
+    await pubsub.subscribe(commands_channel_name(interview_id))
+    try:
+        async for message in pubsub.listen():
+            if message["type"] != "message":
+                continue
+            try:
+                cmd = json.loads(message["data"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if cmd.get("type") == "skip":
+                logger.info("_command_loop: candidate requested next question")
+                await agent.force_advance(session, reason="candidate_skip")
+    finally:
+        await pubsub.unsubscribe(commands_channel_name(interview_id))
+        await pubsub.aclose()
 
 
 async def entrypoint(ctx: JobContext) -> None:
@@ -366,10 +453,35 @@ async def entrypoint(ctx: JobContext) -> None:
     await session.say(first_utterance, add_to_chat_ctx=False)
     logger.info("entrypoint: session.say() done")
 
-    # TODO: не реализовано и не проверено — дождаться engine.state.phase == Phase.DONE
-    # (например, подпиской на событие INTERVIEW_COMPLETED в EventLog или опросом состояния)
-    # и корректно завершить job (ctx.shutdown() / отключить комнату). Без этого процесс
-    # зависает после последнего вопроса — первое, что нужно доделать перед демо.
+    # Таймер отведённого времени и канал команд («Дальше») — только для реальных интервью
+    # (комната = UUID из Postgres). Локальные/ручные прогоны (console, simulate.py) их не
+    # запускают: там нет ни осмысленного лимита времени, ни backend'а, публикующего команды.
+    background: list[asyncio.Task] = []
+    command_redis = None
+    if _room_name_is_interview_uuid(room_name):
+        background.append(asyncio.create_task(_question_timer_loop(session, agent)))
+        redis_url = os.environ.get("REDIS_URL")
+        if redis_url:
+            from redis.asyncio import Redis
+
+            command_redis = Redis.from_url(redis_url)
+            background.append(
+                asyncio.create_task(_command_loop(session, agent, command_redis, interview.interview_id))
+            )
+
+    try:
+        while engine.state.phase != Phase.DONE:
+            await asyncio.sleep(1.0)
+    finally:
+        for task in background:
+            task.cancel()
+        for task in background:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        if command_redis is not None:
+            await command_redis.aclose()
+    logger.info("entrypoint: interview complete — shutting down job")
+    ctx.shutdown()
 
 
 if __name__ == "__main__":

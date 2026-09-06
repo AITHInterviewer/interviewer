@@ -10,7 +10,15 @@
 
 import { backendWsUrl } from "@/lib/api";
 
-export type ControlEventType = "question" | "checkin" | "adaptive_question" | "transition" | "completed" | "reconnect_status";
+export type ControlEventType =
+  | "question"
+  | "checkin"
+  | "adaptive_question"
+  | "transition"
+  | "completed"
+  | "reconnect_status"
+  | "subtitle_candidate"
+  | "subtitle_agent";
 
 export type InputFormat = "none" | "text" | "code" | null;
 
@@ -25,7 +33,15 @@ export type ControlEvent = {
   // несут, это уточнения в рамках текущего вопроса, не отдельный шаг роадмапа.
   question_index?: number | null;
   questions_total?: number | null;
+  // Только у type="question" — отведённое на вопрос время (таймер на карточке кандидата).
+  time_limit_sec?: number | null;
 };
+
+/** Субтитры (транскрипт ответа кандидата / реплики интервьюера) — отдельный поток от
+ * основного `ChannelState`: приходят тем же WS, но не двигают статус интервью и вопрос,
+ * это просто зеркало произнесённого, которое кандидат может выключить. */
+export type SubtitleLine = { speaker: "candidate" | "agent"; text: string; ts: string };
+type SubtitleListener = (line: SubtitleLine) => void;
 
 export type CandidateInput = {
   type: "candidate_input";
@@ -61,6 +77,7 @@ const TERMINAL_CLOSE_CODES = new Set([1000, 4401, 4409]);
 export class ControlChannel {
   private socket: WebSocket | null = null;
   private listeners = new Set<Listener>();
+  private subtitleListeners = new Set<SubtitleListener>();
   private state: ChannelState = { status: "connecting" };
   private lastEvent: ControlEvent | null = null;
   private closedByCaller = false;
@@ -73,6 +90,15 @@ export class ControlChannel {
 
     this.socket.onmessage = (message) => {
       const event = JSON.parse(message.data as string) as ControlEvent;
+      if (event.type === "subtitle_candidate" || event.type === "subtitle_agent") {
+        const line: SubtitleLine = {
+          speaker: event.type === "subtitle_candidate" ? "candidate" : "agent",
+          text: event.text ?? "",
+          ts: event.ts,
+        };
+        for (const listener of this.subtitleListeners) listener(line);
+        return;
+      }
       this.lastEvent = event;
       this.setState(
         event.type === "completed" ? { status: "completed", event } : { status: "question_active", event },
@@ -95,6 +121,17 @@ export class ControlChannel {
    * ответ и запись ответа НЕ идут через этот канал — см. lib/livekit-client.ts / answer-upload. */
   sendCandidateInput(message: Omit<CandidateInput, "type">): void {
     this.socket?.send(JSON.stringify({ type: "candidate_input", ...message } satisfies CandidateInput));
+  }
+
+  /** Кнопка «Дальше» — просим backend передать live-agent команду завершить текущий
+   * вопрос. Решение о переходе принимает граф live-контура, не этот UI. */
+  sendNextQuestion(): void {
+    this.socket?.send(JSON.stringify({ type: "next_question" }));
+  }
+
+  subscribeSubtitles(listener: SubtitleListener): () => void {
+    this.subtitleListeners.add(listener);
+    return () => this.subtitleListeners.delete(listener);
   }
 
   sendSecuritySignal(signal: SecuritySignalKind): void {
