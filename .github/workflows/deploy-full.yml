@@ -284,6 +284,7 @@ jobs:
         env:
           DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
         run: |
+          $ErrorActionPreference = "Continue"
           $env:TLS_DOMAIN = "ainterviewer.duckdns.org"
           docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml run --rm acme
           $acmeOk = ($LASTEXITCODE -eq 0)
@@ -293,7 +294,9 @@ jobs:
             $tlsPath = (Resolve-Path infra/tls).Path
             $inside = ($RelPath -replace '\\', '/')
             if ($inside.StartsWith("infra/tls/")) { $inside = $inside.Substring("infra/tls/".Length) }
-            docker run --rm -v "${tlsPath}:/out" alpine/openssl x509 -in "/out/$inside" -noout -issuer 2>$null
+            $raw = docker run --rm -v "${tlsPath}:/out" alpine/openssl x509 -in "/out/$inside" -noout -issuer 2>&1 | Out-String
+            if ($raw -match "issuer=") { return $raw.Trim() }
+            return ""
           }
 
           if (-not $acmeOk) {

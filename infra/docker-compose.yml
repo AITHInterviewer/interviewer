@@ -136,7 +136,7 @@ services:
     # заказа у Let's Encrypt). Иначе при rate limit `--issue` падает, `--install-cert`
     # не вызывается, и на диск уходит self-signed fallback — браузер не доверяет сайту.
     command: >-
-      -c "install_le() { acme.sh --install-cert -d ${TLS_DOMAIN} --ecc --cert-home /acme.sh/output --key-file /acme.sh/output/domain.key --fullchain-file /acme.sh/output/fullchain.pem || acme.sh --install-cert -d ${TLS_DOMAIN} --cert-home /acme.sh/output --key-file /acme.sh/output/domain.key --fullchain-file /acme.sh/output/fullchain.pem; };
+      -c "install_le() { acme.sh --install-cert -d ${TLS_DOMAIN} --ecc --key-file /acme.sh/output/domain.key --fullchain-file /acme.sh/output/fullchain.pem || acme.sh --install-cert -d ${TLS_DOMAIN} --key-file /acme.sh/output/domain.key --fullchain-file /acme.sh/output/fullchain.pem; };
       install_le && exit 0;
       acme.sh --issue --dns dns_duckdns -d ${TLS_DOMAIN} --server letsencrypt --cert-home /acme.sh/output && install_le"
 
