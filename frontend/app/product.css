@@ -634,9 +634,6 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .interview-recording h2 { margin: 0; }
 .interview-recording video { width: 100%; max-height: 480px; border-radius: var(--radius-panel); background: #000; }
 
-.skill-chips { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 10px 0 0; }
-.skill-chips__group { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.skill-chips__label { font-size: 12px; font-weight: 600; color: var(--ink-tertiary); }
 .transcript-section { margin-top: 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); }
 .transcript-section summary { display: flex; align-items: baseline; gap: 10px; padding: 16px 20px; cursor: pointer; list-style: none; }
 .transcript-section summary::-webkit-details-marker { display: none; }
@@ -651,9 +648,6 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .transcript-line strong { color: var(--ink-secondary); font-weight: 600; }
 .transcript-line[data-speaker="question"] strong { color: var(--accent); }
 .transcript-line[data-speaker="candidate"] strong { color: var(--ink-primary, var(--ink-secondary)); }
-.report-narrative { display: grid; gap: 10px; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--surface-muted); }
-.report-narrative dt { font-size: var(--text-meta); color: var(--ink-secondary); margin-bottom: 2px; }
-.report-narrative dd { margin: 0; }
 .skill-verdict { margin-top: 10px; display: grid; gap: 6px; }
 .skill-verdict ul { margin: 0; padding: 0 0 0 18px; display: grid; gap: 4px; }
 .skill-verdict p { margin: 0; }
