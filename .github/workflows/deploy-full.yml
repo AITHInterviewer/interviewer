@@ -1,39 +1,27 @@
 name: deploy full stack (self-hosted)
 
-# Единственный деплой-workflow в репо (deploy-dev.yml/seed-demo-interview.yml убраны —
-# избыточны рядом с этим). Поднимает всё: общую инфру (postgres, redis, minio,
-# livekit-server) + backend/frontend + nginx (единая точка входа, см.
-# infra/nginx/nginx.conf) + live-agent (+ его self-hosted stt/tts). evaluation-agent
-# намеренно НЕ включает сам воркер — worker.py падает на NotImplementedError (см.
-# evaluation-agent/README.md, раздел «Статус»), это ожидаемо, не баг — поднимается только
-# его STT (stt-accurate), самостоятельная часть.
+# Единственный деплой-workflow в репо. Linux VPS, OpenRouter на LLM/STT/TTS,
+# без GPU stt/tts, без claude login.
+#
+# Внешний HTTPS — порт 12345 (хостовые 80/443 заняты чужим nginx, например
+# hook.trackitdev.ru). TLS — DNS-01 DuckDNS, не HTTP-01: порты 80/443 не занимаем.
+# Пример: https://ainterviewer.duckdns.org:12345 (TLS_DOMAIN из vars, не хардкод).
 #
 # Три ОТДЕЛЬНЫХ `docker compose` вызова, не один со склейкой всех `-f` — при мульти-file
 # compose относительные пути (env_file/build context/volumes) резолвятся относительно
 # директории ПЕРВОГО `-f`-файла целиком для всех файлов разом, а не каждый относительно
-# своей директории. infra/docker-compose.yml + docker-compose.dev.yml оба без относительных
-# путей, кроме тех, что уже написаны относительно корня репо — их можно смешивать через
-# `--project-directory .`. live-agent/ и evaluation-agent/ (compose-файлы коллег) написаны
-# для запуска из СВОЕЙ директории (`build: .`, `env_file: .env`) — не трогаем их, а задаём
-# `--project-directory` явно под каждый, оставаясь в cwd репозитория (без `cd`).
+# своей директории. infra/docker-compose.yml + docker-compose.dev.yml + docker-compose.vps.yml
+# оба/все без относительных путей, кроме тех, что уже написаны относительно корня репо —
+# их можно смешивать через `--project-directory .`. live-agent/ написан для запуска из
+# СВОЕЙ директории (`build: .`, `env_file: .env`) — не трогаем, а задаём
+# `--project-directory` явно, оставаясь в cwd репозитория (без `cd`).
 #
-# livekit-egress сюда не включаю: у него единственный относительный путь
-# (`./livekit-egress-config.yaml`) в infra/docker-compose.yml, а сервис и так помечен в
-# infra/README.md как "ни разу не проверялся вживую" — не стоит того, чтобы усложнять
-# резолюцию путей ради непроверенного сервиса.
+# evaluation-agent намеренно НЕ поднимается (воркер NotImplementedError; оценка живёт
+# в backend через OpenRouter).
 #
-# ВАЖНО про live-agent: LLM-часть требует `claude login` (Claude Agent SDK на подписке,
-# см. live-agent/CLAUDE.md, п.8) — выполненного ПОД ТЕМ ЖЕ пользователем, из-под которого
-# работает раннер (сейчас это bdtss). Это разовый интерактивный шаг (открывает браузер
-# для логина), который эта джоба выполнить не может — до него граф диалога поднимется,
-# но реальные LLM-вызовы будут падать с ошибкой авторизации.
-#
-# ВАЖНО про сети: infra+backend+frontend — один compose-проект (`--project-directory .`,
-# имя "interviewer"), общая docker-сеть — backend сможет резолвить "postgres"/"redis"/
-# "minio" по имени, когда реально начнёт их использовать. live-agent и evaluation-agent —
-# отдельные проекты/сети (их файлы не трогаем) — если live-agent'у нужен livekit-server
-# из infra, он достаёт его через `host.docker.internal` (Docker Desktop на Windows
-# резолвит это в адрес хоста), не по имени сервиса.
+# ВАЖНО про сети: infra+backend+frontend — один compose-проект (`--project-directory .`),
+# общая docker-сеть. live-agent — отдельный проект, ходит к livekit-server/redis/backend
+# по имени сервиса через ainterviewer-net (создаём до up).
 
 on:
   workflow_dispatch: {}
@@ -44,127 +32,127 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: [self-hosted, vps]
     defaults:
       run:
-        shell: powershell
+        shell: bash
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      TLS_DOMAIN: ${{ vars.TLS_DOMAIN || secrets.TLS_DOMAIN }}
+      VPS_PUBLIC_IP: ${{ vars.VPS_PUBLIC_IP }}
+      PUBLIC_HTTP_PORT: ${{ vars.PUBLIC_HTTP_PORT || '12345' }}
+      DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
           # Default clean: true runs `git clean -ffdx` first, which wipes ALL untracked
-          # files - including infra/tls/ (the issued Let's Encrypt cert, never committed,
-          # see acme service in infra/docker-compose.yml). That silently forced a brand new
-          # certificate issuance on every single deploy regardless of acme.sh's own
-          # skip-if-valid logic or the persisted acme-state volume, and is the real reason
-          # we hit Let's Encrypt's 5-certs/168h rate limit (2026-09-05). Every file this
-          # workflow itself needs fresh (backend/.env, frontend/.env, infra/livekit.yaml,
-          # live-agent/.env) is already fully overwritten by its own "Write ..." steps below,
-          # so disabling the clean has no other effect here.
+          # files - including infra/tls/ (the issued cert, never committed). That silently
+          # forced a brand new certificate issuance on every single deploy regardless of
+          # acme.sh's own skip-if-valid logic or the persisted acme-state volume, and is
+          # the real reason we hit Let's Encrypt's 5-certs/168h rate limit (2026-09-05).
+          # Every file this workflow itself needs fresh is already fully overwritten by
+          # its own "Write ..." steps below, so disabling the clean has no other effect.
           clean: false
 
-      - name: Reserve livekit UDP port range from Windows dynamic allocation
-        # livekit-server binds a FIXED UDP range (50000-50100, see infra/livekit.yaml)
-        # for RTC media. Windows/WSL2 (Docker Desktop's backend) hands out ports from its
-        # own dynamic/ephemeral range for unrelated outbound connections, and that range
-        # can overlap 50000-50100 - livekit-server then fails to bind with "Only one usage
-        # of each socket address...". `netsh ... excludedportrange` reserves the block so
-        # Windows won't hand any of it out to anything else; idempotent (errors harmlessly
-        # if already reserved) and, like the firewall rule below, may need elevation the
-        # runner account doesn't have - warn and continue rather than abort the deploy,
-        # since it's an environment fix, not something this workflow can guarantee.
-        # netsh is a native exe, not a cmdlet - failures (access denied, already
-        # reserved) come back as plain output + a non-zero exit code, not a catchable
-        # PowerShell exception, so check $LASTEXITCODE rather than try/catch here. Actions'
-        # powershell wrapper fails the STEP on a nonzero $LASTEXITCODE left over from the
-        # last command it ran, regardless of our own warn-and-continue logic - reset it
-        # explicitly, same as the network-create step below (hit this the hard way: the
-        # warning printed correctly and the step still failed the whole run).
+      - name: Check required secrets and variables
         run: |
-          $output = netsh interface ipv4 add excludedportrange protocol=udp startport=50000 numberofports=101 store=persistent
-          if ($LASTEXITCODE -eq 0) {
-            Write-Output "reserved UDP 50000-50100 for livekit-server"
-          } else {
-            Write-Output "WARNING: could not reserve UDP 50000-50100 (netsh: $output) - livekit-server media may fail to bind; reserve it manually on the runner if so"
-          }
-          $global:LASTEXITCODE = 0
+          if [ -z "${OPENROUTER_API_KEY:-}" ]; then
+            echo "ERROR: secrets.OPENROUTER_API_KEY is empty"
+            exit 1
+          fi
+          if [ -z "${TLS_DOMAIN:-}" ]; then
+            echo "ERROR: vars.TLS_DOMAIN is empty (set Actions variable TLS_DOMAIN)"
+            exit 1
+          fi
+          case "${TLS_DOMAIN}" in
+            *.duckdns.org)
+              if [ -z "${DUCKDNS_TOKEN:-}" ]; then
+                echo "ERROR: secrets.DUCKDNS_TOKEN is empty (required for ${TLS_DOMAIN})"
+                exit 1
+              fi
+              ;;
+          esac
+          echo "TLS_DOMAIN is set"
 
-      - name: Ensure firewall rules for all service ports
+      - name: Load or create persistent machine secrets
         run: |
-          # Ports 3901-3908 are this project's dedicated pool (see root README.md,
-          # "Порты проекта") — picked specifically to avoid clashing with other
-          # unrelated projects' default ports (postgres/redis/minio/etc.) on this
-          # shared runner, the way react-agent-stt collided with our minio on 9000.
-          $rules = @{
-            "ainterviewer-3000" = @{ Port = 3000; Proto = "TCP" }
-            "ainterviewer-8000" = @{ Port = 8000; Proto = "TCP" }
-            # 12345, not the 39xx pool: matches the port already forwarded externally
-            # (see infra/docker-compose.yml, nginx service) - keep in sync if that changes.
-            "ainterviewer-nginx" = @{ Port = 12345; Proto = "TCP" }
-            "ainterviewer-3901" = @{ Port = 3901; Proto = "TCP" } # postgres
-            "ainterviewer-3902" = @{ Port = 3902; Proto = "TCP" } # redis
-            "ainterviewer-3903" = @{ Port = 3903; Proto = "TCP" } # minio API
-            "ainterviewer-3904" = @{ Port = 3904; Proto = "TCP" } # minio console
-            "ainterviewer-3905" = @{ Port = 3905; Proto = "TCP" } # live-agent stt
-            "ainterviewer-3906" = @{ Port = 3906; Proto = "TCP" } # live-agent tts
-            "ainterviewer-3907" = @{ Port = 3907; Proto = "TCP" } # livekit signaling
-            "ainterviewer-3908" = @{ Port = 3908; Proto = "TCP" } # livekit tcp fallback
-            "ainterviewer-livekit-udp" = @{ Port = "50000-50100"; Proto = "UDP" }
-            # TURN/TLS для candidate без Radmin VPN — проброшен отдельным портом через
-            # тот же внешний туннель, что и nginx (см. infra/livekit.yaml, блок turn).
-            "ainterviewer-livekit-turn-tls" = @{ Port = 5349; Proto = "TCP" }
-          }
-          foreach ($name in $rules.Keys) {
-            $existing = Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue
-            if (-not $existing) {
-              # Runner service account turned out to lack rights to create NEW rules
-              # (existing ones were set up once, out-of-band, with elevation) - "Access
-              # is denied" (Win32 error 5) here used to be a terminating error that
-              # aborted the whole deploy over a single missing rule. Warn and continue
-              # instead: whoever manages the runner needs to create it once manually,
-              # same as the ones already in place.
-              try {
-                New-NetFirewallRule -DisplayName $name -Direction Inbound -Protocol $rules[$name].Proto -LocalPort $rules[$name].Port -Action Allow -ErrorAction Stop | Out-Null
-                Write-Output "created: $name"
-              } catch {
-                Write-Output "WARNING: could not create firewall rule '$name' ($($_.Exception.Message)) - create it manually on the runner"
-              }
-            } else {
-              Write-Output "already exists: $name"
-            }
-          }
+          SECRETS_FILE=/srv/ainterviewer/deploy-secrets.env
+          mkdir -p /srv/ainterviewer
+          if [ ! -f "$SECRETS_FILE" ]; then
+            umask 077
+            cat > "$SECRETS_FILE" <<EOF
+          SECRET_KEY=$(openssl rand -hex 32)
+          JWT_SECRET=$(openssl rand -hex 32)
+          LIVEKIT_API_KEY=$(openssl rand -hex 12)
+          LIVEKIT_API_SECRET=$(openssl rand -hex 32)
+          S3_ACCESS_KEY=$(openssl rand -hex 8)
+          S3_SECRET_KEY=$(openssl rand -hex 24)
+          LIVE_AGENT_TOKEN=$(openssl rand -hex 32)
+          POSTGRES_PASSWORD=ainterviewer
+          EOF
+            chmod 600 "$SECRETS_FILE"
+            echo "created persist secrets file (values not printed)"
+          else
+            echo "reusing persist secrets file"
+          fi
+
+      - name: Resolve public IP
+        run: |
+          if [ -z "${VPS_PUBLIC_IP:-}" ]; then
+            VPS_PUBLIC_IP=$(curl -4 -s --max-time 5 ifconfig.me || true)
+          fi
+          if [ -z "${VPS_PUBLIC_IP:-}" ]; then
+            echo "ERROR: public IP unknown — set vars.VPS_PUBLIC_IP"
+            exit 1
+          fi
+          echo "VPS_PUBLIC_IP=${VPS_PUBLIC_IP}" >> "$GITHUB_ENV"
+          echo "resolved public IP for livekit node_ip"
+
+      - name: Point DuckDNS A-record at this VPS
+        run: |
+          case "${TLS_DOMAIN}" in
+            *.duckdns.org)
+              subdomain="${TLS_DOMAIN%.duckdns.org}"
+              if [ -z "${subdomain}" ] || [ "${subdomain}" = "${TLS_DOMAIN}" ]; then
+                echo "ERROR: could not parse DuckDNS subdomain from TLS_DOMAIN=${TLS_DOMAIN}"
+                exit 1
+              fi
+              echo "updating DuckDNS ${subdomain} -> ${VPS_PUBLIC_IP}"
+              curl -fsS "https://www.duckdns.org/update?domains=${subdomain}&token=${DUCKDNS_TOKEN}&ip=${VPS_PUBLIC_IP}&verbose=true"
+              echo
+              ;;
+            *)
+              echo "TLS_DOMAIN is not *.duckdns.org — skip DuckDNS A-record update"
+              ;;
+          esac
 
       - name: Ensure shared Docker network between this stack and live-agent
-        # ainterviewer-net — общая сеть между двумя отдельными compose-проектами (этот
-        # стек и live-agent/docker-compose.yml), объявлена как external: true в обоих
-        # compose-файлах (сам Compose её не создаёт). Идемпотентно: игнорируем ошибку,
-        # если уже существует с прошлого запуска.
         run: |
-          docker network create ainterviewer-net
-          $global:LASTEXITCODE = 0
-          Write-Output "ok"
+          docker network create ainterviewer-net || true
+          echo "ok"
 
-      - name: Write backend/.env
-        # backend/app/config.py requires all of these (no defaults) — without them
-        # Settings() raises ValidationError at import and backend won't start. infra +
-        # backend/frontend run as one compose project here, so postgres/redis/minio
-        # resolve by these exact service names.
-        # ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL/ANTHROPIC_MODEL — backend LLM-вызовы
-        # (app/services/llm.py: генерация вопросов вакансии + разбор интервью в report_json).
-        # Те же секреты, что уже льются в live-agent/.env ниже. Раньше здесь был
-        # OPENROUTER на бесплатной minimax-m3:free — та стабильно отдавала 429 и оставляла
-        # интервью навсегда в report_processing. Ключ читается лениво (не при старте) —
-        # без него backend работает, но генерация вопросов/разбор вернут 502.
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+      - name: Write backend/.env, frontend/.env, livekit configs, live-agent/.env
         run: |
-          Set-Content -Path backend/.env -Encoding utf8 -Value @'
-          CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000","http://26.67.31.6:12345","https://ainterviewer.duckdns.org:12345"]
-          APP_ENV=development
-          APP_DEBUG=true
+          set -a
+          # shellcheck disable=SC1091
+          . /srv/ainterviewer/deploy-secrets.env
+          set +a
+          for v in SECRET_KEY JWT_SECRET LIVEKIT_API_KEY LIVEKIT_API_SECRET S3_ACCESS_KEY S3_SECRET_KEY LIVE_AGENT_TOKEN; do
+            if [ -z "${!v:-}" ]; then
+              echo "ERROR: $v is empty in /srv/ainterviewer/deploy-secrets.env"
+              exit 1
+            fi
+          done
+
+          umask 077
+          cat > backend/.env <<EOF
+          CORS_ORIGINS=["https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}"]
+          APP_ENV=production
+          APP_DEBUG=false
           APP_HOST=0.0.0.0
           APP_PORT=8000
-          SECRET_KEY=dev-secret-change-me
+          SECRET_KEY=${SECRET_KEY}
+          JWT_SECRET=${JWT_SECRET}
           POSTGRES_DB=ainterviewer
           POSTGRES_HOST=postgres
           POSTGRES_USER=ainterviewer
@@ -175,49 +163,40 @@ jobs:
           REDIS_URL=redis://redis:6379/0
           CELERY_BROKER_URL=redis://redis:6379/1
           CELERY_RESULT_BACKEND=redis://redis:6379/2
-          MINIO_ROOT_USER=ainterviewer
-          MINIO_ROOT_PASSWORD=ainterviewer123
+          MINIO_ROOT_USER=${S3_ACCESS_KEY}
+          MINIO_ROOT_PASSWORD=${S3_SECRET_KEY}
           MINIO_BUCKET=ainterviewer-resumes
           S3_ENDPOINT_URL=http://minio:9000
-          S3_PUBLIC_ENDPOINT_URL=http://26.67.31.6:3903
-          S3_ACCESS_KEY=ainterviewer
-          S3_SECRET_KEY=ainterviewer123
+          S3_PUBLIC_ENDPOINT_URL=https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}/s3
+          S3_ACCESS_KEY=${S3_ACCESS_KEY}
+          S3_SECRET_KEY=${S3_SECRET_KEY}
           S3_BUCKET=ainterviewer-resumes
           S3_REGION=us-east-1
-          LIVEKIT_API_KEY=devkey
-          LIVEKIT_API_SECRET=secret
-          LIVEKIT_WS_URL=wss://ainterviewer.duckdns.org:12345
+          LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+          LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+          LIVEKIT_WS_URL=wss://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}
           LIVEKIT_API_URL=ws://livekit-server:7880
           RECORDINGS_S3_BUCKET=ainterviewer-recordings
-          PUBLIC_FRONTEND_URL=https://ainterviewer.duckdns.org:12345
-          ANTHROPIC_MODEL=claude-haiku-4-5
-          '@
-          Add-Content -Path backend/.env -Encoding utf8 -Value "ANTHROPIC_API_KEY=$env:ANTHROPIC_API_KEY"
-          Add-Content -Path backend/.env -Encoding utf8 -Value "ANTHROPIC_BASE_URL=$env:ANTHROPIC_BASE_URL"
+          PUBLIC_FRONTEND_URL=https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}
+          LIVE_AGENT_TOKEN=${LIVE_AGENT_TOKEN}
+          OPENROUTER_MODEL=google/gemini-2.5-flash
+          EOF
+          printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> backend/.env
 
-      - name: Write frontend/.env
-        run: |
-          Set-Content -Path frontend/.env -Encoding utf8 -Value @'
+          cat > frontend/.env <<EOF
           BACKEND_INTERNAL_URL=http://backend:8000
-          NEXT_DEV_ALLOWED_ORIGINS=26.67.31.6,ainterviewer.duckdns.org
-          '@
+          NEXT_PUBLIC_BACKEND_URL=https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}
+          EOF
 
-      - name: Write infra/livekit.yaml (with node_ip for this deploy)
-        # rtc.node_ip — какой IP livekit-server объявляет ICE-кандидатам как адрес для
-        # медиа. 26.67.31.6 — адрес этого раннера в Radmin VPN, тот же, через который
-        # реально ходит браузер кандидата. use_external_ip (STUN) сюда не годится — STUN
-        # находит РЕАЛЬНЫЙ публичный IP хоста через интернет-аплинк, а не VPN-адрес, и
-        # это две разные сети (см. infra/livekit.yaml, комментарий в checked-in версии).
-        run: |
-          Set-Content -Path infra/livekit.yaml -Encoding utf8 -Value @'
+          cat > infra/livekit.yaml <<EOF
           port: 7880
           rtc:
             tcp_port: 7881
             port_range_start: 50000
             port_range_end: 50100
-            node_ip: 26.67.31.6
+            node_ip: ${VPS_PUBLIC_IP}
           keys:
-            devkey: secret
+            ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
           room:
             auto_create: true
           redis:
@@ -225,248 +204,228 @@ jobs:
           turn:
             enabled: true
             tls_port: 5349
-            domain: ainterviewer.duckdns.org
+            domain: ${TLS_DOMAIN}
             cert_file: /etc/ainterviewer-tls/fullchain.pem
             key_file: /etc/ainterviewer-tls/domain.key
-          '@
+          EOF
 
-      - name: Write live-agent/.env
-        # LLM_PROVIDER=mistral пробовали 2026-09-06 (см. llm_client.py, CLAUDE.md п.8) —
-        # откачено: бесплатный ключ Mistral вернул 429 на КАЖДЫЙ вызов с первой попытки
-        # (нулевая квота, не всплеск нагрузки) — бот всю сессию молчал.
-        # LLM_PROVIDER=openrouter пробовали как дефолт для рутинного тестирования —
-        # откачено 2026-09-06: бесплатный тир OpenRouter отдал 429 ПОСРЕДИ живого интервью
-        # (не сразу, квота исчерпалась в процессе разговора), агент замолчал на все
-        # последующие ходы, кандидат решил, что сервис завис. Добавили retry/backoff в
-        # llm_client.py, но это не убирает исчерпание бесплатной квоты как таковое —
-        # переключаемся на платный прямой Anthropic Messages API (ANTHROPIC_BASE_URL/
-        # ANTHROPIC_API_KEY, секреты репозитория, уже используются в
-        # AnthropicAPILiveControlLLM) как дефолт для деплоя, не только для демо.
-        env:
-          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
-          LLM_MODEL=claude-haiku-4-5
-          LLM_PROVIDER=anthropic_api
-          ANTHROPIC_MODEL=claude-haiku-4-5
-          MISTRAL_MODEL=mistral-small-latest
-          OPENROUTER_MODEL=minimax/minimax-m3:free
-          STT_BASE_URL=http://stt:8000/v1
-          TTS_BASE_URL=http://tts:8080
-          STT_API_KEY=not-needed
-          TTS_API_KEY=not-needed
+          # Иначе egress останется с локальным шаблоном, а MinIO/LiveKit уже на persist-ключах.
+          cat > infra/livekit-egress-config.yaml <<EOF
+          api_key: ${LIVEKIT_API_KEY}
+          api_secret: ${LIVEKIT_API_SECRET}
+          ws_url: ws://livekit-server:7880
+          redis:
+            address: redis:6379
+          s3:
+            access_key: ${S3_ACCESS_KEY}
+            secret: ${S3_SECRET_KEY}
+            bucket: ainterviewer-recordings
+            endpoint: http://minio:9000
+            force_path_style: true
+            region: us-east-1
+          EOF
+
+          cat > live-agent/.env <<EOF
+          LLM_PROVIDER=openrouter
+          OPENROUTER_MODEL=google/gemini-2.5-flash
+          STT_BASE_URL=https://openrouter.ai/api/v1
+          TTS_BASE_URL=https://openrouter.ai/api/v1
           STT_MODEL=whisper-1
+          TTS_MODEL=fish-audio/s1
+          TTS_VOICE=alloy
           STT_LANGUAGE=ru
           MOCK_INTERVIEW_PATH=mock_data/interview_example.json
           BACKEND_BASE_URL=http://backend:8000
-          LIVE_AGENT_TOKEN=development-live-agent-token
+          LIVE_AGENT_TOKEN=${LIVE_AGENT_TOKEN}
           REDIS_URL=redis://redis:6379/0
           LIVEKIT_URL=ws://livekit-server:7880
-          LIVEKIT_API_KEY=devkey
-          LIVEKIT_API_SECRET=secret
-          '@
-          Add-Content -Path live-agent/.env -Encoding utf8 -Value "ANTHROPIC_API_KEY=$env:ANTHROPIC_API_KEY"
-          Add-Content -Path live-agent/.env -Encoding utf8 -Value "OPENROUTER_API_KEY=$env:OPENROUTER_API_KEY"
-          Add-Content -Path live-agent/.env -Encoding utf8 -Value "ANTHROPIC_BASE_URL=$env:ANTHROPIC_BASE_URL"
-          Add-Content -Path live-agent/.env -Encoding utf8 -Value "MISTRAL_API_KEY=$env:MISTRAL_API_KEY"
+          LIVEKIT_API_KEY=${LIVEKIT_API_KEY}
+          LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET}
+          EOF
+          printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> live-agent/.env
+          printf 'STT_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> live-agent/.env
+          printf 'TTS_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> live-agent/.env
+          echo "wrote env files (secrets not printed)"
 
-      - name: Obtain/renew TLS certificate (Let's Encrypt via DuckDNS DNS-01)
-        # Не требует открытых портов 80/443 (на этом туннеле нельзя открыть порт <1000,
-        # см. обсуждение) — CA проверяет владение доменом через TXT-запись, которую сам
-        # acme.sh проставляет через DuckDNS API. Сертификат общий для nginx (сайт, 443) и
-        # livekit-server (TURN/TLS, 5349) — оба уже смонтировали ./infra/tls.
-        # Let's Encrypt 5 certs/168h (инцидент 2026-09-05). При лимите acme-issue.sh
-        # берёт ZeroSSL/BuyPass — браузеры им тоже доверяют. Не валим весь деплой:
-        # если все CA отказали, ниже кладём валидный self-signed, чтобы nginx вообще
-        # стартовал (иначе пустой pem = сайт лежит).
-        env:
-          DUCKDNS_TOKEN: ${{ secrets.DUCKDNS_TOKEN }}
+      - name: Bootstrap TLS cert so nginx can listen on 443
         run: |
-          $ErrorActionPreference = "Continue"
-          $env:TLS_DOMAIN = "ainterviewer.duckdns.org"
-          New-Item -ItemType Directory -Force infra/tls | Out-Null
-          Write-Output "=== infra/tls before acme ==="
-          Get-ChildItem -Force -Recurse infra/tls | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Output
-          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml run --rm acme
-          $acmeOk = ($LASTEXITCODE -eq 0)
-
-          function Get-CertIssuer([string]$RelPath) {
-            if (-not (Test-Path $RelPath)) { return "" }
-            $tlsPath = (Resolve-Path infra/tls).Path
-            $inside = ($RelPath -replace '\\', '/')
-            if ($inside.StartsWith("infra/tls/")) { $inside = $inside.Substring("infra/tls/".Length) }
-            $raw = docker run --rm -v "${tlsPath}:/out" alpine/openssl x509 -in "/out/$inside" -noout -issuer 2>&1 | Out-String
-            if ($raw -match "issuer=") { return $raw.Trim() }
-            Write-Host "openssl could not read ${RelPath}: $raw"
-            return ""
-          }
-
-          function Test-PublicCa([string]$Issuer) {
-            return ($Issuer -match "Let's Encrypt|ZeroSSL|Buypass|BuyPass|Google Trust|GTS |ISRG|Internet Security Research Group|SSL\.com")
-          }
-
-          if (-not $acmeOk) {
-            $domain = $env:TLS_DOMAIN
-            $leCandidates = @(
-              @{ Full = "infra/tls/${domain}_ecc/fullchain.cer"; Key = "infra/tls/${domain}_ecc/${domain}.key" },
-              @{ Full = "infra/tls/${domain}/fullchain.cer"; Key = "infra/tls/${domain}/${domain}.key" }
-            )
-            foreach ($item in $leCandidates) {
-              $issuer = Get-CertIssuer $item.Full
-              if (Test-PublicCa $issuer) {
-                Copy-Item $item.Full "infra/tls/fullchain.pem" -Force
-                Copy-Item $item.Key "infra/tls/domain.key" -Force
-                Write-Output "Reinstalled public CA cert from $($item.Full). Issuer: $issuer"
-                $acmeOk = $true
-                break
-              }
-            }
-          }
-
-          $diskIssuer = Get-CertIssuer "infra/tls/fullchain.pem"
-          $keyOk = (Test-Path infra/tls/domain.key) -and ((Get-Item infra/tls/domain.key).Length -gt 0)
-          if ($acmeOk) {
-            Write-Output "acme.sh reported success. $diskIssuer"
-          } elseif ((Test-PublicCa $diskIssuer) -and $keyOk) {
-            Write-Output "Keeping existing public CA cert on disk. $diskIssuer"
-          } else {
-            Write-Output "WARNING: no public CA cert (issuer='$diskIssuer'). Generating a TEMPORARY self-signed fallback so nginx/livekit can start. Browsers will warn until the next successful ACME run."
-            $tlsPath = (Resolve-Path infra/tls).Path
-            docker run --rm -v "${tlsPath}:/out" alpine/openssl req -x509 -newkey rsa:2048 -nodes -keyout /out/domain.key -out /out/fullchain.pem -days 7 -subj "/CN=ainterviewer.duckdns.org"
-          }
-          Write-Output "=== infra/tls after acme ==="
-          Get-ChildItem -Force -Recurse infra/tls | Select-Object FullName, Length | Format-Table -AutoSize | Out-String | Write-Output
-          $global:LASTEXITCODE = 0
+          mkdir -p infra/tls
+          if [ ! -s infra/tls/fullchain.pem ] || [ ! -s infra/tls/domain.key ]; then
+            echo "no cert on disk — writing temporary self-signed for ${TLS_DOMAIN}"
+            openssl req -x509 -newkey rsa:2048 -nodes \
+              -keyout infra/tls/domain.key \
+              -out infra/tls/fullchain.pem \
+              -days 7 \
+              -subj "/CN=${TLS_DOMAIN}"
+          else
+            echo "existing cert files present, not overwriting"
+          fi
 
       - name: Build and (re)start infra + backend + frontend
-        # livekit-server теперь тоже здесь — см. шаг "Reserve livekit UDP port range"
-        # выше про обход конфликта его фиксированного UDP-диапазона с Windows/Docker
-        # Desktop. livekit-egress тоже включён — backend/app/services/livekit_egress.py
-        # реально дёргает Egress API (см. interview_event_service.py), без запущенного
-        # egress-контейнера запись интервью тихо не работала бы (EgressError гасится, но
-        # никакого файла не появится).
-        # Explicit `down` before `up`, not `up --force-recreate`: force-recreate can start
-        # the replacement container before Docker has fully released the old one's port
-        # binding, producing "port is already allocated" (observed on minio:9000/tcp) —
-        # `down` guarantees full teardown first, avoiding that race.
+        env:
+          TLS_DOMAIN: ${{ vars.TLS_DOMAIN || secrets.TLS_DOMAIN }}
         run: |
-          docker compose --project-directory . `
-            -f docker-compose.dev.yml `
-            -f infra/docker-compose.yml `
-            down --remove-orphans
-          docker compose --project-directory . `
-            -f docker-compose.dev.yml `
-            -f infra/docker-compose.yml `
-            up -d --build `
-            postgres redis minio livekit-server livekit-egress backend frontend nginx
-          # livekit-server отдельно, с --force-recreate: он читает infra/livekit.yaml
-          # через bind-mount — Compose не пересоздаёт контейнер только из-за того, что
-          # ИЗМЕНИЛОСЬ СОДЕРЖИМОЕ файла на хосте (сама конфигурация сервиса в compose не
-          # изменилась) — без этого контейнер продолжает работать со старым node_ip до
-          # следующего изменения самого docker-compose.yml. Не форсим остальные сервисы —
-          # незачем гонять их без нужды при каждом деплое.
-          docker compose --project-directory . `
-            -f docker-compose.dev.yml `
-            -f infra/docker-compose.yml `
-            up -d --force-recreate livekit-server
+          set -a
+          # shellcheck disable=SC1091
+          . /srv/ainterviewer/deploy-secrets.env
+          set +a
+          export TLS_DOMAIN
+          export S3_ACCESS_KEY
+          export S3_SECRET_KEY
+          export PUBLIC_HTTP_PORT="${PUBLIC_HTTP_PORT:-12345}"
+          export NEXT_PUBLIC_BACKEND_URL="https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}"
 
-      - name: Build and (re)start live-agent (+ its stt/tts)
+          docker compose --project-directory . \
+            -f docker-compose.dev.yml \
+            -f infra/docker-compose.yml \
+            -f docker-compose.vps.yml \
+            down --remove-orphans
+
+          docker compose --project-directory . \
+            -f docker-compose.dev.yml \
+            -f infra/docker-compose.yml \
+            -f docker-compose.vps.yml \
+            up -d --build \
+            postgres redis minio livekit-server livekit-egress backend frontend nginx
+
+      - name: Obtain/renew TLS certificate (DNS-01 DuckDNS)
+        run: |
+          set -a
+          # shellcheck disable=SC1091
+          . /srv/ainterviewer/deploy-secrets.env
+          set +a
+          export TLS_DOMAIN
+          export DUCKDNS_TOKEN
+          export S3_ACCESS_KEY
+          export S3_SECRET_KEY
+          export PUBLIC_HTTP_PORT="${PUBLIC_HTTP_PORT:-12345}"
+          export NEXT_PUBLIC_BACKEND_URL="https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}"
+
+          for i in $(seq 1 30); do
+            state=$(docker compose --project-directory . \
+              -f docker-compose.dev.yml \
+              -f infra/docker-compose.yml \
+              -f docker-compose.vps.yml \
+              ps --format '{{.State}}' nginx 2>/dev/null || true)
+            if [ "$state" = "running" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          docker compose --project-directory . \
+            -f docker-compose.dev.yml \
+            -f infra/docker-compose.yml \
+            -f docker-compose.vps.yml \
+            run --rm acme \
+            || echo "WARNING: acme failed — keeping cert already on disk"
+
+          # livekit-server не перечитывает cert; nginx тоже надёжнее пересоздать.
+          docker compose --project-directory . \
+            -f docker-compose.dev.yml \
+            -f infra/docker-compose.yml \
+            -f docker-compose.vps.yml \
+            up -d --force-recreate nginx livekit-server
+
+      - name: Build and (re)start live-agent
         run: |
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --remove-orphans
 
-      - name: Build and (re)start evaluation-agent's stt-accurate
-        run: |
-          docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml up -d --build --remove-orphans stt-accurate
-
       - name: Wait for backend health
         run: |
-          $ok = $false
-          for ($i = 0; $i -lt 24; $i++) {
-            try {
-              Invoke-WebRequest -Uri http://localhost:8000/api/health -UseBasicParsing -TimeoutSec 3 | Out-Null
-              $ok = $true
+          ok=0
+          for i in $(seq 1 24); do
+            if docker compose --project-directory . \
+              -f docker-compose.dev.yml \
+              -f infra/docker-compose.yml \
+              -f docker-compose.vps.yml \
+              exec -T backend python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)" \
+              2>/dev/null; then
+              ok=1
               break
-            } catch { Start-Sleep -Seconds 5 }
-          }
-          if (-not $ok) {
-            # Write-Error is a TERMINATING error for this runner's PowerShell steps —
-            # it aborts the script immediately, so the docker logs line below never ran
-            # (found the hard way debugging the vacancy-interview-flow deploy). Write-Output
-            # instead so the diagnostic actually prints before the explicit exit 1.
-            Write-Output "ERROR: backend did not become healthy in time"
-            docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs backend --tail 100
+            fi
+            sleep 5
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "ERROR: backend did not become healthy in time"
+            docker compose --project-directory . \
+              -f docker-compose.dev.yml \
+              -f infra/docker-compose.yml \
+              -f docker-compose.vps.yml \
+              logs backend --tail 100
             exit 1
-          }
-          Write-Output "backend healthy"
+          fi
+          echo "backend healthy"
 
       - name: Wait for minio health
         run: |
-          $ok = $false
-          for ($i = 0; $i -lt 24; $i++) {
-            try {
-              Invoke-WebRequest -Uri http://localhost:3903/minio/health/live -UseBasicParsing -TimeoutSec 3 | Out-Null
-              $ok = $true
+          ok=0
+          for i in $(seq 1 24); do
+            if docker compose --project-directory . \
+              -f docker-compose.dev.yml \
+              -f infra/docker-compose.yml \
+              -f docker-compose.vps.yml \
+              exec -T minio mc ready local \
+              2>/dev/null; then
+              ok=1
               break
-            } catch { Start-Sleep -Seconds 5 }
-          }
-          if (-not $ok) {
-            Write-Output "ERROR: minio did not become healthy in time"
+            fi
+            sleep 5
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "ERROR: minio did not become healthy in time"
             exit 1
-          }
-          Write-Output "minio healthy"
+          fi
+          echo "minio healthy"
 
       - name: Wait for livekit-server
-        # No real health endpoint contract to rely on here (see infra/README.md - egress
-        # side of this service is untested, and this port isn't exercised by any test in
-        # the repo either) - a TCP connect on the signaling port is the best available
-        # signal. Soft warning, not a hard failure: unlike backend/minio, this service is
-        # known-fragile on this runner (UDP port range, see steps above) and shouldn't
-        # take down an otherwise-successful deploy of everything else.
         run: |
-          $ok = $false
-          for ($i = 0; $i -lt 24; $i++) {
-            if ((Test-NetConnection -ComputerName localhost -Port 3907 -WarningAction SilentlyContinue).TcpTestSucceeded) {
-              $ok = $true
+          ok=0
+          for i in $(seq 1 24); do
+            if docker compose --project-directory . \
+              -f docker-compose.dev.yml \
+              -f infra/docker-compose.yml \
+              -f docker-compose.vps.yml \
+              exec -T backend python -c "import socket; socket.create_connection(('livekit-server', 7880), 3).close()" \
+              2>/dev/null; then
+              ok=1
               break
-            }
-            Start-Sleep -Seconds 5
-          }
-          if (-not $ok) {
-            Write-Output "WARNING: livekit-server did not come up in time - check logs, see UDP port range steps above"
-            docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs livekit-server --tail 100
-          } else {
-            Write-Output "livekit-server listening"
-          }
+            fi
+            sleep 5
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "WARNING: livekit-server did not come up in time - check logs"
+            docker compose --project-directory . \
+              -f docker-compose.dev.yml \
+              -f infra/docker-compose.yml \
+              -f docker-compose.vps.yml \
+              logs livekit-server --tail 100
+          else
+            echo "livekit-server listening"
+          fi
 
       - name: Report container status
         if: always()
         run: |
-          Write-Output "--- infra + backend + frontend ---"
-          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml ps -a
-          Write-Output "--- livekit-egress logs (tail) ---"
-          docker compose --project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml logs --tail=80 livekit-egress
-          Write-Output "--- live-agent ---"
+          echo "--- infra + backend + frontend ---"
+          docker compose --project-directory . \
+            -f docker-compose.dev.yml \
+            -f infra/docker-compose.yml \
+            -f docker-compose.vps.yml \
+            ps -a
+          echo "--- livekit-egress logs (tail) ---"
+          docker compose --project-directory . \
+            -f docker-compose.dev.yml \
+            -f infra/docker-compose.yml \
+            -f docker-compose.vps.yml \
+            logs --tail=80 livekit-egress || true
+          echo "--- live-agent ---"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps
-          Write-Output "--- evaluation-agent (stt-accurate only) ---"
-          docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml ps
 
       - name: Print URLs
-        # Plain ASCII only in this step (no apostrophes/em-dashes): this runner's
-        # PowerShell choked on a curly-quote-adjacent apostrophe inside a double-quoted
-        # string here before (TerminatorExpectedAtEndOfString), likely an encoding quirk.
         run: |
-          Write-Output "entry point (nginx): https://ainterviewer.duckdns.org:12345"
-          Write-Output "VPN (Radmin):        http://26.67.31.6:12345"
-          Write-Output "frontend (direct):   http://26.67.31.6:3000"
-          Write-Output "backend health:      https://ainterviewer.duckdns.org:12345/api/health"
-          Write-Output "stt (live):          http://26.67.31.6:3905/v1/models"
-          Write-Output "tts (live):          http://26.67.31.6:3906"
-          Write-Output "minio console:       http://26.67.31.6:3904"
-          Write-Output "postgres:            26.67.31.6:3901"
-          Write-Output "livekit signaling:   wss://ainterviewer.duckdns.org:12345/rtc/ (also ws://26.67.31.6:3907)"
-          Write-Output "livekit TURN/TLS:    ainterviewer.duckdns.org:5349 (media fallback for candidates without Radmin VPN)"
-          Write-Output "NOTE: live-agent LLM calls need claude login run once on this machine"
-          Write-Output "under the runner service account, not done by this workflow."
+          echo "entry point (nginx): https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}"
+          echo "backend health:      https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}/api/health"
+          echo "livekit signaling:   wss://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}/rtc/"
+          echo "livekit TURN/TLS:    ${TLS_DOMAIN}:5349"
+          echo "S3 via nginx:        https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}/s3"

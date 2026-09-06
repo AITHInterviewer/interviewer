@@ -1,5 +1,6 @@
 #!/bin/sh
-# Выпуск/установка TLS для nginx и LiveKit TURN.
+# Выпуск/установка TLS для nginx и LiveKit TURN (DNS-01 DuckDNS, без /var/www/acme:
+# хостовые 80/443 заняты чужим nginx, HTTP-01 webroot недоступен).
 # Не пишет в /acme.sh/output, пока нет полной пары cert+key — иначе
 # --install-cert затирает live fullchain.pem пустым файлом и nginx не стартует.
 DOMAIN="${TLS_DOMAIN:-}"

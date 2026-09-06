@@ -14,44 +14,95 @@ on:
         description: "How many lines to tail per service before filtering"
         required: false
         default: "500"
+      probe:
+        description: "Also call OpenRouter TTS from inside the agent container ('false' to skip)"
+        required: false
+        default: "true"
 
 jobs:
   logs:
-    runs-on: self-hosted
+    runs-on: [self-hosted, vps]
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout (for compose files only, no build)
         uses: actions/checkout@v4
+        with:
+          # Same runner workspace as deploy-full — do not git-clean infra/tls.
+          clean: false
 
       - name: Dump backend + live-agent + livekit-server + livekit-egress logs
-        shell: pwsh
         run: |
-          $grep = "${{ github.event.inputs.grep }}"
-          $tail = "${{ github.event.inputs.tail }}"
+          grep="${{ github.event.inputs.grep }}"
+          tail="${{ github.event.inputs.tail }}"
 
-          function Show-Logs($label, $composeArgs, $service) {
-            Write-Output "--- $label ---"
-            $lines = docker compose @composeArgs logs --no-color --tail=$tail $service 2>&1
-            if ($grep) {
-              $lines | Select-String -SimpleMatch $grep
-            } else {
-              $lines
-            }
+          show_logs() {
+            label="$1"
+            shift
+            service="$1"
+            shift
+            echo "--- $label ---"
+            if [ -n "$grep" ]; then
+              docker compose "$@" logs --no-color --tail="$tail" "$service" 2>&1 | grep -F -- "$grep" || true
+            else
+              docker compose "$@" logs --no-color --tail="$tail" "$service" 2>&1 || true
+            fi
           }
 
-          Show-Logs "backend" @("--project-directory", ".", "-f", "docker-compose.dev.yml", "-f", "infra/docker-compose.yml") "backend"
-          Show-Logs "livekit-server" @("--project-directory", ".", "-f", "docker-compose.dev.yml", "-f", "infra/docker-compose.yml") "livekit-server"
-          Show-Logs "livekit-egress" @("--project-directory", ".", "-f", "docker-compose.dev.yml", "-f", "infra/docker-compose.yml") "livekit-egress"
-          Show-Logs "live-agent" @("--project-directory", "live-agent", "-f", "live-agent/docker-compose.yml") "live-agent"
-          Show-Logs "stt" @("--project-directory", "live-agent", "-f", "live-agent/docker-compose.yml") "stt"
-          Show-Logs "tts" @("--project-directory", "live-agent", "-f", "live-agent/docker-compose.yml") "tts"
+          main=(--project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml -f docker-compose.vps.yml)
+          agent=(--project-directory live-agent -f live-agent/docker-compose.yml)
 
-          Write-Output "--- container status (live-agent stack) ---"
+          show_logs backend backend "${main[@]}"
+          show_logs livekit-server livekit-server "${main[@]}"
+          show_logs livekit-egress livekit-egress "${main[@]}"
+          show_logs live-agent live-agent "${agent[@]}"
+
+          echo "--- container status (live-agent stack) ---"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -a
 
-          # Не печатаем сам ANTHROPIC_BASE_URL/ключ — только код ответа/ошибку, чтобы понять,
-          # реально ли live-agent видит прокси по сети (ConnectTimeout в логах — это может
-          # быть сам прокси недоступен, а не проблема с ключом). curl нет в образе (найдено
-          # 2026-09-06) — используем python (уже есть в рантайме) через httpx.
-          Write-Output "--- anthropic proxy reachability (from inside live-agent container) ---"
-          $pyCheck = "import os,time`nimport httpx`nu=os.environ['ANTHROPIC_BASE_URL'].rstrip('/')+'/v1/messages'`ns=time.monotonic()`ntry:`n r=httpx.post(u,headers={'x-api-key':os.environ['ANTHROPIC_API_KEY'],'anthropic-version':'2023-06-01'},json={},timeout=8.0)`n print('HTTP',r.status_code,'after',round(time.monotonic()-s,2),'s')`nexcept Exception as exc:`n print(type(exc).__name__,str(exc),'after',round(time.monotonic()-s,2),'s')"
-          docker compose --project-directory live-agent -f live-agent/docker-compose.yml exec -T live-agent python -c $pyCheck
+      # Голос и распознавание переехали в OpenRouter (docs/infra/vps-openrouter-migration.md),
+      # и «агент молчит» отличается от «агент не слышит» только тем, какая из двух облачных
+      # ручек отдала ошибку — в логах воркера этого не видно, пока не начнётся живая сессия.
+      # Проба идёт ИЗ КОНТЕЙНЕРА агента и тем же клиентом (lk_openai.TTS/STT), что и боевой
+      # путь: те же base_url/ключ/модель/голос и те же параметры запроса, которые добавляет
+      # плагин (stream_format, speed) и которых не было в ручных curl-проверках при переезде.
+      - name: Probe OpenRouter TTS/STT the way the agent calls them
+        if: ${{ github.event.inputs.probe != 'false' }}
+        run: |
+          docker compose --project-directory live-agent -f live-agent/docker-compose.yml \
+            exec -T live-agent python - <<'PY'
+          import asyncio, os
+
+          from livekit.plugins import openai as lk_openai
+
+          PHRASE = "Здравствуйте! Это проверка синтеза речи."
+
+
+          async def probe_tts() -> bytes:
+              tts = lk_openai.TTS(
+                  base_url=os.environ["TTS_BASE_URL"],
+                  api_key=os.environ["TTS_API_KEY"],
+                  model=os.environ.get("TTS_MODEL", "fish-audio/s1"),
+                  voice=os.environ.get("TTS_VOICE") or "alloy",
+              )
+              pcm = bytearray()
+              async for ev in tts.synthesize(PHRASE):
+                  pcm += bytes(ev.frame.data)
+              return bytes(pcm)
+
+
+          async def main() -> None:
+              print("TTS_BASE_URL =", os.environ.get("TTS_BASE_URL"))
+              print("TTS_MODEL    =", os.environ.get("TTS_MODEL"))
+              print("TTS_VOICE    =", os.environ.get("TTS_VOICE"))
+              print("STT_BASE_URL =", os.environ.get("STT_BASE_URL"))
+              print("STT_MODEL    =", os.environ.get("STT_MODEL"))
+              try:
+                  pcm = await probe_tts()
+              except Exception as exc:
+                  print(f"TTS FAILED: {type(exc).__name__}: {exc}")
+                  return
+              print(f"TTS OK: {len(pcm)} pcm bytes")
+          asyncio.run(main())
+          PY

@@ -25,9 +25,11 @@ vi.mock("@/lib/control-channel", () => ({
         listener({ status: "connecting" });
         return () => {};
       }),
+      subscribeSubtitles: vi.fn(() => () => {}),
       connect: vi.fn(),
       close: vi.fn(),
       sendCandidateInput: vi.fn(),
+      sendNextQuestion: vi.fn(),
     };
     channelInstances.push(instance);
     return instance;

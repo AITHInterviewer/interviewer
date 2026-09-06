@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Check, Camera, Mic, Volume2, MoreVertical } from "lucide-react";
 
 import { apiFetch, resolveLiveKitWsUrl } from "@/lib/api";
-import { ControlChannel, type ChannelState } from "@/lib/control-channel";
+import { ControlChannel, type ChannelState, type SubtitleLine } from "@/lib/control-channel";
 import { LiveKitSession, type AgentPresence } from "@/lib/livekit-client";
 
 type LiveKitTokenResponse = { token: string; room_name: string; ws_url: string; expires_at: string };
@@ -36,6 +36,7 @@ export function InterviewRoom({
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const liveKitRef = useRef<LiveKitSession | null>(null);
+  const channelRef = useRef<ControlChannel | null>(null);
   const [channelState, setChannelState] = useState<ChannelState>({ status: "connecting" });
   const [agentPresence, setAgentPresence] = useState<AgentPresence>("absent");
   // Неустранимая ошибка звонка (например, LiveKit не смог установить signal-соединение
@@ -70,6 +71,50 @@ export function InterviewRoom({
   // не заменяет основной.
   const [baseQuestionText, setBaseQuestionText] = useState<string | null>(initialQuestionText ?? null);
   const [lastBaseQuestionEvent, setLastBaseQuestionEvent] = useState<unknown>(null);
+  // Таймер отведённого на вопрос времени (US: «таймер отведённого времени на вопрос»).
+  // Дедлайн — абсолютный момент времени, выставляется при получении ControlEvent.type==="question"
+  // из его time_limit_sec; сам обратный отсчёт тикает от `now`. Это только индикатор для
+  // кандидата — реально ждёт/подбадривает/переходит по нему live-agent, не фронт.
+  const [questionTimer, setQuestionTimer] = useState<{ startMs: number; limitSec: number } | null>(null);
+  const [now, setNow] = useState(0);
+  const [nextSent, setNextSent] = useState(false);
+  // Субтитры: последняя реплика кандидата и последняя реплика интервьюера. Выключаются
+  // кнопкой снизу слева, выбор запоминается в localStorage.
+  const [subtitles, setSubtitles] = useState<{ candidate: string | null; agent: string | null }>({
+    candidate: null,
+    agent: null,
+  });
+  const [subtitlesOn, setSubtitlesOn] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("interview-subtitles") !== "off";
+    } catch {
+      return true; // приватный режим и т.п. — дефолт «включено»
+    }
+  });
+
+  useEffect(() => {
+    if (questionTimer == null) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [questionTimer]);
+
+  const toggleSubtitles = () => {
+    setSubtitlesOn((on) => {
+      const next = !on;
+      try {
+        localStorage.setItem("interview-subtitles", next ? "on" : "off");
+      } catch {
+        /* игнорируем — тумблер всё равно сработает на эту сессию */
+      }
+      return next;
+    });
+  };
+
+  // now === 0 до первого тика интервала — таймер ещё не показываем, чтобы не мигнуть «0:00».
+  const remainingMs =
+    questionTimer && now > 0
+      ? Math.max(0, questionTimer.startMs + questionTimer.limitSec * 1000 - now)
+      : null;
   // Не useEffect, а "adjusting state during render" (react.dev/learn/you-might-not-need-an-effect,
   // «Storing information from previous renders») — refs недоступны во время рендера
   // (react-hooks/refs), поэтому "предыдущее" значение хранится тоже в state.
@@ -91,6 +136,10 @@ export function InterviewRoom({
   ) {
     setLastBaseQuestionEvent(channelState.event);
     setBaseQuestionText(channelState.event.text);
+    const limit = channelState.event.time_limit_sec;
+    const startMs = Date.parse(channelState.event.ts);
+    setQuestionTimer(limit && Number.isFinite(startMs) ? { startMs, limitSec: limit } : null);
+    setNextSent(false);
   }
   // Доп./наводящий вопрос от LLM — не персистентный, не двигает baseQuestionText, просто
   // текущее значение канала, пока оно активно.
@@ -110,11 +159,15 @@ export function InterviewRoom({
     if (!stream) return;
     let cancelled = false;
     const channel = new ControlChannel(sessionId);
+    channelRef.current = channel;
     const liveKit = new LiveKitSession();
     liveKitRef.current = liveKit;
     let unsubscribePresence: (() => void) | null = null;
 
     const unsubscribeChannel = channel.subscribe(setChannelState);
+    const unsubscribeSubtitles = channel.subscribeSubtitles((line: SubtitleLine) => {
+      setSubtitles((current) => ({ ...current, [line.speaker]: line.text }));
+    });
     channel.connect();
 
     // Блок безопасности на карточке кандидата (см. control-channel.ts) — переключение
@@ -153,7 +206,9 @@ export function InterviewRoom({
     return () => {
       cancelled = true;
       liveKitRef.current = null;
+      channelRef.current = null;
       unsubscribeChannel();
+      unsubscribeSubtitles();
       unsubscribePresence?.();
       document.removeEventListener("visibilitychange", handleVisibility);
       videoTrack?.removeEventListener("mute", handleTrackMute);
@@ -206,6 +261,50 @@ export function InterviewRoom({
         {followUpText ? <p className="question-followup">{followUpText}</p> : null}
         <StatusLine channelState={channelState} />
       </section>
+
+      {/* Субтитры (зеркало произнесённого — выключаются кнопкой снизу слева) и под ними
+          таймер отведённого на вопрос времени — единой колонкой над нижними кнопками. */}
+      <div className="pointer-events-none fixed inset-x-0 bottom-16 z-20 mx-auto flex max-w-2xl flex-col items-center gap-1 px-4 text-center">
+        {subtitlesOn && subtitles.agent ? (
+          <p className="rounded-md bg-[color-mix(in_srgb,var(--surface-raised)_92%,transparent)] px-3 py-1 text-sm text-[var(--ink-secondary)] shadow-sm">
+            Интервьюер: {subtitles.agent}
+          </p>
+        ) : null}
+        {subtitlesOn && subtitles.candidate ? (
+          <p className="rounded-md bg-[color-mix(in_srgb,var(--surface-raised)_92%,transparent)] px-3 py-1 text-sm shadow-sm">
+            Вы: {subtitles.candidate}
+          </p>
+        ) : null}
+        {remainingMs != null ? (
+          <p className="text-sm tabular-nums text-[var(--ink-tertiary)]">
+            {remainingMs > 0 ? `Осталось времени на вопрос: ${formatDuration(remainingMs)}` : "Время на вопрос вышло"}
+          </p>
+        ) : null}
+      </div>
+
+      <button
+        type="button"
+        onClick={toggleSubtitles}
+        aria-pressed={subtitlesOn}
+        className="fixed bottom-6 left-6 z-30 rounded-full border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2 text-sm text-[var(--ink-secondary)] hover:bg-[var(--surface)]"
+      >
+        Субтитры: {subtitlesOn ? "вкл" : "выкл"}
+      </button>
+
+      {channelState.status === "question_active" ? (
+        <button
+          type="button"
+          onClick={() => {
+            channelRef.current?.sendNextQuestion();
+            setNextSent(true);
+          }}
+          disabled={nextSent}
+          className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-1.5 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {nextSent ? "Переходим…" : "Дальше"}
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      ) : null}
 
       {roadmap && (
         <ol className="hidden sm:fixed sm:left-6 sm:top-1/2 sm:block sm:w-[180px] sm:-translate-y-1/2 sm:space-y-2.5 sm:text-sm">
@@ -281,6 +380,13 @@ export function InterviewRoom({
       </div>
     </div>
   );
+}
+
+function formatDuration(ms: number): string {
+  const total = Math.ceil(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function StatusLine({ channelState }: { channelState: ChannelState }) {

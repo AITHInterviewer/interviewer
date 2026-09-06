@@ -1,10 +1,9 @@
 name: reset data (self-hosted)
 
 # Разовая ручная джоба — полностью сносит postgres/minio (и заодно frontend
-# node_modules/.next, чтобы не тащить кэш) volumes для основного стека
-# (docker-compose.dev.yml + infra/docker-compose.yml). Живой стек не остаётся
-# запущенным после этого — следующий запуск deploy-full.yml поднимет всё заново с
-# чистой БД и пустым MinIO.
+# cache) volumes для основного стека (docker-compose.dev.yml + infra + vps overlay)
+# и live-agent. Живой стек не остаётся запущенным после этого — следующий запуск
+# deploy-full.yml поднимет всё заново с чистой БД и пустым MinIO.
 
 on:
   workflow_dispatch: {}
@@ -15,18 +14,25 @@ concurrency:
 
 jobs:
   reset:
-    runs-on: self-hosted
+    runs-on: [self-hosted, vps]
     defaults:
       run:
-        shell: powershell
+        shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Same runner workspace as deploy-full — do not git-clean infra/tls.
+          clean: false
 
       - name: Stop stack and remove postgres/minio (+ frontend cache) volumes
         run: |
-          docker compose --project-directory . `
-            -f docker-compose.dev.yml `
-            -f infra/docker-compose.yml `
+          docker compose --project-directory . \
+            -f docker-compose.dev.yml \
+            -f infra/docker-compose.yml \
+            -f docker-compose.vps.yml \
+            down -v --remove-orphans
+          docker compose --project-directory live-agent \
+            -f live-agent/docker-compose.yml \
             down -v --remove-orphans
 
       - name: Report remaining volumes

@@ -93,20 +93,20 @@ services:
     image: nginx:1.27-alpine
     volumes:
       - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      # Настоящий Let's Encrypt сертификат (через DuckDNS DNS-01, без открытых портов
-      # 80/443 — см. сервис acme ниже и .github/workflows/deploy-full.yml). ./infra/tls
+      # Настоящий сертификат (Let's Encrypt / ZeroSSL / BuyPass через DNS-01 DuckDNS —
+      # см. сервис acme ниже и .github/workflows/deploy-full.yml). ./infra/tls
       # должен существовать до старта nginx: ssl_certificate указывает на него напрямую,
       # отсутствие файла — фатальная ошибка старта nginx, не просто 502 на один location.
       - ./infra/tls:/etc/ainterviewer-tls:ro
+      - acme-webroot:/var/www/acme:ro
     ports:
       - "${PUBLIC_HTTP_PORT:-12345}:443"
 
   # Одноразовая (не поднимается через `up -d`, только `docker compose run --rm acme` —
-  # см. deploy-full.yml) выписка/продление Let's Encrypt сертификата через DNS-01 у DuckDNS:
-  # не требует открытых портов 80/443 (которые нельзя открыть на этом туннеле, только ≥1000)
-  # — вместо HTTP-проверки CA сверяет TXT-запись, которую acme.sh сам проставляет через
-  # DuckDNS API. Сертификат общий для nginx (сайт) и livekit-server (TURN/TLS, см.
-  # infra/livekit.yaml) — оба читают один и тот же ./infra/tls.
+  # см. deploy-full.yml) выписка/продление сертификата через DNS-01 DuckDNS:
+  # хостовые 80/443 заняты другим nginx, HTTP-01 webroot недоступен. CA сверяет
+  # TXT-запись, которую acme.sh ставит через DuckDNS API. Сертификат общий для nginx
+  # (сайт) и livekit-server (TURN/TLS, см. infra/livekit.yaml) — оба читают ./infra/tls.
   acme:
     image: neilpang/acme.sh
     # Без ":?required" — Compose интерполирует ВЕСЬ файл, включая этот сервис, даже когда
@@ -127,11 +127,12 @@ services:
       # a fresh certificate on every run instead of detecting "still valid, skip" — burned
       # through Let's Encrypt's 5-certs/168h rate limit this way (2026-09-05).
       - acme-state:/acme.sh
+      - acme-webroot:/var/www/acme
       - ./infra/acme-issue.sh:/issue.sh:ro
     entrypoint: sh
-    # sed: runner на Windows может отдать скрипт с CRLF; в контейнере это ломает sh.
-    # Скрипт сначала копирует уже выпущенный cert из volume, не трогая live-файлы.
-    # Если Let's Encrypt в rate limit — берёт ZeroSSL/BuyPass (браузеры тоже доверяют).
+    # sed: скрипт с CRLF ломает sh. Скрипт сначала копирует уже выпущенный cert из
+    # volume, не трогая live-файлы. Если Let's Encrypt в rate limit — берёт ZeroSSL/
+    # BuyPass (браузеры тоже доверяют).
     command: ["-c", "sed 's/\\r$$//' /issue.sh | sh"]
 
   livekit-egress:
@@ -171,6 +172,7 @@ volumes:
   postgres-data:
   minio-data:
   acme-state:
+  acme-webroot:
 
 networks:
   # Общая сеть между этим compose-проектом и live-agent/docker-compose.yml (отдельный

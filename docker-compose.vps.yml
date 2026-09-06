@@ -1,0 +1,67 @@
+# Overlay для деплоя на Linux VPS. Мержится ПОСЛЕ docker-compose.dev.yml и
+# infra/docker-compose.yml (см. .github/workflows/deploy-full.yml).
+# docker-compose.dev.yml не меняем — это локальный quickstart.
+#
+# !reset / !override обязательны: Compose склеивает ports/volumes из нескольких
+# файлов, и пустой список `[]` сам по себе не убирает проброс из dev/infra.
+
+services:
+  postgres:
+    ports: !reset []
+    restart: unless-stopped
+
+  redis:
+    ports: !reset []
+    restart: unless-stopped
+
+  minio:
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY}
+    ports: !reset []
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      target: runner
+    command:
+      [
+        "/bin/sh",
+        "-c",
+        "uv run alembic upgrade head && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      ]
+    volumes: !reset []
+    ports: !reset []
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      target: runner
+      args:
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL:-}
+    command: ["npm", "run", "start", "--", "--hostname", "0.0.0.0", "--port", "3000"]
+    volumes: !reset []
+    ports: !reset []
+    restart: unless-stopped
+
+  nginx:
+    ports: !override
+      - "12345:443"
+    volumes:
+      - acme-webroot:/var/www/acme:ro
+    restart: unless-stopped
+
+  livekit-server:
+    ports: !override
+      - "7881:7881"
+      - "5349:5349"
+      - "50000-50100:50000-50100/udp"
+    restart: unless-stopped
+
+  livekit-egress:
+    restart: unless-stopped
+
+volumes:
+  acme-webroot:
