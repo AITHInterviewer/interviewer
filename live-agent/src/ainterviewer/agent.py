@@ -538,6 +538,20 @@ async def entrypoint(ctx: JobContext) -> None:
                 await task
         if command_redis is not None:
             await command_redis.aclose()
+
+    # Phase.DONE выставляется СИНХРОННО внутри on_candidate_final_turn — до того, как
+    # llm_node успел отдать прощальную фразу в TTS. Реальный найденный баг (2026-09-06):
+    # ctx.shutdown() срабатывал в пределах секунды и убивал процесс, не дав агенту
+    # договорить «последний вопрос, ответы обрабатываются» — кандидат видел, как звонок
+    # оборвался на полуслове. Ждём, пока текущая реплика допроиграется: короткая пауза,
+    # чтобы llm_node успел поставить фразу в очередь, затем drain() — он ждёт конца всей
+    # активной генерации/озвучки, — затем ещё пауза на долив последних аудио-фреймов и
+    # на асинхронную публикацию INTERVIEW_COMPLETED в Redis (RedisEventSink.publish
+    # планирует её как задачу на этом же loop).
+    await asyncio.sleep(2.0)
+    with contextlib.suppress(Exception):
+        await session.drain()
+    await asyncio.sleep(2.0)
     logger.info("entrypoint: interview complete — shutting down job")
     ctx.shutdown()
 

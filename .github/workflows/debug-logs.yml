@@ -61,6 +61,25 @@ jobs:
           echo "--- container status (live-agent stack) ---"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps -a
 
+      # Read-only: применена ли миграция контура оценки на боевой БД и не застряли ли
+      # интервью в in_progress (симптом — column interview_event.source_event_id does not
+      # exist → каждый record_event падает → статус не доходит до completed).
+      - name: DB state (alembic head, interview_event schema, stuck interviews)
+        if: ${{ github.event.inputs.probe != 'false' }}
+        run: |
+          main=(--project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml -f docker-compose.vps.yml)
+          psql() { docker compose "${main[@]}" exec -T -e PGPASSWORD=ainterviewer postgres \
+            psql -U ainterviewer -d ainterviewer -X -A -F' | ' "$@"; }
+
+          echo "--- alembic_version (ожидаем >= 20260906_000006) ---"
+          psql -c "select version_num from alembic_version;" || true
+          echo "--- interview_event: есть ли source_event_id ---"
+          psql -c "select column_name from information_schema.columns where table_name='interview_event' order by 1;" || true
+          echo "--- interview: статусы за сутки ---"
+          psql -c "select id, status, product_state, created_at, completed_at from interview where created_at > now() - interval '24 hours' order by created_at desc;" || true
+          echo "--- evaluation_job ---"
+          psql -c "select interview_id, status, attempts, last_error from evaluation_job order by created_at desc limit 10;" || true
+
       # Голос и распознавание переехали в OpenRouter (docs/infra/vps-openrouter-migration.md),
       # и «агент молчит» отличается от «агент не слышит» только тем, какая из двух облачных
       # ручек отдала ошибку — в логах воркера этого не видно, пока не начнётся живая сессия.
