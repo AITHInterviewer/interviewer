@@ -309,11 +309,15 @@ export type SkillScoreEntry = {
 /** Разбор одного ответа в report_json (контракт EvaluationCreateRequest evaluation-agent). */
 export type PerQuestionReport = {
   question_id: string;
-  skill_scores: SkillScoreEntry[];
-  quotes: Array<{ text: string; question_id?: string | null }>;
-  confidence: number;
+  skill_scores?: SkillScoreEntry[];
+  quotes?: Array<{ text: string; question_id?: string | null }>;
+  confidence?: number;
   answered_with_hint: boolean;
   report: string | null;
+  /** Legacy: одна оценка на вопрос вместо skill_scores (шкала могла быть 1–5). */
+  score?: number;
+  rationale?: string;
+  skill_tag?: string[];
 };
 
 export type InterviewReport = {
@@ -328,10 +332,16 @@ export type InterviewReport = {
   score_percent?: number | null;
   skill_levels?: Array<{ skill_tag: string; level: 0 | 1 | 2 | 3 }>;
   per_question: PerQuestionReport[];
-  confirmed_skills: string[];
-  unconfirmed_skills: string[];
+  confirmed_skills?: string[];
+  unconfirmed_skills?: string[];
+  skill_verdicts?: Array<{
+    skill_tag: string;
+    skill_class: SkillClass;
+    reasoning?: string[];
+    mastery_level?: number;
+  }>;
   contradictions_found: Array<{ quote_a: { text: string }; quote_b: { text: string }; description: string }>;
-  strengths: string[];
+  strengths?: string[] | string;
   risks: string[];
   summary_intro: string | null;
   summary_conclusion: string | null;

@@ -143,6 +143,59 @@ function report(args: {
   };
 }
 
+/** Прод-фикстура Софии Крыловой: старый report_json без skill_scores / confirmed_skills. */
+const sofiaLegacyReport = {
+  verdict: "needs_review" as const,
+  summary: "Кандидат частично раскрыла стек, нужна доп. проверка.",
+  strengths: "Уверенно говорит про компоненты и композицию.",
+  weaknesses: "Путается в хуках и побочных эффектах.",
+  per_question: [
+    {
+      question_id: "q-react",
+      order: 1,
+      score: 3,
+      rationale: "оценка 3/5: описала компонент, без деталей хуков",
+      skill_tag: ["React"],
+      difficulty: "baseline",
+      answered_with_hint: false,
+    },
+    {
+      question_id: "q-ts",
+      order: 2,
+      score: 3,
+      rationale: "оценка 3/5: базовый TypeScript",
+      skill_tag: ["TypeScript"],
+      difficulty: "baseline",
+      answered_with_hint: false,
+    },
+  ],
+  skill_verdicts: [
+    {
+      required: true,
+      reasoning: ["Вопрос 1: оценка 3/5 — описала компонент, без деталей хуков"],
+      skill_tag: "React",
+      skill_class: "ambiguous" as const,
+      mastery_level: 1,
+      stretch_bonus: false,
+      effective_score: 3,
+    },
+    {
+      required: true,
+      reasoning: ["Вопрос 2: оценка 3/5 — базовый TypeScript"],
+      skill_tag: "TypeScript",
+      skill_class: "pass" as const,
+      mastery_level: 2,
+      stretch_bonus: false,
+      effective_score: 3,
+    },
+  ],
+} as unknown as InterviewReport;
+
+const sofiaQuestions = [
+  { id: "q-react", order: 1 },
+  { id: "q-ts", order: 2 },
+];
+
 describe("requiredSkillTally", () => {
   it("считает обязательные навыки по спискам confirmed/unconfirmed из отчёта", () => {
     const data = report({ confirmed: ["Python"], unconfirmed: ["Celery"] });
@@ -163,6 +216,17 @@ describe("requiredSkillTally", () => {
   it("без отчёта — все не проверены", () => {
     expect(requiredSkillTally(null, ["Python"])).toEqual({ pass: 0, ambiguous: 0, fail: 0, untested: 1, total: 1 });
   });
+
+  it("на legacy-отчёте Софии не бросает", () => {
+    expect(() => requiredSkillTally(sofiaLegacyReport, ["React", "TypeScript", "Python"])).not.toThrow();
+    expect(requiredSkillTally(sofiaLegacyReport, ["React", "TypeScript", "Python"])).toEqual({
+      pass: 1,
+      ambiguous: 1,
+      fail: 0,
+      untested: 1,
+      total: 3,
+    });
+  });
 });
 
 describe("skillVerdictFor", () => {
@@ -171,6 +235,20 @@ describe("skillVerdictFor", () => {
     expect(skillVerdictFor(data, " python ")?.skill_class).toBe("pass");
     expect(skillVerdictFor(data, "Go")).toBeNull();
     expect(skillVerdictFor(null, "Python")).toBeNull();
+  });
+
+  it("не падает на старом report_json без skill_scores (София)", () => {
+    expect(() => skillVerdictFor(sofiaLegacyReport, "React", sofiaQuestions)).not.toThrow();
+    const react = skillVerdictFor(sofiaLegacyReport, "React", sofiaQuestions);
+    expect(react?.skill_class).toBe("ambiguous");
+    expect(react?.reasoning_lines).toEqual(sofiaLegacyReport.skill_verdicts?.[0]?.reasoning);
+    expect(react?.best_score).toBe(1);
+  });
+
+  it("навык без записей в legacy-отчёте — null, не throw", () => {
+    expect(() => skillVerdictFor(sofiaLegacyReport, "Go", sofiaQuestions)).not.toThrow();
+    expect(skillVerdictFor(sofiaLegacyReport, "Go", sofiaQuestions)).toBeNull();
+    expect(skillVerdictFor({} as InterviewReport, "React")).toBeNull();
   });
 
   it("отдаёт лучший уровень и обоснования в формате «Вопрос N (уровень/3)»", () => {
@@ -234,6 +312,12 @@ describe("interviewScore", () => {
   it("percent падает на overall_score, если score_percent нет", () => {
     const legacy = { product_state: "report_ready" as const, report_json: report({}) };
     expect(interviewScore(legacy)).toEqual({ percent: 92, verdict: "needs_review" });
+  });
+
+  it("на legacy-отчёте Софии не бросает", () => {
+    const ready = { product_state: "report_ready" as const, report_json: sofiaLegacyReport };
+    expect(() => interviewScore(ready)).not.toThrow();
+    expect(interviewScore(ready)).toEqual({ percent: null, verdict: "needs_review" });
   });
 });
 

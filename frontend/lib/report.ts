@@ -2,6 +2,7 @@ import type {
   Interview,
   InterviewAnswer,
   InterviewReport,
+  PerQuestionReport,
   Question,
   QuestionDifficulty,
   SkillClass,
@@ -170,7 +171,7 @@ export function interviewScore(interview: Pick<Interview, "product_state" | "rep
   const report = interview.report_json;
   if (!report) return null;
   return {
-    percent: report.score_percent ?? report.overall_score,
+    percent: report.score_percent ?? report.overall_score ?? null,
     verdict: report.verdict ?? null,
   };
 }
@@ -194,12 +195,27 @@ function normalizeSkill(skill: string): string {
   return skill.trim().toLowerCase();
 }
 
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+type SkillScoreRow = { question_id: string; score: number; rationale: string };
+
+function formatScoreReasoning(entries: SkillScoreRow[], orderById: Map<string, number>): string[] {
+  return entries.map((entry) => {
+    const order = orderById.get(entry.question_id);
+    const prefix = order != null ? `Вопрос ${order} (${entry.score}/3)` : `${entry.score}/3`;
+    return entry.rationale ? `${prefix}: ${entry.rationale}` : prefix;
+  });
+}
+
+const CLASSIFIED: ReadonlySet<string> = new Set(["pass", "fail", "ambiguous"]);
+
 /**
- * Разбор навыка из report_json агента. Авторитетная классификация — списки
- * confirmed/unconfirmed_skills (их считает scoring.py по всем ответам); уровни и
- * обоснования берём из per_question[].skill_scores (шкала 0–3). reasoning_lines строим
- * в формате бывшего skill_verdicts.reasoning («Вопрос N (уровень/3): rationale») —
- * порядок вопроса берём из questions, потому что в per_question лежит только question_id.
+ * Разбор навыка из report_json агента. Partial/legacy JSON не бросает.
+ * Класс: confirmed/unconfirmed_skills, иначе skill_verdicts[].skill_class.
+ * Уровни и обоснования — из skill_scores (0–3); если их нет, из skill_verdicts
+ * (reasoning + mastery_level). Старую 5-балльную score в 0–3 не переводим.
  * null — навыка нет в отчёте (страница показывает тогда пилюлю покрытия).
  */
 export function skillVerdictFor(
@@ -211,26 +227,83 @@ export function skillVerdictFor(
   best_score: number | null;
   reasoning_lines: string[];
 } | null {
-  if (!report) return null;
+  if (!report || typeof report !== "object") return null;
   const needle = normalizeSkill(skill);
   const orderById = new Map((questions ?? []).map((question) => [question.id, question.order]));
-  const entries = report.per_question.flatMap((row) =>
-    row.skill_scores
-      .filter((entry) => normalizeSkill(entry.skill_tag) === needle)
-      .map((entry) => ({ question_id: row.question_id, score: entry.score, rationale: entry.rationale })),
+  const realEntries: SkillScoreRow[] = [];
+  const legacyEntries: SkillScoreRow[] = [];
+
+  for (const row of asArray<PerQuestionReport>(report.per_question)) {
+    if (!row || typeof row !== "object") continue;
+    const questionId = typeof row.question_id === "string" ? row.question_id : "";
+    if (Array.isArray(row.skill_scores)) {
+      for (const entry of row.skill_scores) {
+        if (!entry || typeof entry !== "object") continue;
+        if (typeof entry.skill_tag !== "string" || normalizeSkill(entry.skill_tag) !== needle) continue;
+        if (typeof entry.score !== "number") continue;
+        realEntries.push({
+          question_id: questionId,
+          score: entry.score,
+          rationale: typeof entry.rationale === "string" ? entry.rationale : "",
+        });
+      }
+      continue;
+    }
+    if (typeof row.score !== "number") continue;
+    const rationale = typeof row.rationale === "string" ? row.rationale : "";
+    for (const tag of asArray<string>(row.skill_tag)) {
+      if (typeof tag !== "string" || normalizeSkill(tag) !== needle) continue;
+      legacyEntries.push({ question_id: questionId, score: row.score, rationale });
+    }
+  }
+
+  const confirmed = asArray<string>(report.confirmed_skills).some(
+    (item) => typeof item === "string" && normalizeSkill(item) === needle,
   );
-  const confirmed = report.confirmed_skills.some((item) => normalizeSkill(item) === needle);
-  const unconfirmed = report.unconfirmed_skills.some((item) => normalizeSkill(item) === needle);
-  if (!confirmed && !unconfirmed && entries.length === 0) return null;
-  return {
-    skill_class: confirmed ? "pass" : unconfirmed ? "fail" : "ambiguous",
-    best_score: entries.length > 0 ? Math.max(...entries.map((entry) => entry.score)) : null,
-    reasoning_lines: entries.map((entry) => {
-      const order = orderById.get(entry.question_id);
-      const prefix = order != null ? `Вопрос ${order} (${entry.score}/3)` : `${entry.score}/3`;
-      return entry.rationale ? `${prefix}: ${entry.rationale}` : prefix;
-    }),
-  };
+  const unconfirmed = asArray<string>(report.unconfirmed_skills).some(
+    (item) => typeof item === "string" && normalizeSkill(item) === needle,
+  );
+  const verdict = asArray<NonNullable<InterviewReport["skill_verdicts"]>[number]>(report.skill_verdicts).find(
+    (item) =>
+      item != null &&
+      typeof item === "object" &&
+      typeof item.skill_tag === "string" &&
+      normalizeSkill(item.skill_tag) === needle,
+  );
+
+  if (!confirmed && !unconfirmed && !verdict && realEntries.length === 0 && legacyEntries.length === 0) {
+    return null;
+  }
+
+  let skill_class: SkillClass;
+  if (confirmed) {
+    skill_class = "pass";
+  } else if (unconfirmed) {
+    skill_class = "fail";
+  } else if (verdict && CLASSIFIED.has(verdict.skill_class)) {
+    skill_class = verdict.skill_class as "pass" | "fail" | "ambiguous";
+  } else if (realEntries.length > 0 || legacyEntries.length > 0) {
+    skill_class = "ambiguous";
+  } else {
+    return null;
+  }
+
+  let reasoning_lines: string[];
+  if (realEntries.length > 0) {
+    reasoning_lines = formatScoreReasoning(realEntries, orderById);
+  } else {
+    const fromVerdict = asArray<string>(verdict?.reasoning).filter((line) => typeof line === "string");
+    reasoning_lines = fromVerdict.length > 0 ? fromVerdict : formatScoreReasoning(legacyEntries, orderById);
+  }
+
+  const best_score =
+    realEntries.length > 0
+      ? Math.max(...realEntries.map((entry) => entry.score))
+      : typeof verdict?.mastery_level === "number"
+        ? verdict.mastery_level
+        : null;
+
+  return { skill_class, best_score, reasoning_lines };
 }
 
 /**

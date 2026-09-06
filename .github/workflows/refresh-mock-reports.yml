@@ -1,0 +1,25 @@
+# Разовая джоба: переписывает мок-отчёты демо-кандидатов на канон 0–3
+# (ответы, протокол, report_json). Живых кандидатов не трогает.
+name: refresh mock candidate reports
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  refresh:
+    runs-on: [self-hosted, vps]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Rewrite mock reports inside backend
+        run: |
+          docker compose --project-directory . \
+            -f docker-compose.dev.yml \
+            -f infra/docker-compose.yml \
+            -f docker-compose.vps.yml \
+            exec -T backend uv run python -m scripts.refresh_mock_candidate_reports

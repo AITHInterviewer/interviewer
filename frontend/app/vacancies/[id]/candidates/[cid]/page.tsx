@@ -66,10 +66,18 @@ const VERDICT_LABEL: Record<"fits" | "not_fits" | "needs_review", string> = {
   needs_review: "Нуждается в доп. проверке",
 };
 
-function verdictTone(verdict: "fits" | "not_fits" | "needs_review"): StatusTone {
+function verdictTone(verdict: string | null | undefined): StatusTone {
   if (verdict === "fits") return "positive";
   if (verdict === "not_fits") return "danger";
-  return "warning";
+  if (verdict === "needs_review") return "warning";
+  return "neutral";
+}
+
+function verdictLabel(verdict: string | null | undefined): string {
+  if (verdict === "fits" || verdict === "not_fits" || verdict === "needs_review") {
+    return VERDICT_LABEL[verdict];
+  }
+  return "Вердикт";
 }
 
 /** Очковые суммы отчёта — float: целые как есть, дробные до сотых (5.3333… -> 5.33). */
@@ -108,8 +116,11 @@ function hasSkillMatrix(report: Interview["report_json"]): boolean {
 
 /** Средний уровень по навыкам вопроса — то, что уходит в question_score. */
 function questionAverageScore(row: PerQuestionReport): number | null {
-  if (row.skill_scores.length === 0) return null;
-  return row.skill_scores.reduce((sum, entry) => sum + entry.score, 0) / row.skill_scores.length;
+  const scores = row.skill_scores;
+  if (!Array.isArray(scores) || scores.length === 0) {
+    return typeof row.score === "number" ? row.score : null;
+  }
+  return scores.reduce((sum, entry) => sum + entry.score, 0) / scores.length;
 }
 
 const SECURITY_SIGNAL_LABEL: Record<string, string> = {
@@ -472,7 +483,7 @@ export default function VacancyCandidatePage() {
                           data-tone={verdictTone(interview.report_json.verdict)}
                         >
                           <i />
-                          {VERDICT_LABEL[interview.report_json.verdict]}
+                          {verdictLabel(interview.report_json.verdict)}
                         </span>
                       </>
                     ) : (
@@ -709,13 +720,15 @@ export default function VacancyCandidatePage() {
                                     </p>
                                   ) : null}
                                   {(() => {
-                                    const scored = interview.report_json?.per_question.find(
+                                    const scored = interview.report_json?.per_question?.find(
                                       (item) => item.question_id === question.id,
                                     );
-                                    if (!scored || scored.skill_scores.length === 0) return null;
+                                    const skillScores = scored?.skill_scores ?? [];
+                                    if (!scored || skillScores.length === 0) return null;
+                                    const quotes = scored.quotes ?? [];
                                     return (
                                       <div className="question-score">
-                                        {scored.skill_scores.map((skillScore) => (
+                                        {skillScores.map((skillScore) => (
                                           <span
                                             key={skillScore.skill_tag}
                                             className="score-chip"
@@ -732,12 +745,13 @@ export default function VacancyCandidatePage() {
                                         <span className="muted-copy">
                                           {DIFFICULTY_LABEL[question.difficulty]}
                                           {scored.answered_with_hint ? " · отвечал с подсказкой" : ""}
-                                          {" · уверенность оценки "}
-                                          {Math.round(scored.confidence * 100)}%
+                                          {typeof scored.confidence === "number"
+                                            ? ` · уверенность оценки ${Math.round(scored.confidence * 100)}%`
+                                            : ""}
                                         </span>
                                         {scored.report ? <p className="muted-copy">{scored.report}</p> : null}
-                                        {scored.quotes.length > 0
-                                          ? scored.quotes.map((quote, index) => (
+                                        {quotes.length > 0
+                                          ? quotes.map((quote, index) => (
                                               <blockquote key={index}>«{quote.text}»</blockquote>
                                             ))
                                           : null}
@@ -818,15 +832,17 @@ export default function VacancyCandidatePage() {
                                   ? "Разбор появится, когда отчёт соберётся."
                                   : "Разбор по этому вопросу не попал в отчёт.")}
                             </p>
-                            {scored && scored.quotes.length > 0
-                              ? scored.quotes.map((quote, index) => (
+                            {scored && (scored.quotes ?? []).length > 0
+                              ? (scored.quotes ?? []).map((quote, index) => (
                                   <blockquote key={index}>«{quote.text}»</blockquote>
                                 ))
                               : null}
                             <span className="muted-copy">
                               {DIFFICULTY_LABEL[question.difficulty]}
                               {scored?.answered_with_hint ? " · отвечал с подсказкой" : ""}
-                              {scored ? ` · уверенность оценки ${Math.round(scored.confidence * 100)}%` : ""}
+                              {typeof scored?.confidence === "number"
+                                ? ` · уверенность оценки ${Math.round(scored.confidence * 100)}%`
+                                : ""}
                             </span>
                           </div>
                         ) : null}
