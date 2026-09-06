@@ -17,6 +17,14 @@ const INITIAL_FOCUS = "[data-modal-initial-focus]";
 function useOverlay(open: boolean, onClose: () => void) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  // `onClose` — обычно инлайн-стрелка на вызове (`() => setOpen(false)`), новая
+  // на каждый рендер. Реальный найденный баг: если её держать в deps ниже, любой
+  // ре-рендер родителя (например, ввод в поле формы внутри модалки) пересоздаёт
+  // onClose → эффект перезапускается → фокус дёргается обратно на
+  // data-modal-initial-focus, и поле теряет фокус на каждой буквe. Читаем
+  // актуальный onClose через ref, не перезапуская эффект при его смене.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -34,7 +42,7 @@ function useOverlay(open: boolean, onClose: () => void) {
 
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab" || !panelRef.current) return;
@@ -59,7 +67,7 @@ function useOverlay(open: boolean, onClose: () => void) {
       document.body.style.overflow = previousOverflow;
       openerRef.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return panelRef;
 }

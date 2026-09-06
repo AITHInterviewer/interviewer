@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("next/navigation", () => ({
@@ -77,14 +77,13 @@ async function openInviteFormAndAttachResume() {
   vi.mocked(createManagedInterview).mockResolvedValue(createdInvite);
   renderClient("v1");
   fireEvent.click(await screen.findByRole("button", { name: /пригласить кандидата/i }));
+  fireEvent.change(await screen.findByLabelText(/фио кандидата/i), { target: { value: "Ivan Petrov" } });
   const resumeInput = await screen.findByLabelText(/резюме кандидата/i);
   fireEvent.change(resumeInput, {
     target: { files: [new File(["cv"], "resume.pdf", { type: "application/pdf" })] },
   });
-  fireEvent.submit(screen.getByRole("button", { name: /подготовить ссылку/i }).closest("form")!);
-  expect(await screen.findByLabelText(/ссылка для кандидата/i)).toHaveValue(
-    `${window.location.origin}/i/tok-abc`,
-  );
+  fireEvent.submit(screen.getByRole("button", { name: /^пригласить$/i }).closest("form")!);
+  await screen.findByLabelText(/сообщение для кандидата/i);
 }
 
 describe("VacancyDetailClient", () => {
@@ -193,40 +192,11 @@ describe("VacancyDetailClient", () => {
     expect(screen.getByRole("button", { name: /приостановить/i })).toBeInTheDocument();
   });
 
-  it("does not claim the link was copied when clipboard write fails", async () => {
-    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
-    vi.stubGlobal("navigator", {
-      ...navigator,
-      clipboard: { writeText },
-    });
-
+  it("shows a ready-to-send message with the invite link after creating an interview", async () => {
     await openInviteFormAndAttachResume();
 
-    expect(screen.getByText(/ссылка создана\. отправьте её кандидату самостоятельно/i)).toBeInTheDocument();
-    expect(screen.queryByText(/скопирован/i)).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /скопировать ссылку/i }));
-
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/i/tok-abc`));
-    expect(screen.queryByText(/скопирован/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/не удалось скопировать/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/ссылка для кандидата/i)).toHaveValue(`${window.location.origin}/i/tok-abc`);
-  });
-
-  it("says the link was copied only after clipboard write succeeds", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal("navigator", {
-      ...navigator,
-      clipboard: { writeText },
-    });
-
-    await openInviteFormAndAttachResume();
-
-    expect(screen.queryByText(/скопирован/i)).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /скопировать ссылку/i }));
-
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/i/tok-abc`));
-    expect(screen.getByText(/ссылка скопирована/i)).toBeInTheDocument();
+    const message = screen.getByLabelText(/сообщение для кандидата/i);
+    expect(message.textContent).toContain(`${window.location.origin}/i/tok-abc`);
+    expect(message.textContent).toContain("Ivan Petrov");
   });
 });

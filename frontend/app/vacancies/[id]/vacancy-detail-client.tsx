@@ -1,5 +1,6 @@
 "use client";
 
+import { Check, Copy, Paperclip, X } from "@phosphor-icons/react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -99,9 +100,10 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
   const [actionBusy, setActionBusy] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
-  const [copyError, setCopyError] = useState<string | null>(null);
-  const [copyDone, setCopyDone] = useState(false);
+  const [invitedCandidateName, setInvitedCandidateName] = useState("");
+  const [inviteMessageCopied, setInviteMessageCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<"dashboard" | "questions" | "candidates" | null>(null);
   const [candidateSearch, setCandidateSearch] = useState("");
   const [candidateStageFilter, setCandidateStageFilter] = useState("all");
@@ -238,6 +240,10 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
 
   async function handleCreateInterview(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!candidateName.trim()) {
+      setInterviewFormError("Укажите ФИО кандидата.");
+      return;
+    }
     if (!resumeFile) {
       setInterviewFormError("Приложите резюме: без него эксперт не поймёт контекст ответов.");
       return;
@@ -249,13 +255,14 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     try {
       const response = await createManagedInterview(vacancyId, {
         resumeFile,
-        candidateName: candidateName || undefined,
+        candidateName,
       });
       setCreatedInviteLink(inviteLink(response.interview.access_token));
-      setCopyError(null);
-      setCopyDone(false);
+      setInvitedCandidateName(candidateName);
       setCandidateName("");
       setResumeFile(null);
+      setInviteOpen(false);
+      setLinkModalOpen(true);
       await refreshInterviews();
     } catch (caughtError) {
       setInterviewFormError(normalizeError(caughtError, "Не удалось создать приглашение."));
@@ -264,23 +271,32 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     }
   }
 
-  async function handleCopyInviteLink() {
+  function handleOpenInvite() {
+    setCreatedInviteLink(null);
+    setInterviewFormError(null);
+    setInviteOpen(true);
+  }
+
+  function buildInviteMessage(): string {
     if (!createdInviteLink) {
-      return;
+      return "";
     }
-    const writeText = navigator.clipboard?.writeText;
-    if (!writeText) {
-      setCopyDone(false);
-      setCopyError("Не удалось скопировать. Выделите ссылку в поле и скопируйте вручную.");
-      return;
-    }
+    const name = invitedCandidateName.trim();
+    const greeting = name ? `Здравствуйте, ${name}!` : "Здравствуйте!";
+    const position = vacancy ? ` на позицию «${vacancy.title}»` : "";
+    return `${greeting} Приглашаем вас пройти асинхронное техническое интервью${position}. Перейдите по ссылке, чтобы начать: ${createdInviteLink}`;
+  }
+
+  async function handleCopyInviteMessage() {
+    const message = buildInviteMessage();
+    if (!message) return;
     try {
-      await writeText.call(navigator.clipboard, createdInviteLink);
-      setCopyError(null);
-      setCopyDone(true);
+      await navigator.clipboard?.writeText(message);
+      setInviteMessageCopied(true);
+      setTimeout(() => setInviteMessageCopied(false), 1500);
     } catch {
-      setCopyDone(false);
-      setCopyError("Не удалось скопировать. Выделите ссылку в поле и скопируйте вручную.");
+      // Буфер обмена недоступен (например, нет разрешения) — сообщение всё равно
+      // видно текстом, можно выделить и скопировать руками.
     }
   }
 
@@ -396,31 +412,6 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                     ) : null}
                   </PopoverContent>
                 </Popover>
-                <div className="vacancy-info-card__actions">
-                  {showPause ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={actionBusy}
-                      onClick={() =>
-                        void applyVacancyUpdate(() => pauseManagedVacancy(vacancyId), "Не удалось поставить на паузу.")
-                      }
-                    >
-                      {actionBusy ? "Приостанавливаем…" : "Приостановить"}
-                    </Button>
-                  ) : null}
-                  {showResume ? (
-                    <Button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() =>
-                        void applyVacancyUpdate(() => resumeManagedVacancy(vacancyId), "Не удалось возобновить вакансию.")
-                      }
-                    >
-                      {actionBusy ? "Возобновляем…" : "Возобновить"}
-                    </Button>
-                  ) : null}
-                </div>
               </div>
 
               <div className="vacancy-info-card__meta">
@@ -441,8 +432,32 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
               </div>
 
               <div className="vacancy-info-card__invite">
+                {showPause ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={actionBusy}
+                    onClick={() =>
+                      void applyVacancyUpdate(() => pauseManagedVacancy(vacancyId), "Не удалось поставить на паузу.")
+                    }
+                  >
+                    {actionBusy ? "Приостанавливаем…" : "Приостановить"}
+                  </Button>
+                ) : null}
+                {showResume ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={actionBusy}
+                    onClick={() =>
+                      void applyVacancyUpdate(() => resumeManagedVacancy(vacancyId), "Не удалось возобновить вакансию.")
+                    }
+                  >
+                    {actionBusy ? "Возобновляем…" : "Возобновить"}
+                  </Button>
+                ) : null}
                 {canManage ? (
-                  <Button type="button" disabled={!canInvite} onClick={() => setInviteOpen(true)}>
+                  <Button type="button" disabled={!canInvite} onClick={() => handleOpenInvite()}>
                     Пригласить кандидата
                   </Button>
                 ) : null}
@@ -655,37 +670,43 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
             {canManage ? (
               <Modal open={inviteOpen} title="Пригласить кандидата" onClose={() => setInviteOpen(false)}>
                 <form className="form-surface" onSubmit={handleCreateInterview}>
-                  <p className="muted-copy">
-                    {createdInviteLink
-                      ? "Ссылка создана. Отправьте её кандидату самостоятельно."
-                      : "Система готовит ссылку. Письмо кандидату отправляете вы."}
-                  </p>
                   <label>
-                    Имя кандидата (необязательно)
+                    ФИО кандидата
                     <input
                       value={candidateName}
                       onChange={(event) => setCandidateName(event.target.value)}
                       disabled={!canInvite}
+                      required
                     />
                   </label>
-                  <label>
-                    Резюме кандидата
-                    <input
-                      key={createdInviteLink ?? "resume-empty"}
-                      type="file"
-                      onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
-                      disabled={!canInvite}
-                    />
-                    <span className="field-hint">
-                      Резюме увидят эксперт и нанимающий менеджер рядом с отчётом.
+                  <div className="attachment-field">
+                    <span className="attachment-field__label">Резюме кандидата</span>
+                    <span className="attachment-field__row">
+                      <label className="attachment-field__button" data-disabled={!canInvite || undefined}>
+                        <Paperclip size={16} />
+                        {resumeFile ? "Заменить файл" : "Прикрепить файл"}
+                        <input
+                          type="file"
+                          aria-label="Резюме кандидата"
+                          onChange={(event) => setResumeFile(event.target.files?.[0] ?? null)}
+                          disabled={!canInvite}
+                        />
+                      </label>
+                      {resumeFile ? (
+                        <span className="attachment-field__name">
+                          {resumeFile.name}
+                          <button
+                            type="button"
+                            aria-label="Убрать файл"
+                            onClick={() => setResumeFile(null)}
+                            disabled={!canInvite}
+                          >
+                            <X size={12} />
+                          </button>
+                        </span>
+                      ) : null}
                     </span>
-                  </label>
-                  {createdInviteLink ? (
-                    <label>
-                      Ссылка для кандидата
-                      <input readOnly value={createdInviteLink} />
-                    </label>
-                  ) : null}
+                  </div>
                   {interviewFormError ? <p className="form-error">{interviewFormError}</p> : null}
                   <ModalActions>
                     <Button type="button" variant="secondary" data-modal-initial-focus onClick={() => setInviteOpen(false)}>
@@ -695,23 +716,36 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
                       type="submit"
                       disabled={!canInvite}
                       loading={interviewFormSubmitting}
-                      loadingLabel="Готовлю ссылку…"
+                      loadingLabel="Приглашаем…"
                     >
-                      Подготовить ссылку
+                      Пригласить
                     </Button>
-                    {createdInviteLink ? (
-                      <Button type="button" variant="secondary" onClick={() => void handleCopyInviteLink()}>
-                        Скопировать ссылку
-                      </Button>
-                    ) : null}
                   </ModalActions>
-                  {copyError ? (
-                    <p className="form-error" role="alert">
-                      {copyError}
-                    </p>
-                  ) : null}
-                  {copyDone ? <p role="status">Ссылка скопирована</p> : null}
                 </form>
+              </Modal>
+            ) : null}
+
+            {canManage ? (
+              <Modal
+                open={linkModalOpen}
+                title="Кандидат приглашён"
+                onClose={() => setLinkModalOpen(false)}
+              >
+                <div className="form-surface">
+                  {createdInviteLink ? (
+                    <div className="invite-message" aria-label="Сообщение для кандидата">
+                      <button
+                        type="button"
+                        className="invite-message__copy"
+                        aria-label="Скопировать сообщение"
+                        onClick={() => void handleCopyInviteMessage()}
+                      >
+                        {inviteMessageCopied ? <Check size={16} /> : <Copy size={16} />}
+                      </button>
+                      <pre>{buildInviteMessage()}</pre>
+                    </div>
+                  ) : null}
+                </div>
               </Modal>
             ) : null}
           </>

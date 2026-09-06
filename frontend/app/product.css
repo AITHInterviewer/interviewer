@@ -150,10 +150,9 @@ blockquote { margin: 10px 0; padding: 0; border: 0; color: var(--ink); font-size
 .form-panel + .form-panel { margin-top: 16px; }
 .vacancy-info-card { display: flex; align-items: center; gap: 20px; padding: 16px 0 20px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
 .vacancy-info-card__main { display: grid; gap: 10px; flex: 0 1 640px; min-width: 0; }
-.vacancy-info-card__invite { display: flex; align-items: center; margin-left: auto; flex: 0 0 auto; }
+.vacancy-info-card__invite { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; flex: 0 0 auto; }
 .vacancy-info-card__header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .vacancy-info-card__header h1 { margin: 0; font-size: var(--text-h2); line-height: 1.2; letter-spacing: -.02em; }
-.vacancy-info-card__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .vacancy-info-card__meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--ink-secondary); font-size: var(--text-meta); }
 .vacancy-info-card__body { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: start; }
 .vacancy-info-card__description { margin: 0; font-size: var(--text-meta); color: var(--ink-secondary); }
@@ -192,6 +191,20 @@ blockquote { margin: 10px 0; padding: 0; border: 0; color: var(--ink); font-size
 }
 .form-surface label, .think-panel label, .audit-comment { display: grid; gap: 7px; color: var(--ink-secondary); font-size: var(--text-body); }
 input, textarea { width: 100%; font-size: var(--text-body); border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface); color: var(--ink); }
+.attachment-field { display: grid; gap: 7px; color: var(--ink-secondary); }
+.attachment-field__row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.attachment-field__button { display: inline-flex; align-items: center; gap: 6px; min-height: var(--control-h); padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-raised); color: var(--ink-secondary); font-size: var(--text-body); cursor: pointer; width: auto; }
+.attachment-field__button:hover { border-color: var(--border-strong); color: var(--ink); }
+.attachment-field__button[data-disabled] { opacity: .5; cursor: default; pointer-events: none; }
+.attachment-field__button input[type="file"] { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+.attachment-field__name { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: var(--radius-pill); background: var(--surface-muted); color: var(--ink-secondary); font-size: var(--text-meta); }
+.attachment-field__name button { display: inline-grid; place-items: center; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.attachment-field__name button:hover { color: var(--danger); }
+
+.invite-message { position: relative; padding: 14px 44px 14px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-muted); }
+.invite-message pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: var(--text-body); color: var(--ink); }
+.invite-message__copy { position: absolute; top: 10px; right: 10px; display: inline-grid; place-items: center; width: 28px; height: 28px; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--surface-raised); color: var(--ink-secondary); cursor: pointer; }
+.invite-message__copy:hover { border-color: var(--border-strong); color: var(--ink); }
 input { min-height: 42px; padding: 0 12px; }
 textarea { min-height: 112px; padding: 11px 12px; resize: vertical; }
 input:hover, textarea:hover { border-color: var(--border-strong); }
