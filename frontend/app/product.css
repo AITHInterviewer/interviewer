@@ -451,7 +451,7 @@ input:hover, textarea:hover { border-color: var(--border-strong); }
 .vacancies-table { width: 100%; border-collapse: collapse; border: 1px solid var(--border); border-radius: var(--radius-panel); overflow: hidden; background: var(--surface-raised); }
 .vacancies-table th, .vacancies-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); text-align: left; font-size: var(--text-body); }
 .vacancies-table th { color: var(--ink-tertiary); font-weight: 600; background: var(--surface-muted); }
-.section-divider { margin: 8px 0; border: none; border-top: 1px solid var(--border); }
+.section-divider { margin: 30px 0; border: none; border-top: 1px solid var(--border); }
 .vacancy-dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .stat-tile { display: grid; gap: 4px; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); text-align: left; }
 .stat-tile__value { font-size: var(--text-h1); }
