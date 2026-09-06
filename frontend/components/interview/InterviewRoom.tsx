@@ -24,10 +24,15 @@ export function InterviewRoom({
   sessionId,
   stream,
   initialSpeakerId,
+  initialQuestionText,
 }: {
   sessionId: string;
   stream: MediaStream | null;
   initialSpeakerId?: string | null;
+  // Персистентный на бэке текст текущего ОСНОВНОГО вопроса (см.
+  // Interview.current_question_text) — переживает reconnect/перезагрузку страницы, пока
+  // не придёт первый ControlEvent.type==="question" по WS.
+  initialQuestionText?: string | null;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const liveKitRef = useRef<LiveKitSession | null>(null);
@@ -57,6 +62,14 @@ export function InterviewRoom({
   // вопроса, не отдельный шаг. Держим последний известный index/total отдельно от
   // channelState, потому что тот может в любой момент стать checkin-событием.
   const [roadmap, setRoadmap] = useState<{ index: number; total: number } | null>(null);
+  // Реальный найденный баг (2026-09-06): текст вопроса брался из ПОСЛЕДНЕГО ControlEvent
+  // без разбора типа — checkin/adaptive_question (доп./наводящий вопрос от LLM) тем же
+  // полем стирал основной вопрос, кандидат его больше не видел, решил, что агент завис.
+  // baseQuestionText обновляется ТОЛЬКО на type==="question", тем же паттерном "adjusting
+  // state during render", что и roadmap чуть выше; доп./наводящий вопрос — отдельно, ниже,
+  // не заменяет основной.
+  const [baseQuestionText, setBaseQuestionText] = useState<string | null>(initialQuestionText ?? null);
+  const [lastBaseQuestionEvent, setLastBaseQuestionEvent] = useState<unknown>(null);
   // Не useEffect, а "adjusting state during render" (react.dev/learn/you-might-not-need-an-effect,
   // «Storing information from previous renders») — refs недоступны во время рендера
   // (react-hooks/refs), поэтому "предыдущее" значение хранится тоже в state.
@@ -71,6 +84,21 @@ export function InterviewRoom({
       setRoadmap({ index: event.question_index, total: event.questions_total });
     }
   }
+  if (
+    (channelState.status === "question_active" || channelState.status === "completed") &&
+    channelState.event.type === "question" &&
+    channelState.event !== lastBaseQuestionEvent
+  ) {
+    setLastBaseQuestionEvent(channelState.event);
+    setBaseQuestionText(channelState.event.text);
+  }
+  // Доп./наводящий вопрос от LLM — не персистентный, не двигает baseQuestionText, просто
+  // текущее значение канала, пока оно активно.
+  const followUpText =
+    channelState.status === "question_active" &&
+    (channelState.event.type === "checkin" || channelState.event.type === "adaptive_question")
+      ? channelState.event.text
+      : null;
 
   useEffect(() => {
     if (videoRef.current && activeVideoTrack) {
@@ -140,11 +168,6 @@ export function InterviewRoom({
 
   const hasCamera = Boolean(activeVideoTrack);
 
-  const questionText =
-    channelState.status === "question_active" || channelState.status === "completed"
-      ? channelState.event.text
-      : null;
-
   if (channelState.status === "completed") {
     return (
       <section className="setup-stage">
@@ -177,7 +200,10 @@ export function InterviewRoom({
           и вид карточки). Камера кандидата и плашка интервьюера здесь не участвуют в этой
           ширине вовсе — на десктопе они прижаты прямо к правому краю страницы. */}
       <section className="setup-stage flex flex-col items-center justify-center gap-4 text-center">
-        <p className="text-2xl font-medium leading-snug">{questionText ?? "Подключаемся к интервью…"}</p>
+        <p className="text-2xl font-medium leading-snug">
+          {baseQuestionText ?? "Подключаемся к интервью…"}
+        </p>
+        {followUpText ? <p className="question-followup">{followUpText}</p> : null}
         <StatusLine channelState={channelState} />
       </section>
 

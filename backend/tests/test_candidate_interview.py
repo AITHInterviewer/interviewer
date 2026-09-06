@@ -34,6 +34,7 @@ async def test_get_interview_consent_info_returns_seeded_entry(db_session: Async
     # 6 вопросов x 200с = 1200с база + 300с оверхед = 1500с = 25 мин нижняя граница;
     # верхняя = 1500 + 4 x 200с = 2300с = 38.33 -> 38 мин (см. interview_repository.py).
     assert body["estimated_duration_min"] == {"min": 25, "max": 38}
+    assert body["current_question_text"] is None
 
 
 @pytest.mark.anyio

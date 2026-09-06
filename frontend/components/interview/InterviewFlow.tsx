@@ -19,6 +19,7 @@ type ConsentInfo = {
   questions_total: number;
   estimated_duration_min: { min: number; max: number };
   consented?: boolean;
+  current_question_text?: string | null;
 };
 
 type FlowStep = "loading" | "not_found" | "already_completed" | "consent" | "setup" | "ready";
@@ -127,7 +128,12 @@ export function InterviewFlow({ token }: { token: string }) {
 
   return (
     <CandidateShell vacancyTitle={info.vacancy_title}>
-      <InterviewRoom sessionId={token} stream={stream} initialSpeakerId={speakerId} />
+      <InterviewRoom
+        sessionId={token}
+        stream={stream}
+        initialSpeakerId={speakerId}
+        initialQuestionText={info.current_question_text ?? null}
+      />
     </CandidateShell>
   );
 }

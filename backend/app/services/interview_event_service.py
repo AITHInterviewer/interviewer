@@ -70,9 +70,23 @@ class InterviewEventService:
             )
         )
         await self._apply_aggregation(interview_id, raw_event)
+        if raw_event.get("type") == "question_started":
+            await self._update_current_question(interview_id, raw_event)
         await self.session.commit()
         if raw_event.get("type") == "interview_completed":
             await self._complete_interview(interview_id)
+
+    async def _update_current_question(self, interview_id: uuid.UUID, raw_event: dict[str, Any]) -> None:
+        """Только `question_started` (НИКОГДА checkin/adaptive_question_asked) — см.
+        `Interview.current_question_text` докстринг в модели: доп./наводящий вопрос от LLM
+        не должен стирать текст основного вопроса. `question_id` иногда не резолвится в
+        Postgres UUID (мок-вакансия/дев-данные, см. control_channel.py) — текст всё равно
+        пишем, `current_question_id` в этом случае остаётся NULL."""
+        interview = await self.session.get(Interview, interview_id)
+        if interview is None:
+            return
+        interview.current_question_id = _parse_question_id(raw_event.get("question_id"))
+        interview.current_question_text = raw_event.get("payload", {}).get("text")
 
     async def record_candidate_input(self, interview_id: uuid.UUID | str, message: dict[str, Any]) -> None:
         interview_id = uuid.UUID(str(interview_id))

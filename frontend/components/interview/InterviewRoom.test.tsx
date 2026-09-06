@@ -93,6 +93,37 @@ describe("InterviewRoom", () => {
     expect(await screen.findByText("Расскажите про индексы")).toBeInTheDocument();
   });
 
+  it("наводящий вопрос от LLM не стирает основной вопрос — показывает оба", async () => {
+    render(<InterviewRoom sessionId="tok" stream={fakeStream} />);
+    await waitFor(() => expect(channelInstances).toHaveLength(1));
+
+    channelInstances[0].listener?.({
+      status: "question_active",
+      event: { type: "question", question_id: "q1", text: "Расскажите про индексы", input_format: "none", ts: "" },
+    });
+    expect(await screen.findByText("Расскажите про индексы")).toBeInTheDocument();
+
+    channelInstances[0].listener?.({
+      status: "question_active",
+      event: {
+        type: "adaptive_question",
+        question_id: "q1",
+        text: "А что насчёт B-tree?",
+        input_format: "none",
+        ts: "",
+      },
+    });
+
+    expect(await screen.findByText("А что насчёт B-tree?")).toBeInTheDocument();
+    expect(screen.getByText("Расскажите про индексы")).toBeInTheDocument();
+  });
+
+  it("сразу показывает вопрос с бэка (initialQuestionText), до первого ControlEvent", async () => {
+    render(<InterviewRoom sessionId="tok" stream={fakeStream} initialQuestionText="Сохранённый вопрос" />);
+
+    expect(await screen.findByText("Сохранённый вопрос")).toBeInTheDocument();
+  });
+
   it("показывает финальный экран на completed", async () => {
     render(<InterviewRoom sessionId="tok" stream={fakeStream} />);
     await waitFor(() => expect(channelInstances).toHaveLength(1));

@@ -90,6 +90,71 @@ async def test_question_lifecycle_aggregates_into_answer(db_session: AsyncSessio
 
 
 @pytest.mark.anyio
+async def test_question_started_persists_current_question(db_session: AsyncSession) -> None:
+    interview = await seed_demo_interview(db_session, question_count=1)
+    question = (await db_session.execute(select(Question))).scalar_one()
+    service = InterviewEventService(db_session)
+
+    await service.record_event(
+        interview.id,
+        {
+            "type": "question_started",
+            "question_id": str(question.id),
+            "payload": {"text": "Вопрос по индексам"},
+        },
+    )
+
+    await db_session.refresh(interview)
+    assert interview.current_question_id == question.id
+    assert interview.current_question_text == "Вопрос по индексам"
+
+
+@pytest.mark.anyio
+async def test_adaptive_question_does_not_overwrite_current_question(db_session: AsyncSession) -> None:
+    """Реальный найденный баг (2026-09-06): фронт держал текст текущего вопроса только в
+    памяти вкладки из последнего ControlEvent, и adaptive_question/checkin тем же полем
+    стирали основной вопрос — кандидат его больше не видел. current_question_text должен
+    писаться ТОЛЬКО на question_started."""
+    interview = await seed_demo_interview(db_session, question_count=1)
+    question = (await db_session.execute(select(Question))).scalar_one()
+    service = InterviewEventService(db_session)
+
+    await service.record_event(
+        interview.id,
+        {"type": "question_started", "question_id": str(question.id), "payload": {"text": "Основной вопрос"}},
+    )
+    await service.record_event(
+        interview.id,
+        {
+            "type": "adaptive_question_asked",
+            "question_id": str(question.id),
+            "payload": {"text": "Расскажите подробнее про индексы"},
+        },
+    )
+
+    await db_session.refresh(interview)
+    assert interview.current_question_text == "Основной вопрос"
+
+
+@pytest.mark.anyio
+async def test_question_started_with_unparsable_question_id_still_saves_text(
+    db_session: AsyncSession,
+) -> None:
+    """Мок-вакансия/дев-данные шлют нерезолвящиеся id вроде "q1" (см. control_channel.py) —
+    current_question_id в этом случае NULL, но текст всё равно сохраняем."""
+    interview = await seed_demo_interview(db_session, question_count=0)
+    service = InterviewEventService(db_session)
+
+    await service.record_event(
+        interview.id, {"type": "question_started", "question_id": "q1", "payload": {"text": "Мок-вопрос"}}
+    )
+
+    await db_session.refresh(interview)
+    assert interview.current_question_id is None
+    assert interview.current_question_text == "Мок-вопрос"
+
+
+@pytest.mark.anyio
 async def test_unresolvable_question_id_still_records_raw_event_without_answer(
     db_session: AsyncSession,
 ) -> None:

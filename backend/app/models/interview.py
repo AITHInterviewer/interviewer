@@ -47,6 +47,15 @@ class Interview(Base):
     report_json: Mapped[dict | None] = mapped_column(_jsonb, nullable=True)
     recording_egress_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     recording_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Текущий ОСНОВНОЙ вопрос — пишется только на raw-событие "question_started"
+    # (InterviewEventService.record_event), НИКОГДА на checkin/adaptive_question. Реальный
+    # найденный баг (2026-09-06): фронт держал текст вопроса только в памяти вкладки, из
+    # последнего WS ControlEvent — доп./наводящий вопрос от LLM (adaptive_question/checkin)
+    # тем же полем перезаписывал текст основного вопроса, кандидат его больше не видел.
+    # Персистентно на бэке + отдаётся по HTTP (см. interview_repository.build_consent_info) —
+    # переживает reconnect/перезагрузку страницы, не только текущий WS-пуш.
+    current_question_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("question.id"), nullable=True)
+    current_question_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     recruiter_decision: Mapped[str] = mapped_column(
         Text, nullable=False, default="awaiting", server_default="awaiting"
     )
