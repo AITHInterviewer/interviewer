@@ -84,7 +84,9 @@ class VacancyLLMService:
     # трогающих LLM (list/get/update вакансии); ключа может не быть, и это не ошибка до
     # первой реальной генерации (см. `AnthropicJSONClient`).
     def __init__(self, model: str | None = None, api_key: str | None = None) -> None:
-        self._llm = AnthropicJSONClient(model=model, api_key=api_key)
+        # 180s (не дефолтные 60): генерация целого набора вопросов — самый долгий
+        # LLM-вызов в backend, на медленной модели/прокси упирался в таймаут.
+        self._llm = AnthropicJSONClient(model=model, api_key=api_key, timeout=180.0)
 
     async def _complete(self, system_prompt: str, user_prompt: str) -> str:
         try:
