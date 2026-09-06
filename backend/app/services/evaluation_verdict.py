@@ -7,7 +7,11 @@ context'ы (`backend/Dockerfile` копирует только `backend/`, ре�
 появится общий асинхронный batch-контур (см. `evaluation-agent/src/evaluation_agent/worker.py`),
 имеет смысл вынести это в shared-пакет и удалить дублирование здесь.
 
-Единственное отличие от оригинала: пороги/имена не меняли, только модуль/докстринг.
+Отличие от оригинала: шкала `score` — не 0-100, а 1-5 с фиксированными якорями (см.
+`app/prompts/evaluation_answer_score.txt`) — по запросу «более формально оценивать», не
+абстрактные 0-100 из головы модели. Пороги ниже пересчитаны под эту шкалу: 1 = fail,
+2 = ambiguous, 3-5 = pass — сохраняет ту же семантику, что была на 0-100 (fail < 40,
+pass >= 60), просто в целых баллах 1-5.
 """
 
 from __future__ import annotations
@@ -17,9 +21,9 @@ from enum import Enum
 
 from pydantic import BaseModel
 
-FAIL_THRESHOLD = 40  # score < 40 -> fail
-PASS_THRESHOLD = 60  # score >= 60 -> pass; между ними -> ambiguous
-HINT_SCORE_CAP = 60  # answered_with_hint=true -> effective score не выше этого
+FAIL_THRESHOLD = 2  # score < 2 -> fail (только score=1)
+PASS_THRESHOLD = 3  # score >= 3 -> pass; score=2 -> ambiguous
+HINT_SCORE_CAP = 2  # answered_with_hint=true -> effective score не выше этого (не может стать pass)
 
 
 class Difficulty(str, Enum):
@@ -44,7 +48,7 @@ class QuestionScore(BaseModel):
     """Один элемент `skill_scores[]` — оценка одного (вопрос, навык)."""
 
     skill_tag: str
-    score: int  # 0-100
+    score: int  # 1-5, см. app/prompts/evaluation_answer_score.txt
     difficulty: Difficulty = Difficulty.BASELINE
     answered_with_hint: bool = False
 

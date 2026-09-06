@@ -627,9 +627,21 @@ input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--
 .skeleton-table .skeleton-row:first-child { border-top: 0; }
 .skeleton-text { display: grid; gap: 10px; padding: 18px 0; }
 
+.security-block { display: grid; gap: 8px; padding: 16px 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); }
+.security-block h2 { margin: 0; }
+.security-block__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.security-block__list li { display: flex; justify-content: space-between; gap: 12px; font-size: var(--text-meta); color: var(--ink-secondary); }
+
 .interview-recording { display: grid; gap: 10px; }
 .interview-recording h2 { margin: 0; }
 .interview-recording video { width: 100%; max-height: 480px; border-radius: var(--radius-panel); background: #000; }
+
+.verdict-reasoning { margin: 8px 0 0; padding: 0 0 0 18px; display: grid; gap: 4px; font-size: var(--text-meta); color: var(--ink-secondary); }
+.report-narrative { display: grid; gap: 10px; margin: 12px 0 0; padding-top: 12px; border-top: 1px solid var(--surface-muted); }
+.report-narrative dt { font-size: var(--text-meta); color: var(--ink-secondary); margin-bottom: 2px; }
+.report-narrative dd { margin: 0; }
+.skill-verdict { margin-top: 10px; display: grid; gap: 6px; }
+.skill-verdict ul { margin: 0; padding: 0 0 0 18px; display: grid; gap: 4px; }
 
 /* Отчёт: сводка наблюдений и карта требований */
 .report-summary { display: grid; gap: 18px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface-raised); }

@@ -97,6 +97,20 @@ class InterviewEventService:
 
         await self.session.commit()
 
+    async def record_security_signal(self, interview_id: uuid.UUID | str, message: dict[str, Any]) -> None:
+        """«Блок безопасности» на карточке кандидата (см. `control-channel.ts` на фронте) —
+        переключение вкладки/пропадание камеры. Только сырой лог, никакой агрегации в
+        Answer и никакого вердикта тут — recruiter сам решает, что с этим делать."""
+        interview_id = uuid.UUID(str(interview_id))
+        self.session.add(
+            InterviewEvent(
+                interview_id=interview_id,
+                event_type=f"security:{message.get('signal', 'unknown')}",
+                payload=message,
+            )
+        )
+        await self.session.commit()
+
     async def _apply_aggregation(self, interview_id: uuid.UUID | str, raw_event: dict[str, Any]) -> None:
         event_type = raw_event.get("type")
         question_id = _parse_question_id(raw_event.get("question_id"))

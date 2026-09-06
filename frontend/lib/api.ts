@@ -266,8 +266,10 @@ export type SkillVerdict = {
   skill_tag: string;
   required: boolean;
   skill_class: SkillClass;
-  effective_score: number | null;
+  effective_score: number | null; // 1-5
   stretch_bonus: boolean;
+  reasoning: string[];
+  mastery_level: 1 | 2 | 3 | null;
 };
 
 export type PerQuestionScore = {
@@ -275,7 +277,7 @@ export type PerQuestionScore = {
   order: number;
   skill_tag: string[];
   difficulty: QuestionDifficulty;
-  score: number;
+  score: number; // 1-5
   answered_with_hint: boolean;
   rationale: string;
 };
@@ -284,8 +286,12 @@ export type InterviewReport = {
   generated_at: string;
   model: string;
   verdict: "fits" | "not_fits" | "needs_review";
+  verdict_reasoning: string[];
   skill_verdicts: SkillVerdict[];
   per_question: PerQuestionScore[];
+  summary: string;
+  strengths: string;
+  weaknesses: string;
 };
 
 export type Interview = {

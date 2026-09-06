@@ -161,6 +161,28 @@ async def test_record_candidate_input_non_code_only_records_event(db_session: As
     assert answers == []
 
 
+@pytest.mark.anyio
+async def test_record_security_signal_logs_event_without_touching_answers(
+    db_session: AsyncSession,
+) -> None:
+    interview = await seed_demo_interview(db_session, question_count=0)
+    service = InterviewEventService(db_session)
+
+    await service.record_security_signal(
+        interview.id, {"type": "security_signal", "signal": "tab_hidden", "ts": "2026-09-06T00:00:00Z"}
+    )
+
+    events = (
+        (await db_session.execute(select(InterviewEvent).where(InterviewEvent.interview_id == interview.id)))
+        .scalars()
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].event_type == "security:tab_hidden"
+    assert events[0].payload["signal"] == "tab_hidden"
+    assert (await db_session.execute(select(Answer))).scalars().all() == []
+
+
 class _FakeEvaluationService:
     """Подменяет реальный OpenRouter-вызов детерминированным отчётом."""
 

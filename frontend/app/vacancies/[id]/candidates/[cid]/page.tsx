@@ -14,6 +14,7 @@ import type {
   ClarificationRequest,
   Interview,
   InterviewEventsResponse,
+  SkillClass,
   StaffManager,
   VacancyDetail,
 } from "@/lib/api";
@@ -78,6 +79,36 @@ function verdictTone(verdict: "fits" | "not_fits" | "needs_review"): StatusTone 
   return "unchecked";
 }
 
+const SKILL_CLASS_LABEL: Record<SkillClass, string> = {
+  pass: "Подтверждён",
+  fail: "Не подтверждён",
+  ambiguous: "Требует проверки",
+  untested: "Не проверен",
+};
+
+function skillClassTone(skillClass: SkillClass): StatusTone {
+  if (skillClass === "pass") return "neutral";
+  if (skillClass === "fail") return "insufficient";
+  return "unchecked";
+}
+
+const MASTERY_LABEL: Record<1 | 2 | 3, string> = {
+  1: "Начальный уровень",
+  2: "Базовый уверенный уровень",
+  3: "Продвинутый уровень",
+};
+
+const SECURITY_SIGNAL_LABEL: Record<string, string> = {
+  "security:tab_hidden": "Свернул вкладку/окно",
+  "security:tab_visible": "Вернулся во вкладку",
+  "security:camera_muted": "Камера пропала",
+  "security:camera_unmuted": "Камера снова активна",
+};
+
+function securitySignalLabel(eventType: string): string {
+  return SECURITY_SIGNAL_LABEL[eventType] ?? eventType.replace("security:", "");
+}
+
 /** Статус уточнения словами: коды open/closed в интерфейс не выносим. */
 function clarificationStatusLabel(status: string): string {
   if (status === "open") return "ждёт ответа";
@@ -115,6 +146,10 @@ export default function VacancyCandidatePage() {
     requirements.find((row) => row.skill === selectedSkill) ?? requirements[0] ?? null;
   const processing = interview ? isReportProcessing(interview) : false;
   const unansweredMandatory = requirements.filter((row) => row.mandatory && row.coverage !== "answered");
+  const securitySignals = useMemo(
+    () => (events?.events ?? []).filter((row) => row.event_type.startsWith("security:")),
+    [events],
+  );
 
   async function refreshClarifications() {
     const response = await loadClarifications(params.cid);
@@ -313,6 +348,33 @@ export default function VacancyCandidatePage() {
                     ? "Интервью завершено, отчёт собирается"
                     : `Это разбор ответов системой, а не решение о найме. ${reportLabel(interview)}`}
                 </p>
+                {!processing && interview.report_json && interview.report_json.verdict_reasoning.length > 0 ? (
+                  <ul className="verdict-reasoning">
+                    {interview.report_json.verdict_reasoning.map((line, index) => (
+                      <li key={index}>{line}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {!processing && interview.report_json?.summary ? (
+                  <dl className="report-narrative">
+                    <div>
+                      <dt>Итог</dt>
+                      <dd>{interview.report_json.summary}</dd>
+                    </div>
+                    {interview.report_json.strengths ? (
+                      <div>
+                        <dt>Сильные стороны</dt>
+                        <dd>{interview.report_json.strengths}</dd>
+                      </div>
+                    ) : null}
+                    {interview.report_json.weaknesses ? (
+                      <div>
+                        <dt>Слабые стороны</dt>
+                        <dd>{interview.report_json.weaknesses}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                ) : null}
               </div>
               {!processing && unansweredMandatory.length > 0 ? (
                 <p className="report-gap">
@@ -344,6 +406,24 @@ export default function VacancyCandidatePage() {
                 </dl>
               )}
             </section>
+
+            {securitySignals.length > 0 ? (
+              <section className="security-block">
+                <h2>Безопасность</h2>
+                <p className="muted-copy">
+                  Что мы можем выяснить технически — не признак нарушения, просто сырые сигналы:
+                  переключал ли вкладку, пропадала ли картинка с камеры.
+                </p>
+                <ul className="security-block__list">
+                  {securitySignals.map((row) => (
+                    <li key={row.id}>
+                      <span>{securitySignalLabel(row.event_type)}</span>
+                      <time dateTime={row.created_at}>{new Date(row.created_at).toLocaleString("ru-RU")}</time>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
 
             <section className="requirement-map">
               <div className="requirement-map__list">
@@ -396,6 +476,30 @@ export default function VacancyCandidatePage() {
                           ? "Отчёт ещё собирается — это не итог по навыку."
                           : CONCLUSION_LABEL[requirementConclusion(selected)]}
                       </p>
+                      {(() => {
+                        if (processing) return null;
+                        const sv = interview.report_json?.skill_verdicts.find(
+                          (row) => row.skill_tag === selected.skill,
+                        );
+                        if (!sv) return null;
+                        return (
+                          <div className="skill-verdict">
+                            <StatusPill tone={skillClassTone(sv.skill_class)}>
+                              {SKILL_CLASS_LABEL[sv.skill_class]}
+                              {sv.mastery_level ? ` · ${MASTERY_LABEL[sv.mastery_level]}` : ""}
+                            </StatusPill>
+                            {sv.reasoning.length > 0 ? (
+                              <ul>
+                                {sv.reasoning.map((line, index) => (
+                                  <li key={index} className="muted-copy">
+                                    {line}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
                     </div>
                     {selected.answers.length > 0 ? (
                       selected.answers.map(({ question, answer }) => (
@@ -416,7 +520,7 @@ export default function VacancyCandidatePage() {
                             if (!scored) return null;
                             return (
                               <p className="muted-copy">
-                                Оценка модели: {scored.score}/100
+                                Оценка модели: {scored.score}/5
                                 {scored.answered_with_hint ? " (с подсказкой)" : ""}
                                 {scored.rationale ? ` — ${scored.rationale}` : ""}
                               </p>

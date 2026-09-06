@@ -89,6 +89,21 @@ export function InterviewRoom({
     const unsubscribeChannel = channel.subscribe(setChannelState);
     channel.connect();
 
+    // Блок безопасности на карточке кандидата (см. control-channel.ts) — переключение
+    // вкладки видно из document.visibilitychange, отключение камеры — из mute/unmute
+    // на самом видеотреке (не через LiveKit API: кандидат ничего не выключает сам в этом
+    // UI, это сигнал устройства/ОС — закрыл крышку, забрал разрешение и т.п.).
+    const handleVisibility = () => {
+      channel.sendSecuritySignal(document.hidden ? "tab_hidden" : "tab_visible");
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    const videoTrack = stream.getVideoTracks()[0];
+    const handleTrackMute = () => channel.sendSecuritySignal("camera_muted");
+    const handleTrackUnmute = () => channel.sendSecuritySignal("camera_unmuted");
+    videoTrack?.addEventListener("mute", handleTrackMute);
+    videoTrack?.addEventListener("unmute", handleTrackUnmute);
+
     apiFetch<LiveKitTokenResponse>(`/api/interview/${sessionId}/livekit-token`, { method: "POST" })
       .then((tokenResponse) => {
         if (cancelled) return undefined;
@@ -112,6 +127,9 @@ export function InterviewRoom({
       liveKitRef.current = null;
       unsubscribeChannel();
       unsubscribePresence?.();
+      document.removeEventListener("visibilitychange", handleVisibility);
+      videoTrack?.removeEventListener("mute", handleTrackMute);
+      videoTrack?.removeEventListener("unmute", handleTrackUnmute);
       channel.close();
       liveKit.disconnect();
     };

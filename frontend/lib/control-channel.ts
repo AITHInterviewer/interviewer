@@ -34,6 +34,18 @@ export type CandidateInput = {
   content: string;
 };
 
+/** "Блок безопасности" на карточке кандидата (см. `interview_event_service.py`,
+ * `record_security_signal`): переключение вкладки/сворачивание камеры — не решение о
+ * найме, просто сырой сигнал для рекрутёра, честно помеченный как «то, что мы можем
+ * выяснить», не «нарушение». */
+export type SecuritySignalKind = "tab_hidden" | "tab_visible" | "camera_muted" | "camera_unmuted";
+
+export type SecuritySignal = {
+  type: "security_signal";
+  signal: SecuritySignalKind;
+  ts: string;
+};
+
 export type ChannelState =
   | { status: "connecting" }
   | { status: "question_active"; event: ControlEvent }
@@ -83,6 +95,16 @@ export class ControlChannel {
    * ответ и запись ответа НЕ идут через этот канал — см. lib/livekit-client.ts / answer-upload. */
   sendCandidateInput(message: Omit<CandidateInput, "type">): void {
     this.socket?.send(JSON.stringify({ type: "candidate_input", ...message } satisfies CandidateInput));
+  }
+
+  sendSecuritySignal(signal: SecuritySignalKind): void {
+    this.socket?.send(
+      JSON.stringify({
+        type: "security_signal",
+        signal,
+        ts: new Date().toISOString(),
+      } satisfies SecuritySignal),
+    );
   }
 
   close(): void {
