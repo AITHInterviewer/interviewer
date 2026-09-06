@@ -148,12 +148,15 @@ jobs:
         # Settings() raises ValidationError at import and backend won't start. infra +
         # backend/frontend run as one compose project here, so postgres/redis/minio
         # resolve by these exact service names.
-        # OPENROUTER_API_KEY/OPENROUTER_MODEL — vacancy_llm_service.py (генерация вопросов
-        # вакансии), тот же секрет и модель по умолчанию, что уже льются в live-agent/.env
-        # ниже; без ключа сама генерация вопросов вернёт 502 (см. QuestionGenerationError),
-        # остальной backend продолжает работать (ключ читается лениво, не при старте).
+        # ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL/ANTHROPIC_MODEL — backend LLM-вызовы
+        # (app/services/llm.py: генерация вопросов вакансии + разбор интервью в report_json).
+        # Те же секреты, что уже льются в live-agent/.env ниже. Раньше здесь был
+        # OPENROUTER на бесплатной minimax-m3:free — та стабильно отдавала 429 и оставляла
+        # интервью навсегда в report_processing. Ключ читается лениво (не при старте) —
+        # без него backend работает, но генерация вопросов/разбор вернут 502.
         env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
         run: |
           Set-Content -Path backend/.env -Encoding utf8 -Value @'
           CORS_ORIGINS=["http://localhost:3000","http://26.67.31.6:3000","http://26.67.31.6:12345","https://ainterviewer.duckdns.org:12345"]
@@ -187,9 +190,10 @@ jobs:
           LIVEKIT_API_URL=ws://livekit-server:7880
           RECORDINGS_S3_BUCKET=ainterviewer-recordings
           PUBLIC_FRONTEND_URL=https://ainterviewer.duckdns.org:12345
-          OPENROUTER_MODEL=minimax/minimax-m3:free
+          ANTHROPIC_MODEL=claude-haiku-4-5
           '@
-          Add-Content -Path backend/.env -Encoding utf8 -Value "OPENROUTER_API_KEY=$env:OPENROUTER_API_KEY"
+          Add-Content -Path backend/.env -Encoding utf8 -Value "ANTHROPIC_API_KEY=$env:ANTHROPIC_API_KEY"
+          Add-Content -Path backend/.env -Encoding utf8 -Value "ANTHROPIC_BASE_URL=$env:ANTHROPIC_BASE_URL"
 
       - name: Write frontend/.env
         run: |

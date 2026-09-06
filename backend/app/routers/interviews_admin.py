@@ -28,6 +28,7 @@ from app.schemas.interview import (
 )
 from app.schemas.live_input import LiveInputCandidate, LiveInputQuestion, LiveInputResponse, LiveInputVacancy
 from app.services.interview_admin_service import InterviewAdminService
+from app.services.interview_event_service import InterviewEventService
 
 router = APIRouter(prefix="/api/v1/interviews", tags=["interviews"])
 
@@ -50,6 +51,21 @@ async def get_interview(
     interview = await service.get_interview(interview_id)
     if interview is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found.")
+    return InterviewResponse.model_validate(interview)
+
+
+@router.post("/{interview_id}/reevaluate", response_model=InterviewResponse)
+async def reevaluate_interview(
+    interview_id: UUID,
+    _: Annotated[InternalUser, Depends(require_recruiter)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> InterviewResponse:
+    """Пересобрать `report_json`, если разбор упал и интервью зависло в `report_processing`
+    (см. `InterviewEventService.reevaluate`)."""
+    interview = await InterviewEventService(session).reevaluate(interview_id)
+    if interview is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found.")
+    await session.refresh(interview)
     return InterviewResponse.model_validate(interview)
 
 

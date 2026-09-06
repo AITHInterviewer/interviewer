@@ -18,6 +18,7 @@ import {
   generateQuestions,
   getInterview,
   getInterviewEvents,
+  reevaluateInterview,
   getManagerCandidate,
   getVacancy,
   grantManagerOpinion,
@@ -345,6 +346,10 @@ export async function loadInterviewEvents(interviewId: string) {
 
 export async function loadInterview(interviewId: string) {
   return getInterview(requireToken(), interviewId);
+}
+
+export async function reevaluateManagedInterview(interviewId: string) {
+  return reevaluateInterview(requireToken(), interviewId);
 }
 
 function requireToken() {
