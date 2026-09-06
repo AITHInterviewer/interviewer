@@ -131,6 +131,19 @@ describe("VacancyDetailClient", () => {
     expect(screen.getByRole("button", { name: /пригласить кандидата/i })).toBeDisabled();
   });
 
+  it("enables invite on calibration when assessment questions have reference answers", async () => {
+    vi.mocked(loadVacancy).mockResolvedValue({
+      ...baseVacancy,
+      status: "calibration",
+      questions: [sampleQuestion],
+    });
+
+    renderClient("v1");
+
+    await screen.findByRole("heading", { name: /backend developer/i });
+    expect(screen.getByRole("button", { name: /пригласить кандидата/i })).not.toBeDisabled();
+  });
+
   it("enables the invite form once the vacancy is active", async () => {
     vi.mocked(loadVacancy).mockResolvedValue({ ...baseVacancy, status: "active" });
 

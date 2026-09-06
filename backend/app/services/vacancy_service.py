@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
@@ -15,7 +16,7 @@ from app.models.rubric_version import RubricVersion
 from app.models.vacancy import Vacancy
 from app.repositories.question_repository import QuestionRepository
 from app.repositories.vacancy_repository import VacancyRepository
-from app.services.vacancy_llm_service import VacancyLLMService, vacancy_requirements
+from app.services.vacancy_llm_service import QuestionGenerationError, VacancyLLMService, vacancy_requirements
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,23 @@ def _assessment_fields_valid(*, role: str, intent: str | None, reference_answer:
     if role != "assessment":
         return True
     return bool(intent) and bool(reference_answer) and bool(skill_tag)
+
+
+def assessment_set_ready_for_invite(questions: Sequence[Any]) -> bool:
+    """Комплект можно звать на интервью: есть хотя бы один assessment, и у каждого
+    заполнены intent, эталон и skill_tag. warmup/closing эталон не требуют."""
+    assessments = [q for q in questions if q.role == "assessment"]
+    if not assessments:
+        return False
+    return all(
+        _assessment_fields_valid(
+            role=q.role,
+            intent=q.intent,
+            reference_answer=q.reference_answer,
+            skill_tag=q.skill_tag,
+        )
+        for q in assessments
+    )
 
 
 class VacancyService:
@@ -238,6 +256,10 @@ class VacancyService:
         self._ensure_unlocked(vacancy)
 
         generated = await self.llm_service.generate_questions(vacancy)
+        if not assessment_set_ready_for_invite(generated.questions):
+            raise QuestionGenerationError(
+                "Assessment-вопросы без intent, эталона или skill_tag — набор не сохранён."
+            )
 
         await self.question_repository.delete_generated_for_vacancy(vacancy_id)
         existing = await self.question_repository.list_for_vacancy(vacancy_id)

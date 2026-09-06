@@ -136,3 +136,31 @@ export const QUESTION_DIFFICULTY_LABEL: Record<string, string> = {
   baseline: "Базовый",
   stretch: "На вырост",
 };
+
+/** Приглашение: не paused/archived; active всегда; иначе — все assessment с эталоном. */
+export function vacancyReadyForInvite(vacancy: {
+  status: string;
+  questions?: Array<{
+    role: string;
+    intent?: string | null;
+    reference_answer?: string | null;
+    skill_tag?: string[] | null;
+  }>;
+}): boolean {
+  if (vacancy.status === "paused" || vacancy.status === "archived") {
+    return false;
+  }
+  if (vacancy.status === "active") {
+    return true;
+  }
+  const assessments = (vacancy.questions ?? []).filter((question) => question.role === "assessment");
+  if (assessments.length < 1) {
+    return false;
+  }
+  return assessments.every(
+    (question) =>
+      Boolean(question.intent) &&
+      Boolean(question.reference_answer) &&
+      Boolean(question.skill_tag?.length),
+  );
+}

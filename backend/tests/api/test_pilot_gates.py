@@ -1,4 +1,4 @@
-"""Гейты пилота 009: invite только с active, handoff, менеджер, эксперт."""
+"""Гейты пилота 009: invite (active или готовый assessment-комплект), handoff, менеджер, эксперт."""
 
 from __future__ import annotations
 
@@ -112,14 +112,12 @@ async def _create_interview(client, token: str, vacancy_id: str) -> dict:
 
 
 @pytest.mark.anyio
-async def test_invite_before_active_is_422(client, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_invite_without_questions_is_422(client, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_llm(monkeypatch)
     _patch_storage(monkeypatch)
     token = await _combo_token(client)
     vacancy = await _create_vacancy(client, token)
-    # На калибровке (до подтверждения экспертом) вакансия ещё не активна — approve()
-    # теперь переводит вакансию сразу в "active" (без промежуточного "approved"), так
-    # что для проверки гейта берём состояние до approve.
+    # На калибровке без вопросов приглашать нельзя: assessment-комплекта ещё нет.
     await _calibrate(client, token, vacancy["id"])
 
     response = await client.post(
@@ -128,6 +126,50 @@ async def test_invite_before_active_is_422(client, monkeypatch: pytest.MonkeyPat
         files={"resume_file": ("resume.pdf", b"...", "application/pdf")},
     )
     assert response.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_invite_with_generated_questions_before_active_is_201(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_llm(monkeypatch)
+    _patch_storage(monkeypatch)
+    token = await _combo_token(client)
+    vacancy = await _create_vacancy(client, token)
+
+    generated = await client.post(
+        f"/api/v1/vacancies/{vacancy['id']}/questions/generate",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert generated.status_code == 200
+    assert any(
+        item["role"] == "assessment" and item["reference_answer"]
+        for item in generated.json()["questions"]
+    )
+
+    detail = await client.get(
+        f"/api/v1/vacancies/{vacancy['id']}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "extracted"
+
+    invited = await client.post(
+        f"/api/v1/vacancies/{vacancy['id']}/interviews",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"resume_file": ("resume.pdf", b"%PDF-1.4 ...", "application/pdf")},
+        data={"candidate_name": "Ivan Petrov"},
+    )
+    assert invited.status_code == 201
+
+    await _calibrate(client, token, vacancy["id"])
+    invited_on_calibration = await client.post(
+        f"/api/v1/vacancies/{vacancy['id']}/interviews",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"resume_file": ("resume.pdf", b"%PDF-1.4 ...", "application/pdf")},
+        data={"candidate_name": "Petr Ivanov"},
+    )
+    assert invited_on_calibration.status_code == 201
 
 
 @pytest.mark.anyio

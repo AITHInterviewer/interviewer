@@ -39,6 +39,7 @@ import {
   interviewMark,
   rankingScore,
   sortByRanking,
+  vacancyReadyForInvite,
   KANBAN_COLUMNS,
   type KanbanColumnId,
 } from "@/lib/pipeline";
@@ -227,7 +228,7 @@ export function VacancyDetailClient({ vacancyId }: { vacancyId: string }) {
     const rest = ranked.filter((item) => rankingScore(item) == null);
     return [...scored.reverse(), ...rest];
   }, [filteredCandidates, scoreSort]);
-  const canInvite = vacancy?.status === "active";
+  const canInvite = vacancy ? vacancyReadyForInvite(vacancy) : false;
   const showPause = canManage && vacancy?.status === "active";
   const showResume = canManage && vacancy?.status === "paused";
   const canManageQuestions = canManage && vacancyUnlocked;

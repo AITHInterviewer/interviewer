@@ -88,6 +88,15 @@ _STT_TERMS_SYSTEM_PROMPT = load_prompt("vacancy_stt_terms.txt")
 _LEVEL_LABEL = {"basic": "basic", "confident": "confident", "expert": "expert"}
 
 
+def _reject_empty_assessment_fields(question: GeneratedQuestion) -> None:
+    if question.role != "assessment":
+        return
+    if not question.intent or not question.reference_answer or not question.skill_tag:
+        raise QuestionGenerationError(
+            "Assessment-вопрос без intent, эталонного ответа или skill_tag."
+        )
+
+
 def vacancy_requirements(vacancy: Vacancy) -> list[dict]:
     """Требования вакансии. Проверяются ВСЕ до единого — отдельного флага «проверяем»
     нет: список и так ограничен сверху при извлечении (см. vacancy_requirements_extract.txt),
@@ -163,9 +172,12 @@ class VacancyLLMService:
     async def generate_questions(self, vacancy: Vacancy) -> GeneratedQuestionSet:
         raw = await self._complete(_SET_SYSTEM_PROMPT, _vacancy_prompt(vacancy))
         try:
-            return GeneratedQuestionSet.model_validate(json.loads(_strip_code_fence(raw)))
+            parsed = GeneratedQuestionSet.model_validate(json.loads(_strip_code_fence(raw)))
         except Exception as exc:  # noqa: BLE001 — любая ошибка парсинга/валидации сворачивается в наш тип
             raise QuestionGenerationError(f"Не удалось разобрать сгенерированные вопросы: {exc}") from exc
+        for question in parsed.questions:
+            _reject_empty_assessment_fields(question)
+        return parsed
 
     async def generate_stt_terms(
         self, vacancy: Vacancy, questions: list[Question]
@@ -193,6 +205,8 @@ class VacancyLLMService:
         prompt = _vacancy_prompt(vacancy) + f'Исходный вопрос (role="{existing.role}"): {existing.text}\n'
         raw = await self._complete(_SINGLE_SYSTEM_PROMPT, prompt)
         try:
-            return GeneratedQuestion.model_validate(json.loads(_strip_code_fence(raw)))
+            parsed = GeneratedQuestion.model_validate(json.loads(_strip_code_fence(raw)))
         except Exception as exc:  # noqa: BLE001
             raise QuestionGenerationError(f"Не удалось разобрать сгенерированный вопрос: {exc}") from exc
+        _reject_empty_assessment_fields(parsed)
+        return parsed

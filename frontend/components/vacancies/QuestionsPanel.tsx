@@ -25,6 +25,11 @@ function sortByOrder(questions: Question[]): Question[] {
   return [...questions].sort((a, b) => a.order - b.order);
 }
 
+function defaultQuestionId(questions: Question[]): string | null {
+  const ordered = sortByOrder(questions);
+  return ordered.find((question) => question.role === "assessment")?.id ?? ordered[0]?.id ?? null;
+}
+
 export function QuestionsPanel({
   vacancyId,
   questions,
@@ -41,7 +46,7 @@ export function QuestionsPanel({
   onQuestionsChanged: () => Promise<void>;
 }) {
   const sorted = sortByOrder(questions);
-  const [selectedId, setSelectedId] = useState<string | null>(sorted[0]?.id ?? null);
+  const [selectedId, setSelectedId] = useState<string | null>(defaultQuestionId(questions));
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
@@ -54,7 +59,7 @@ export function QuestionsPanel({
   useEffect(() => {
     if (!sorted.some((question) => question.id === selectedId)) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- prop-driven selection fallback
-      setSelectedId(sorted[0]?.id ?? null);
+      setSelectedId(defaultQuestionId(questions));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questions]);
@@ -70,7 +75,7 @@ export function QuestionsPanel({
     setTextDraft(selected?.text ?? "");
     setAnswerDraft(selected?.reference_answer ?? "");
     setDurationDraft(selected ? String(Math.round(selected.estimated_duration_sec / 60)) : "");
-  }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selected?.id, selected?.reference_answer, selected?.text]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Пересчитывается на каждый рендер из вопросов — не кэшируем в state, чтобы
   // сумма всегда отражала актуальные estimated_duration_sec после правок.
@@ -216,7 +221,14 @@ export function QuestionsPanel({
               onClick={() => setSelectedId(question.id)}
             >
               <span className="question-nav__number">{index + 1}</span>
-              <span className="question-nav__text">{question.text}</span>
+              <span>
+                <span className="question-nav__text">{question.text}</span>
+                {question.role === "assessment" ? (
+                  <span className="status-hint">
+                    {question.reference_answer ? "Эталон есть" : "Нет эталона"}
+                  </span>
+                ) : null}
+              </span>
             </button>
           ))}
           {canManage ? (
@@ -337,22 +349,26 @@ export function QuestionsPanel({
               )}
             </label>
 
-            <label>
-              Эталонный ответ
-              {canEditContent ? (
-                <textarea
-                  value={answerDraft}
-                  onChange={(event) => setAnswerDraft(event.target.value)}
-                  onBlur={() => {
-                    if (answerDraft !== selected.reference_answer) {
-                      void saveField("reference_answer", answerDraft);
-                    }
-                  }}
-                />
-              ) : (
-                <p>{selected.reference_answer || "Не указан"}</p>
-              )}
-            </label>
+            {selected.role === "assessment" ? (
+              <label>
+                Эталонный ответ
+                {canEditContent ? (
+                  <textarea
+                    value={answerDraft}
+                    onChange={(event) => setAnswerDraft(event.target.value)}
+                    onBlur={() => {
+                      if (answerDraft !== selected.reference_answer) {
+                        void saveField("reference_answer", answerDraft);
+                      }
+                    }}
+                  />
+                ) : (
+                  <p>{selected.reference_answer || "Не указан"}</p>
+                )}
+              </label>
+            ) : (
+              <p className="disabled-hint">Для разогрева и завершения эталон не нужен.</p>
+            )}
 
             <SkillTagInput
               label="Проверяемые навыки"
