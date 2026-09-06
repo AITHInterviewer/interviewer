@@ -30,6 +30,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from abc import ABC, abstractmethod
@@ -46,6 +47,17 @@ from claude_agent_sdk import (
 from .schema import Decision, GapType, LiveControlDecision
 
 DEFAULT_MODEL = "claude-haiku-4-5"
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """`Retry-After` — секунды (не HTTP-date, тот формат тут никто не отдаёт) — если
+    заголовка нет или он не парсится, вызывающий сам берёт дефолтный бэкофф."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 class LiveControlLLM(ABC):
@@ -136,9 +148,18 @@ class _OpenAICompatibleLiveControlLLM(LiveControlLLM):
     `LiveControlDecision.model_validate()` сам проверяет результат.
 
     Без сессии/подпроцесса между ходами — `reset()` не держит состояния, каждый вызов
-    независим (обычный stateless HTTP-клиент)."""
+    независим (обычный stateless HTTP-клиент).
+
+    Реальный найденный баг вживую (2026-09-06): бесплатный тир OpenRouter отдал 429 Too
+    Many Requests посреди интервью — `decide()` падал на каждом следующем ходу без
+    какого-либо повтора, агент замолкал навсегда (кандидат решил, что сервис завис, и
+    закрыл вкладку). `_MAX_RETRIES` попыток с бэкоффом (уважаем `Retry-After`, если
+    сервер его прислал) — конечно, не решает исчерпание квоты целиком, но переживает
+    короткие всплески троттлинга, не блокируя разговор на секунды дольше нужного."""
 
     BASE_URL: str
+    _MAX_RETRIES = 2
+    _RETRY_BACKOFF_SECONDS = (0.5, 1.5)
 
     _SCHEMA_HINT = """\
 
@@ -158,19 +179,27 @@ gap_type обязателен (не null), только если decision="gap".
         self._client = httpx.AsyncClient(timeout=20.0)
 
     async def decide(self, system_prompt: str, turn_prompt: str) -> LiveControlDecision:
-        response = await self._client.post(
-            self.BASE_URL,
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json={
-                "model": self.model,
-                "messages": [
-                    {"role": "system", "content": system_prompt + self._SCHEMA_HINT},
-                    {"role": "user", "content": turn_prompt},
-                ],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.3,
-            },
-        )
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt + self._SCHEMA_HINT},
+                {"role": "user", "content": turn_prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.3,
+        }
+
+        response: httpx.Response | None = None
+        for attempt in range(self._MAX_RETRIES + 1):
+            response = await self._client.post(
+                self.BASE_URL, headers={"Authorization": f"Bearer {self.api_key}"}, json=payload
+            )
+            if response.status_code != 429 or attempt == self._MAX_RETRIES:
+                break
+            delay = _parse_retry_after(response.headers.get("retry-after")) or self._RETRY_BACKOFF_SECONDS[attempt]
+            await asyncio.sleep(delay)
+
+        assert response is not None  # цикл выполняется минимум один раз
         response.raise_for_status()
         raw = response.json()["choices"][0]["message"]["content"]
         return LiveControlDecision.model_validate(json.loads(raw))

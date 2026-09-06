@@ -59,7 +59,7 @@ from .llm_client import (
     OpenRouterLiveControlLLM,
 )
 from .prompts import INTRO_PHRASE
-from .schema import InterviewInput
+from .schema import InterviewInput, Question, Vacancy
 from .state_machine import LiveContourEngine
 
 load_dotenv()
@@ -74,7 +74,7 @@ MOCK_PATH = Path(os.environ.get("MOCK_INTERVIEW_PATH", AGENT_ROOT / "mock_data" 
 
 
 class InterviewerAgent(Agent):
-    def __init__(self, engine: LiveContourEngine):
+    def __init__(self, engine: LiveContourEngine, stt: lk_openai.STT):
         # instructions не используется: llm_node переопределён целиком и не обращается
         # к self.llm/instructions — управление полностью у LiveContourEngine.
         #
@@ -96,6 +96,11 @@ class InterviewerAgent(Agent):
             ),
         )
         self.engine = engine
+        # STT-подсказка меняется при переходе на новый вопрос (см. llm_node): термины
+        # текущего вопроса + словарь навыков вакансии. Начальное значение (первый вопрос)
+        # ставится в entrypoint при конструировании STT.
+        self._stt = stt
+        self._stt_question_index = 0
         # Раздел 2 задачи "live-interview quality pass" — эвристический фильтр эха
         # собственной TTS-речи, просочившегося обратно через микрофон кандидата
         # (см. echo_filter.is_likely_echo). Обновляется в трёх точках: сразу после
@@ -128,20 +133,51 @@ class InterviewerAgent(Agent):
         logger.info("llm_node: calling engine.on_candidate_final_turn...")
         reply = await self.engine.on_candidate_final_turn(last_text)
         logger.info("llm_node: engine.on_candidate_final_turn returned %r", reply)
+        # Реплика движка могла увести нас на следующий вопрос (переход внутри
+        # on_candidate_final_turn) — обновляем STT-подсказку под новый вопрос ДО того, как
+        # кандидат начнёт на него отвечать. whisper-1 (не realtime) пересобирает конфиг
+        # транскрипции на каждый запрос, так что update_options здесь достаточно.
+        if self.engine.state.question_index != self._stt_question_index:
+            self._stt_question_index = self.engine.state.question_index
+            self._stt.update_options(
+                prompt=_build_stt_prompt(
+                    self.engine.state.input.vacancy, self.engine.state.current_question
+                )
+            )
+            logger.info(
+                "llm_node: STT prompt updated for question index %d", self._stt_question_index
+            )
+
         if reply:
             self._last_agent_utterance = reply
             yield reply
 
 
-def _build_stt_vocabulary_prompt(interview: InterviewInput) -> str:
-    """Раздел 5, гипотеза H4 архитектурного документа: словарь терминов вакансии как
-    подсказка ASR. Whisper поддерживает это через параметр `prompt` (не через `keywords`
-    — тот работает только с realtime gpt-transcribe-моделями, whisper-1 его не понимает).
-    Термины вакансии — не "другой вопрос", а маленькая статическая подсказка на всё
-    интервью, поэтому не нарушает принцип "контекст только текущий вопрос" (раздел
-    prompts.py) — это не подмешивание чужого вопроса в LLM, а подсказка ASR-словарю."""
-    terms = [*interview.vacancy.required_skills, *interview.vacancy.nice_to_have_skills]
-    return ", ".join(terms)
+# Whisper обрезает `prompt` до ~224 токенов; держим подсказку заведомо короче, иначе
+# хвост (термины текущего вопроса) просто отбросится.
+_STT_PROMPT_MAX_CHARS = 800
+
+
+def _build_stt_prompt(vacancy: Vacancy, question: Question | None) -> str:
+    """Раздел 5, гипотеза H4 архитектурного документа: словарь терминов как подсказка ASR.
+    Whisper принимает это через `prompt` (не `keywords` — тот только у realtime
+    gpt-transcribe, whisper-1 его не понимает).
+
+    Две части: статичный словарь навыков вакансии на всё интервью + `stt_terms` текущего
+    вопроса (заполнены backend'ом при approve). Термины вопроса идут первыми — если Whisper
+    обрежет подсказку по лимиту, важное для текущего ответа переживёт обрезку. Это не
+    подмешивание чужого вопроса в LLM, а подсказка ASR-словарю, поэтому принцип "контекст
+    только текущий вопрос" не нарушается."""
+    parts = [*(question.stt_terms if question else []),
+             *vacancy.required_skills, *vacancy.nice_to_have_skills]
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for term in parts:
+        key = term.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            ordered.append(term.strip())
+    return ", ".join(ordered)[:_STT_PROMPT_MAX_CHARS]
 
 
 def _build_event_sinks(interview_id: str) -> list[EventSink]:
@@ -229,31 +265,38 @@ async def entrypoint(ctx: JobContext) -> None:
     elif llm_provider == "anthropic_api":
         # Прямой Anthropic Messages API (сам api.anthropic.com или совместимый прокси,
         # см. ANTHROPIC_BASE_URL) вместо Claude Agent SDK CLI — та же цель, что у
-        # MistralLiveControlLLM, но остаётся на модели Claude. Платный ключ — бережём под
-        # демо, для рутинного тестирования см. LLM_PROVIDER=openrouter.
+        # MistralLiveControlLLM, но остаётся на модели Claude. Дефолт деплоя с 2026-09-06 —
+        # см. LLM_PROVIDER=openrouter ниже, почему ушли от бесплатного тира.
         llm = AnthropicAPILiveControlLLM()
     elif llm_provider == "openrouter":
-        # Бесплатная модель через OpenRouter — для рутинного тестирования интервью, не
-        # тратит платные Anthropic-токены, отложенные под демо.
+        # Бесплатная модель через OpenRouter — БЫЛА дефолтом для рутинного тестирования,
+        # откачено 2026-09-06: бесплатный тир отдал 429 посреди живого интервью (квота
+        # исчерпалась в процессе разговора, не сразу), агент замолчал на все следующие
+        # ходы — кандидат решил, что сервис завис, и вышел (см. llm_client.py, retry/
+        # backoff смягчает короткие всплески, но не исчерпание квоты целиком). Оставлен
+        # как явная опция для тестирования без расхода платных токенов, не как дефолт.
         llm = OpenRouterLiveControlLLM()
     else:
         llm = ClaudeAgentSDKLiveControlLLM()
     engine = LiveContourEngine(interview, llm, events)
 
+    stt = lk_openai.STT(
+        base_url=os.environ["STT_BASE_URL"],  # напр. http://localhost:8001/v1 (см. docker-compose.yml)
+        api_key=os.environ.get("STT_API_KEY", "not-needed"),
+        model=os.environ.get("STT_MODEL", "whisper-1"),
+        # Реальный найденный баг: у плагина language по умолчанию "en" — без явного
+        # переопределения faster-whisper-server честно транскрибировал русскую речь
+        # как английскую (не ошибка сервера, а то, что мы сами ему сказали).
+        language=os.environ.get("STT_LANGUAGE", "ru"),
+        # H4: словарь терминов как подсказка ASR. Начальное значение — под первый вопрос;
+        # дальше InterviewerAgent.llm_node подменяет `prompt` при каждом переходе на
+        # следующий вопрос (stt.update_options).
+        prompt=_build_stt_prompt(interview.vacancy, interview.questions[0] if interview.questions else None),
+    )
+
     session = AgentSession(
         vad=silero.VAD.load(),
-        stt=lk_openai.STT(
-            base_url=os.environ["STT_BASE_URL"],  # напр. http://localhost:8001/v1 (см. docker-compose.yml)
-            api_key=os.environ.get("STT_API_KEY", "not-needed"),
-            model=os.environ.get("STT_MODEL", "whisper-1"),
-            # Реальный найденный баг: у плагина language по умолчанию "en" — без явного
-            # переопределения faster-whisper-server честно транскрибировал русскую речь
-            # как английскую (не ошибка сервера, а то, что мы сами ему сказали).
-            language=os.environ.get("STT_LANGUAGE", "ru"),
-            # H4: словарь терминов вакансии — реальная жалоба на качество распознавания
-            # техтерминов, не гипотетическая.
-            prompt=_build_stt_vocabulary_prompt(interview),
-        ),
+        stt=stt,
         # fishaudio, не lk_openai.TTS — см. docker-compose.yml, сервис tts: Piper не мог
         # прилично произносить английские термины вперемешку с русским (транслитерация
         # через espeak-ng), Fish Speech — настоящая мультиязычная акустическая модель,
@@ -298,7 +341,7 @@ async def entrypoint(ctx: JobContext) -> None:
         ),
     )
 
-    agent = InterviewerAgent(engine)
+    agent = InterviewerAgent(engine, stt)
 
     # Логи на каждом шаге — временно, для диагностики зависания без единой ошибки при
     # первом живом прогоне (2026-09-04): процесс тихо замирал где-то между регистрацией

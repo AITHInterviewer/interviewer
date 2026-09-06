@@ -230,13 +230,14 @@ jobs:
         # LLM_PROVIDER=mistral пробовали 2026-09-06 (см. llm_client.py, CLAUDE.md п.8) —
         # откачено: бесплатный ключ Mistral вернул 429 на КАЖДЫЙ вызов с первой попытки
         # (нулевая квота, не всплеск нагрузки) — бот всю сессию молчал.
-        # LLM_PROVIDER=anthropic_api — прямой Anthropic Messages API через купленный
-        # прокси-ключ (ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY, секреты репозитория), убирает
-        # харнесс-накладные расходы Claude Agent SDK CLI (5-19с/ход). Платный — держим
-        # закомментированным и включаем вручную только на время демо, чтобы не жечь
-        # купленные токены на рутинных тестовых прогонах.
-        # LLM_PROVIDER=openrouter (по умолчанию для деплоя) — бесплатная модель через
-        # OpenRouter для обычного тестирования интервью.
+        # LLM_PROVIDER=openrouter пробовали как дефолт для рутинного тестирования —
+        # откачено 2026-09-06: бесплатный тир OpenRouter отдал 429 ПОСРЕДИ живого интервью
+        # (не сразу, квота исчерпалась в процессе разговора), агент замолчал на все
+        # последующие ходы, кандидат решил, что сервис завис. Добавили retry/backoff в
+        # llm_client.py, но это не убирает исчерпание бесплатной квоты как таковое —
+        # переключаемся на платный прямой Anthropic Messages API (ANTHROPIC_BASE_URL/
+        # ANTHROPIC_API_KEY, секреты репозитория, уже используются в
+        # AnthropicAPILiveControlLLM) как дефолт для деплоя, не только для демо.
         env:
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -245,7 +246,7 @@ jobs:
         run: |
           Set-Content -Path live-agent/.env -Encoding utf8 -Value @'
           LLM_MODEL=claude-haiku-4-5
-          LLM_PROVIDER=openrouter
+          LLM_PROVIDER=anthropic_api
           ANTHROPIC_MODEL=claude-haiku-4-5
           MISTRAL_MODEL=mistral-small-latest
           OPENROUTER_MODEL=minimax/minimax-m3:free

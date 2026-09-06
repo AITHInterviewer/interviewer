@@ -62,6 +62,45 @@ async def test_decide_raises_on_invalid_json():
         await llm.decide("система", "вопрос")
 
 
+async def test_decide_retries_once_on_429_then_succeeds():
+    """Реальный найденный баг (2026-09-06): OpenRouter free tier отдал 429 посреди
+    интервью, decide() падал без единого повтора — агент замолкал навсегда."""
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(429, headers={"retry-after": "0"}, json={"error": "rate limited"})
+        payload = {"decision": "continue", "gap_type": None, "utterance": None, "reasoning": "ок"}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(payload)}}]})
+
+    llm = MistralLiveControlLLM(model="mistral-small-latest", api_key="test-key")
+    llm._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    result = await llm.decide("система", "вопрос")
+
+    assert calls == 2
+    assert result.decision == Decision.CONTINUE
+
+
+async def test_decide_raises_after_exhausting_retries_on_429():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(429, headers={"retry-after": "0"}, json={"error": "rate limited"})
+
+    llm = MistralLiveControlLLM(model="mistral-small-latest", api_key="test-key")
+    llm._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await llm.decide("система", "вопрос")
+
+    assert calls == llm._MAX_RETRIES + 1
+
+
 async def test_openrouter_decide_parses_response():
     """OpenRouterLiveControlLLM использует тот же протокол, что и Mistral (общая база
     _OpenAICompatibleLiveControlLLM) — проверяем, что подстановка сработала."""
