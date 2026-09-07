@@ -55,6 +55,21 @@ jobs:
           # its own "Write ..." steps below, so disabling the clean has no other effect.
           clean: false
 
+      - name: Log in to Docker Hub (авторизованные pull'ы — выше лимит, чем анонимные)
+        # Анонимные pull'ы с IP этого VPS упирались в 429 Too Many Requests на базовые
+        # образы (python:3.12-slim, node:22-slim) — деплой падал на сборке. `secrets`
+        # нельзя использовать в step-level `if:`, поэтому проверка наличия — внутри
+        # скрипта: без токена деплой продолжается анонимно, как раньше.
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+            echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+          else
+            echo "DOCKERHUB_USERNAME/DOCKERHUB_TOKEN не заданы — pull'ы пойдут анонимно (риск 429)"
+          fi
+
       - name: Check required secrets and variables
         run: |
           if [ -z "${OPENROUTER_API_KEY:-}" ]; then
