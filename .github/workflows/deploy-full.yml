@@ -297,6 +297,16 @@ jobs:
           export S3_SECRET_KEY
           export PUBLIC_HTTP_PORT="${PUBLIC_HTTP_PORT:-12345}"
           export NEXT_PUBLIC_BACKEND_URL="https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}"
+          # Docker Hub время от времени рубит анонимные pull'ы с этого VPS 429-м
+          # (per-IP anonymous rate limit, накопительно за несколько прогонов деплоя) —
+          # даже когда базовый образ (python:3.12-slim/node:22-slim) уже лежит локально
+          # от предыдущей сборки, BuildKit всё равно бьёт по registry за metadata на
+          # каждый build. Classic-билдер такого не делает — раз тег уже есть локально,
+          # использует его без обращения к registry. Не решает throttling целиком (если
+          # образа ещё ни разу не было — всё равно упадёт), но переживает частый кейс
+          # «уже собирали сегодня».
+          export DOCKER_BUILDKIT=0
+          export COMPOSE_DOCKER_CLI_BUILD=0
 
           docker compose --project-directory . \
             -f docker-compose.dev.yml \
@@ -377,10 +387,18 @@ jobs:
             up -d --force-recreate nginx livekit-server
 
       - name: Build and (re)start live-agent
+        env:
+          # см. комментарий у "Build and (re)start infra + backend + frontend" — то же
+          # Docker Hub 429 на базовые образы.
+          DOCKER_BUILDKIT: "0"
+          COMPOSE_DOCKER_CLI_BUILD: "0"
         run: |
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --remove-orphans
 
       - name: Build and (re)start evaluation-agent
+        env:
+          DOCKER_BUILDKIT: "0"
+          COMPOSE_DOCKER_CLI_BUILD: "0"
         run: |
           # Только воркер: stt-accurate (profile stt) в деплой не входит — воркер STT
           # не вызывает, транскрипты берёт из backend.
