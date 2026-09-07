@@ -7,11 +7,12 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db_session
-from app.dependencies.auth import require_any_capability, require_capability
+from app.dependencies.auth import get_current_user, get_granted_capabilities, require_any_capability, require_capability
 from app.dependencies.live_agent_auth import require_live_agent_token
 from app.models.answer import Answer
 from app.models.handoff import Handoff
@@ -20,7 +21,7 @@ from app.models.interview_event import InterviewEvent
 from app.models.question import Question
 from app.models.user import InternalUser
 from app.models.vacancy import Vacancy
-from app.roles.catalog import AREA_EXPERT_QUESTIONS, AREA_RECRUITER_WORKSPACE
+from app.roles.catalog import AREA_EXPERT_QUESTIONS, AREA_HIRING_MANAGER_REVIEW, AREA_RECRUITER_WORKSPACE
 from app.schemas.interview import (
     AnswerResponse,
     HandoffTargetResponse,
@@ -31,6 +32,8 @@ from app.schemas.interview import (
 from app.schemas.live_input import LiveInputCandidate, LiveInputQuestion, LiveInputResponse, LiveInputVacancy
 from app.services.interview_admin_service import InterviewAdminService
 from app.services.interview_event_service import InterviewEventService
+from app.services.livekit_egress import RecordingNotFoundError, get_recording, stream_recording
+from app.services.pilot_service import PilotService
 
 router = APIRouter(prefix="/api/v1/interviews", tags=["interviews"])
 
@@ -57,6 +60,39 @@ async def get_interview(
     response = InterviewResponse.model_validate(interview)
     response.handed_off_to = await _handoff_target(session, interview_id)
     return response
+
+
+@router.get("/{interview_id}/recording")
+async def get_interview_recording(
+    interview_id: UUID,
+    actor: Annotated[InternalUser, Depends(get_current_user)],
+    capabilities: Annotated[set[str], Depends(get_granted_capabilities)],
+    service: Annotated[InterviewAdminService, Depends(get_interview_admin_service)],
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> StreamingResponse:
+    """Stream a private recording without exposing the MinIO bucket to browsers."""
+    if AREA_RECRUITER_WORKSPACE not in capabilities and (
+        AREA_HIRING_MANAGER_REVIEW not in capabilities
+        or not await PilotService(session).manager_can_view(interview_id, actor.id)
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to this candidate.")
+
+    interview = await service.get_interview(interview_id)
+    if interview is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview not found.")
+    if interview.recording_url is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview recording is not available.")
+
+    try:
+        recording = await get_recording(str(interview_id))
+    except RecordingNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview recording is not ready.") from exc
+
+    return StreamingResponse(
+        stream_recording(recording["Body"]),
+        media_type=recording.get("ContentType") or "video/mp4",
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 async def _handoff_target(session: AsyncSession, interview_id: UUID) -> HandoffTargetResponse | None:

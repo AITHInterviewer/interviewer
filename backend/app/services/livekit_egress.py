@@ -15,6 +15,8 @@ Egress API. Этот модуль — тот самый вызов: `room_name` 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
@@ -52,8 +54,22 @@ class EgressError(Exception):
     """LiveKit Egress недоступен/вернул ошибку."""
 
 
+class RecordingNotFoundError(Exception):
+    """Запись ещё не выгружена Egress-воркером или была удалена из хранилища."""
+
+
 def _client() -> api.LiveKitAPI:
     return api.LiveKitAPI(settings.livekit_api_url, settings.livekit_api_key, settings.livekit_api_secret)
+
+
+def _s3_client():
+    return boto3.client(
+        "s3",
+        endpoint_url=settings.s3_endpoint_url,
+        aws_access_key_id=settings.s3_access_key,
+        aws_secret_access_key=settings.s3_secret_key,
+        region_name=settings.s3_region,
+    )
 
 
 def recording_key(interview_id: str) -> str:
@@ -101,3 +117,27 @@ async def stop_recording(egress_id: str) -> None:
         raise EgressError(f"не удалось остановить запись: {exc}") from exc
     finally:
         await lkapi.aclose()
+
+
+async def get_recording(interview_id: str) -> dict[str, Any]:
+    """Открывает приватный MP4 для авторизованного HTTP-стрима."""
+    try:
+        return await asyncio.to_thread(
+            _s3_client().get_object,
+            Bucket=settings.recordings_s3_bucket,
+            Key=recording_key(interview_id),
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code")
+        if code in {"NoSuchKey", "NoSuchBucket", "404"}:
+            raise RecordingNotFoundError from exc
+        raise
+
+
+async def stream_recording(body: Any) -> AsyncIterator[bytes]:
+    """Не загружает MP4 целиком в память backend-процесса."""
+    try:
+        while chunk := await asyncio.to_thread(body.read, 1024 * 1024):
+            yield chunk
+    finally:
+        await asyncio.to_thread(body.close)

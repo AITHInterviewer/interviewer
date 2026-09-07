@@ -132,6 +132,17 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   return (await response.json()) as T;
 }
 
+export async function fetchInterviewRecording(token: string, interviewId: string): Promise<Blob> {
+  const response = await fetch(`${BACKEND_URL}/api/v1/interviews/${interviewId}/recording`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new ApiError(payload?.detail ?? "Не удалось загрузить запись интервью.", response.status);
+  }
+  return response.blob();
+}
+
 export function registerRecruiter(body: { name: string; email: string; password: string }) {
   return request<AuthResponse>("/api/v1/auth/register", { method: "POST", body });
 }

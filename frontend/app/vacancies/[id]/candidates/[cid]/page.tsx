@@ -8,6 +8,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { InterviewRecording } from "@/components/interview/InterviewRecording";
 import { SkeletonText } from "@/components/ui/skeleton";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { Button } from "@/components/ui/button";
@@ -468,10 +469,7 @@ export default function VacancyCandidatePage() {
             {error ? <p className="form-error">{error}</p> : null}
 
             {interview.recording_url && !processing ? (
-              <section className="interview-recording">
-                <h2>Запись интервью</h2>
-                <video controls src={interview.recording_url} />
-              </section>
+              <InterviewRecording interviewId={interview.id} />
             ) : null}
 
             <section className="report-hero">

@@ -15,6 +15,7 @@ import {
   fetchAnonymizedStats,
   fetchCurrentUser,
   fetchExpertQueue,
+  fetchInterviewRecording,
   fetchLanding,
   fetchRoleRegistry,
   generateQuestions,
@@ -142,6 +143,14 @@ export async function loadLanding() {
 
   const landing = await fetchLanding(session.token);
   return { session, landing };
+}
+
+export async function loadManagedInterviewRecording(interviewId: string) {
+  const session = getSession();
+  if (!session) {
+    throw new Error("Authentication required.");
+  }
+  return fetchInterviewRecording(session.token, interviewId);
 }
 
 export async function loadRoleRegistry(): Promise<RoleRegistryEntry[]> {

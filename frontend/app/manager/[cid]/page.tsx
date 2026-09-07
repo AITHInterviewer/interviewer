@@ -8,6 +8,7 @@ import { useProtectedLanding } from "@/components/auth/protected-role-page";
 import { AppShell } from "@/components/chrome/AppShell";
 import { PageHeader } from "@/components/chrome/PageHeader";
 import { ScreenState } from "@/components/chrome/ScreenState";
+import { InterviewRecording } from "@/components/interview/InterviewRecording";
 import { Button } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ApiError } from "@/lib/api";
@@ -196,6 +197,9 @@ export default function ManagerCandidatePage() {
             </>
           }
         />
+        {candidate.interview.recording_url && candidate.interview.product_state !== "report_processing" ? (
+          <InterviewRecording interviewId={candidate.interview.id} />
+        ) : null}
         <section className="plain-section">
           <h2>Что передал рекрутер</h2>
           <p>{candidate.summary || "Рекрутер не оставил комментарий: смотрите ответы ниже."}</p>

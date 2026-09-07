@@ -37,7 +37,8 @@ const interview = {
   resume_file_url: "",
   access_token: "t2",
   status: "report_ready",
-  created_at: "2026-09-02T00:00:00Z",
+    created_at: "2026-09-02T00:00:00Z",
+    recording_url: "private-recording-marker",
 };
 
 function renderPage() {
@@ -87,5 +88,6 @@ describe("ManagerCandidatePage", () => {
     expect(screen.queryByText(/help@/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /нанять|отклонить|принять|отказать/i })).not.toBeInTheDocument();
     expect(document.querySelector(".meeting-decision")).not.toBeInTheDocument();
+    expect(screen.getByText("Запись интервью").closest("details")).not.toHaveAttribute("open");
   });
 });
