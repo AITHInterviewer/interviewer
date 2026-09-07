@@ -21,13 +21,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # pyproject.toml требует >=3.12 (match-стейтменты и т.п.); Docker-образ
+          # python:3.12-slim — версия здесь должна совпадать, иначе pip падает с
+          # "requires a different Python" (CI-фейл 2026-09-07).
+          python-version: "3.12"
           cache: "pip"
           cache-dependency-path: evaluation-agent/pyproject.toml
       - run: pip install -e ".[dev]"
       - run: ruff check src/ tests/
-      # worker.py сознательно NotImplementedError (см. README) — тестируется только
-      # verdict.py, единственная реализованная часть.
+      # Воркер реализован (worker.py + llm_judge.py) — прогоняем весь набор тестов.
       - run: pytest -q
 
   docker-build:
