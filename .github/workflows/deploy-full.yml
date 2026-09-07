@@ -381,12 +381,20 @@ jobs:
             exit 1
           fi
           # "Worker started" пишется только после успешного get_judge() (см. run_worker) —
-          # его наличие доказывает, что провайдер/конфиг валидны. Падение claim'а —
-          # персистентная ошибка (service token, сеть), тоже повод упасть деплою;
-          # ошибки отдельных job'ов сознательно НЕ матчим — их воркер ретраит сам.
-          logs=$(docker compose --project-directory evaluation-agent \
-            -f evaluation-agent/docker-compose.yml \
-            logs evaluation-agent --since 5m 2>/dev/null || true)
+          # его наличие доказывает, что провайдер/конфиг валидны. Питон в свежем
+          # контейнере пишет первую строку не мгновенно (импорты) — дёргаем логи в
+          # цикле до минуты, однократная проверка сразу после `ps` ловит пустой
+          # вывод и роняет здоровый деплой (фейл 2026-09-07).
+          logs=""
+          for i in $(seq 1 12); do
+            logs=$(docker compose --project-directory evaluation-agent \
+              -f evaluation-agent/docker-compose.yml \
+              logs evaluation-agent --since 5m 2>/dev/null || true)
+            if printf '%s' "$logs" | grep -q 'Worker started'; then
+              break
+            fi
+            sleep 5
+          done
           if ! printf '%s' "$logs" | grep -q 'Worker started'; then
             echo "ERROR: evaluation-agent did not log 'Worker started' (bad provider config?):"
             printf '%s\n' "$logs" | tail -100
