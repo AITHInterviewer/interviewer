@@ -1,24 +1,34 @@
 # Redis и Postgres — общая инфра, берутся из ../infra/docker-compose.yml (см. корневой
-# docker-compose.yml с include:). Здесь — сам воркер + ЕГО собственный точный ASR:
-# large-v3-turbo, который оказался слишком медленным для live-agent (20-30 сек/реплику
-# на CPU без GPU), но это ровно то, для чего он подходит здесь — точность важнее
-# латентности вне реального времени (раздел 5.1 архитектурного документа).
+# docker-compose.yml с include:). Здесь — сам воркер + (для локальной разработки)
+# ЕГО собственный точный ASR: large-v3-turbo, который оказался слишком медленным для
+# live-agent (20-30 сек/реплику на CPU без GPU), но это ровно то, для чего он подходит
+# здесь — точность важнее латентности вне реального времени (раздел 5.1 архитектурного
+# документа).
+#
+# Деплой (deploy-full.yml) поднимает ТОЛЬКО сервис evaluation-agent (`up -d evaluation-agent`),
+# stt-accurate не стартует: воркер STT не вызывает вообще — транскрипты агрегирует
+# backend (Answer.transcript_text), STT_BASE_URL мёртвый конфиг и depends_on убраны
+# намеренно (иначе `up evaluation-agent` тащил бы multi-GB whisper-образ на VPS).
 
 services:
   evaluation-agent:
     build: .
+    restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
-      - STT_BASE_URL=http://stt-accurate:8000/v1
       - BACKEND_URL=http://backend:8000
-    depends_on:
-      - stt-accurate
+    # ainterviewer-shared — общая сеть с infra/docker-compose.yml (backend). Отдельный
+    # compose-проект по умолчанию сидит в своей сети и не резолвит "backend" по имени.
+    networks:
+      default:
+      ainterviewer-shared:
     # The worker claims durable jobs from backend over HTTP; it retries while backend starts.
 
   stt-accurate:
     image: fedirz/faster-whisper-server:latest-cpu
+    profiles: ["stt"] # локальная разработка: --profile stt; в деплой не входит
     environment:
       - WHISPER__MODEL=deepdml/faster-whisper-large-v3-turbo-ct2
     volumes:
@@ -26,3 +36,10 @@ services:
 
 volumes:
   stt-accurate-cache:
+
+networks:
+  # Создаётся один раз (`docker network create ainterviewer-net`) до `up` обоих
+  # compose-проектов — см. infra/docker-compose.yml для объяснения external: true.
+  ainterviewer-shared:
+    name: ainterviewer-net
+    external: true

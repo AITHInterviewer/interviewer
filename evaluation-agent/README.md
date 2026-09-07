@@ -43,6 +43,10 @@ ruff check src/ tests/
 `EVALUATION_LLM_PROVIDER` выбирает судью без изменения кода:
 
 - `claude` — значение по умолчанию; использует Claude Agent SDK и `LLM_MODEL`.
+- `openrouter` — прод-деплой: единый LLM-шлюз проекта, `OPENROUTER_API_KEY` + `OPENROUTER_MODEL`
+  (по умолчанию `google/gemini-2.5-flash`, как у backend). Паттерн повторяет
+  backend-овский `OpenRouterJSONClient`: схема текстом в промпте, валидация pydantic'ом,
+  ретраи на 429/5xx.
 - `kimi` — использует Moonshot API с `MOONSHOT_API_KEY` и `KIMI_MODEL` (по умолчанию `kimi-k2.6`).
   Ключи официальных платформ .ai/.cn между собой НЕ взаимозаменяемы, а ключи Kimi for Coding
   (консоль kimi.ai/code) вообще не принимает официальный api.moonshot.ai — им нужен
@@ -57,8 +61,16 @@ evaluation-agent вне Docker используйте `http://localhost:8000`. `
 ## Через Docker Compose
 
 ```bash
-docker compose -f ../infra/docker-compose.yml -f docker-compose.yml up --build
+docker compose -f docker-compose.yml up --build evaluation-agent
 ```
+
+(compose-файл ссылается на внешнюю сеть `ainterviewer-net` — создайте её заранее:
+`docker network create ainterviewer-net`, см. `infra/docker-compose.yml`.)
+
+Точный ASR `stt-accurate` — локальная разработка только, через профиль:
+`docker compose -f docker-compose.yml --profile stt up`. В прод-деплой он не входит —
+воркер STT не вызывает (транскрипты агрегирует backend), поэтому `depends_on`/env для него
+убраны из сервиса воркера.
 
 Контейнер ожидает доступность backend и повторяет claim-запросы, пока нет pending-задач.
 

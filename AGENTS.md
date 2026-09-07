@@ -24,10 +24,17 @@ deploy.
 - `deploy-full.yml` brings up the whole stack in one job: postgres/redis/minio/livekit-server
   (`infra/docker-compose.yml` + `docker-compose.dev.yml`), backend, frontend, nginx
   (single external entry point — see `infra/nginx/nginx.conf`), live-agent + its stt/tts, and
-  evaluation-agent's stt-accurate.
-- It writes `backend/.env`, `frontend/.env`, `live-agent/.env`, and `infra/livekit.yaml`
-  fresh on every run (values baked in near the top of the workflow) — don't hand-edit those
-  `.env` files on the runner, edit the workflow instead.
+  evaluation-agent (the batch-evaluation worker — claims durable jobs from backend via
+  `/api/v1/evaluation-jobs/claim`, judges via OpenRouter `google/gemini-2.5-flash`. Its
+  `stt-accurate` service is NOT deployed — profile `stt`, local dev only: the worker never
+  calls STT, transcripts come from backend).
+- It writes `backend/.env`, `frontend/.env`, `live-agent/.env`, `evaluation-agent/.env`, and
+  `infra/livekit.yaml` fresh on every run (values baked in near the top of the workflow) —
+  don't hand-edit those `.env` files on the runner, edit the workflow instead.
+- Backend ↔ evaluation-agent share the service token `EVALUATION_SERVICE_TOKEN`: generated
+  once into `/srv/ainterviewer/deploy-secrets.env` on the runner (migrated automatically on
+  the next deploy if the file predates it) and written to both `.env` files. No extra GitHub
+  secret needed — evaluation reuses `OPENROUTER_API_KEY`.
 - External access is via `https://ainterviewer.duckdns.org:12345/` (DuckDNS → runner
   tunnel), proxied by nginx to `/` (frontend), `/api/` (backend), `/docs`/`/redoc`/`/openapi.json`
   (FastAPI docs), `/rtc/` (livekit signaling). The frontend calls its backend via the page's

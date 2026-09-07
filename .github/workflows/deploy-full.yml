@@ -16,12 +16,13 @@ name: deploy full stack (self-hosted)
 # СВОЕЙ директории (`build: .`, `env_file: .env`) — не трогаем, а задаём
 # `--project-directory` явно, оставаясь в cwd репозитория (без `cd`).
 #
-# evaluation-agent намеренно НЕ поднимается (воркер NotImplementedError; оценка живёт
-# в backend через OpenRouter).
+# evaluation-agent — воркер batch-оценки: забирает durable-задачи из backend
+# (POST /api/v1/evaluation-jobs/claim), оценивает через OpenRouter, шлёт отчёт.
+# Поднимается отдельным compose-проектом последним, после health-check backend'а.
 #
 # ВАЖНО про сети: infra+backend+frontend — один compose-проект (`--project-directory .`),
-# общая docker-сеть. live-agent — отдельный проект, ходит к livekit-server/redis/backend
-# по имени сервиса через ainterviewer-net (создаём до up).
+# общая docker-сеть. live-agent и evaluation-agent — отдельные проекты, ходят к
+# livekit-server/redis/backend по имени сервиса через ainterviewer-net (создаём до up).
 
 on:
   workflow_dispatch: {}
@@ -88,12 +89,21 @@ jobs:
           S3_ACCESS_KEY=$(openssl rand -hex 8)
           S3_SECRET_KEY=$(openssl rand -hex 24)
           LIVE_AGENT_TOKEN=$(openssl rand -hex 32)
+          EVALUATION_SERVICE_TOKEN=$(openssl rand -hex 32)
           POSTGRES_PASSWORD=ainterviewer
           EOF
             chmod 600 "$SECRETS_FILE"
             echo "created persist secrets file (values not printed)"
           else
             echo "reusing persist secrets file"
+          fi
+          # Миграция: файл создан до появления evaluation-agent — дописываем токен,
+          # если его ещё нет (backend и evaluation-agent должны шарить ОДНО значение).
+          if ! grep -q '^EVALUATION_SERVICE_TOKEN=' "$SECRETS_FILE"; then
+            umask 077
+            echo "EVALUATION_SERVICE_TOKEN=$(openssl rand -hex 32)" >> "$SECRETS_FILE"
+            chmod 600 "$SECRETS_FILE"
+            echo "added EVALUATION_SERVICE_TOKEN to persist secrets file"
           fi
 
       - name: Resolve public IP
@@ -137,7 +147,7 @@ jobs:
           # shellcheck disable=SC1091
           . /srv/ainterviewer/deploy-secrets.env
           set +a
-          for v in SECRET_KEY JWT_SECRET LIVEKIT_API_KEY LIVEKIT_API_SECRET S3_ACCESS_KEY S3_SECRET_KEY LIVE_AGENT_TOKEN; do
+          for v in SECRET_KEY JWT_SECRET LIVEKIT_API_KEY LIVEKIT_API_SECRET S3_ACCESS_KEY S3_SECRET_KEY LIVE_AGENT_TOKEN EVALUATION_SERVICE_TOKEN; do
             if [ -z "${!v:-}" ]; then
               echo "ERROR: $v is empty in /srv/ainterviewer/deploy-secrets.env"
               exit 1
@@ -180,6 +190,7 @@ jobs:
           RECORDINGS_S3_BUCKET=ainterviewer-recordings
           PUBLIC_FRONTEND_URL=https://${TLS_DOMAIN}:${PUBLIC_HTTP_PORT}
           LIVE_AGENT_TOKEN=${LIVE_AGENT_TOKEN}
+          EVALUATION_SERVICE_TOKEN=${EVALUATION_SERVICE_TOKEN}
           OPENROUTER_MODEL=google/gemini-2.5-flash
           EOF
           printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> backend/.env
@@ -246,6 +257,17 @@ jobs:
           printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> live-agent/.env
           printf 'STT_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> live-agent/.env
           printf 'TTS_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> live-agent/.env
+
+          # evaluation-agent: тот же OpenRouter-ключ, что у backend/live-agent; токен
+          # сервисный — общий с backend EVALUATION_SERVICE_TOKEN (claim/complete/fail
+          # /api/v1/evaluation-jobs/* защищён им, см. backend/app/dependencies/auth.py).
+          cat > evaluation-agent/.env <<EOF
+          BACKEND_URL=http://backend:8000
+          BACKEND_SERVICE_TOKEN=${EVALUATION_SERVICE_TOKEN}
+          EVALUATION_LLM_PROVIDER=openrouter
+          OPENROUTER_MODEL=google/gemini-2.5-flash
+          EOF
+          printf 'OPENROUTER_API_KEY=%s\n' "$OPENROUTER_API_KEY" >> evaluation-agent/.env
           echo "wrote env files (secrets not printed)"
 
       - name: Bootstrap TLS cert so nginx can listen on 443
@@ -331,6 +353,51 @@ jobs:
       - name: Build and (re)start live-agent
         run: |
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml up -d --build --remove-orphans
+
+      - name: Build and (re)start evaluation-agent
+        run: |
+          # Только воркер: stt-accurate (profile stt) в деплой не входит — воркер STT
+          # не вызывает, транскрипты берёт из backend.
+          docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml up -d --build --remove-orphans evaluation-agent
+
+      - name: Wait for evaluation-agent worker
+        run: |
+          ok=0
+          for i in $(seq 1 12); do
+            state=$(docker compose --project-directory evaluation-agent \
+              -f evaluation-agent/docker-compose.yml \
+              ps --format '{{.State}}' evaluation-agent 2>/dev/null || true)
+            if [ "$state" = "running" ]; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "ERROR: evaluation-agent did not stay running"
+            docker compose --project-directory evaluation-agent \
+              -f evaluation-agent/docker-compose.yml \
+              logs evaluation-agent --tail 100
+            exit 1
+          fi
+          # "Worker started" пишется только после успешного get_judge() (см. run_worker) —
+          # его наличие доказывает, что провайдер/конфиг валидны. Падение claim'а —
+          # персистентная ошибка (service token, сеть), тоже повод упасть деплою;
+          # ошибки отдельных job'ов сознательно НЕ матчим — их воркер ретраит сам.
+          logs=$(docker compose --project-directory evaluation-agent \
+            -f evaluation-agent/docker-compose.yml \
+            logs evaluation-agent --since 5m 2>/dev/null || true)
+          if ! printf '%s' "$logs" | grep -q 'Worker started'; then
+            echo "ERROR: evaluation-agent did not log 'Worker started' (bad provider config?):"
+            printf '%s\n' "$logs" | tail -100
+            exit 1
+          fi
+          if printf '%s' "$logs" | grep -q 'Failed to claim evaluation job'; then
+            echo "ERROR: evaluation-agent cannot claim jobs (service token / backend?):"
+            printf '%s\n' "$logs" | tail -100
+            exit 1
+          fi
+          echo "evaluation-agent running"
 
       - name: Wait for backend health
         run: |
@@ -422,6 +489,10 @@ jobs:
             logs --tail=80 livekit-egress || true
           echo "--- live-agent ---"
           docker compose --project-directory live-agent -f live-agent/docker-compose.yml ps
+          echo "--- evaluation-agent ---"
+          docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml ps
+          echo "--- evaluation-agent logs (tail) ---"
+          docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml logs --tail=80 evaluation-agent || true
 
       - name: Print URLs
         run: |

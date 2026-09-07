@@ -35,6 +35,8 @@ def _report_model_version() -> str:
     match settings.evaluation_llm_provider:
         case "kimi":
             return settings.kimi_model
+        case "openrouter":
+            return settings.openrouter_model
         case "dummygpt":
             return "dummygpt"
         case _:

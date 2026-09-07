@@ -328,3 +328,35 @@ async def test_reevaluate_resets_failed_job_and_requeues(
     assert job.status == "pending"
     assert job.attempts == 0
     assert job.last_error is None
+
+
+@pytest.mark.anyio
+async def test_reevaluate_recovers_job_stuck_in_processing(
+    db_session: AsyncSession,
+) -> None:
+    """Воркер умер посреди claim'а: interview.status='processing', job.status='processing'
+    — без рекавери кнопка «пересобрать отчёт» ничего не делала (статус не входил в
+    разрешённые). Задача должна вернуться в pending."""
+    interview = await seed_demo_interview(db_session, question_count=1)
+    service = InterviewEventService(db_session)
+
+    await service.record_event(interview.id, {"type": "interview_completed", "payload": {}})
+    job = (
+        (await db_session.execute(select(EvaluationJob).where(EvaluationJob.interview_id == interview.id)))
+        .scalars()
+        .one()
+    )
+    job.status = "processing"
+    job.attempts = 1
+    interview.status = "processing"
+    await db_session.commit()
+
+    await service.reevaluate(interview.id)
+
+    await db_session.refresh(interview)
+    await db_session.refresh(job)
+    assert interview.product_state == "report_processing"
+    assert job.status == "pending"
+    assert job.attempts == 0
+    assert job.started_at is None
+    assert job.finished_at is None

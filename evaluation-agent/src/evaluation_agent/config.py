@@ -24,6 +24,11 @@ class Settings:
         # Пусто — официальный api.moonshot.ai. Заполняется, если ключ выдан
         # прокси/агрегатором (тот же паттерн, что ANTHROPIC_BASE_URL у live-agent).
         self.kimi_base_url: str | None = os.getenv("KIMI_BASE_URL")
+        # OpenRouter — LLM-шлюз прод-деплоя (тот же OPENROUTER_API_KEY, что у backend
+        # и live-agent). Модель по умолчанию совпадает с OPENROUTER_MODEL backend'а.
+        self.openrouter_api_key: str | None = os.getenv("OPENROUTER_API_KEY")
+        self.openrouter_model: str = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+        self.openrouter_base_url: str | None = os.getenv("OPENROUTER_BASE_URL")
         self.prompt_version: str = os.getenv("PROMPT_VERSION", "v1")
         self.poll_interval_seconds: float = float(os.getenv("POLL_INTERVAL_SECONDS", "5"))
 

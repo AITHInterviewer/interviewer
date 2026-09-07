@@ -160,13 +160,15 @@ class InterviewEventService:
 
     async def reevaluate(self, interview_id: uuid.UUID | str) -> Interview | None:
         """Повторный запуск разбора для интервью, застрявшего на этапе отчёта
-        (воркер упал/LLM вернул ошибку и задача ушла в failed, см. `fail_job`).
+        (воркер упал/LLM вернул ошибку и задача ушла в failed, см. `fail_job`;
+        либо воркер умер посреди claim'а — interview и job застряли в `processing`,
+        recovery тот же: задача обратно в pending).
         Рекрутёр дёргает это кнопкой с карточки кандидата (`POST .../reevaluate`).
         Синхронной оценки здесь нет — сбрасываем outbox-задачу в pending; фактический
         разбор делает evaluation-agent (как при `interview_completed`)."""
         interview_id = uuid.UUID(str(interview_id))
         interview = await self.session.get(Interview, interview_id)
-        if interview is None or interview.status not in ("completed", "processing_failed"):
+        if interview is None or interview.status not in ("completed", "processing", "processing_failed"):
             return interview
         interview.product_state = "report_processing"
         job_result = await self.session.execute(

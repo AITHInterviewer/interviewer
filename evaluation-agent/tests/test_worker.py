@@ -12,6 +12,7 @@ from evaluation_agent.llm_judge import (
     ClaudeAgentSDKJudge,
     DummyLLMJudge,
     KimiJudge,
+    OpenRouterJudge,
     QuestionToScore,
     VacancyContext,
     get_judge,
@@ -56,6 +57,9 @@ def test_get_judge_selects_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "evaluation_llm_provider", "kimi")
     assert isinstance(get_judge(), KimiJudge)
 
+    monkeypatch.setattr(settings, "evaluation_llm_provider", "openrouter")
+    assert isinstance(get_judge(), OpenRouterJudge)
+
     monkeypatch.setattr(settings, "evaluation_llm_provider", "dummygpt")
     assert isinstance(get_judge(), DummyLLMJudge)
 
@@ -64,6 +68,24 @@ def test_get_judge_rejects_unknown_provider(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(settings, "evaluation_llm_provider", "unknown")
     with pytest.raises(ValueError, match="Unsupported EVALUATION_LLM_PROVIDER"):
         get_judge()
+
+
+def test_openrouter_judge_parses_markdown_wrapped_json() -> None:
+    """Модели любят оборачивать JSON в ```json ...``` — парсер должен это выдерживать."""
+    content = (
+        'Вот оценка:\n```json\n{"skill_scores": [{"skill_tag": "Python", "score": 2, '
+        '"rationale": "Покрыл основное."}], "quotes": ["one thread"], '
+        '"confidence": 0.9, "report": "Неплохо."}\n```'
+    )
+    judgment = OpenRouterJudge._parse_judgment(content)
+    assert judgment.skill_scores[0].skill_tag == "Python"
+    assert judgment.skill_scores[0].score == 2
+    assert judgment.confidence == 0.9
+
+
+def test_openrouter_judge_rejects_non_json() -> None:
+    with pytest.raises(RuntimeError, match="non-JSON"):
+        OpenRouterJudge._parse_judgment("Извини, не могу оценить.")
 
 
 @pytest.mark.asyncio

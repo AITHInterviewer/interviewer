@@ -420,10 +420,13 @@ export default function VacancyCandidatePage() {
     try {
       const updated = await reevaluateManagedInterview(params.cid);
       setInterview(updated);
-      if (updated.product_state === "report_ready") {
+      if (updated.product_state === "report_processing") {
+        // Ожидаемый ответ: разбор асинхронный — задача сброшена в очередь evaluation-agent.
+        pushToast("success", "Пересборка отчёта запущена — отчёт появится через пару минут.");
+      } else if (updated.product_state === "report_ready") {
         pushToast("success", "Отчёт пересобран.");
       } else {
-        pushToast("warning", "Не удалось пересобрать отчёт — разбор снова не прошёл. Попробуйте позже.");
+        pushToast("warning", "Не удалось запустить пересборку отчёта. Попробуйте позже.");
       }
     } catch (caughtError) {
       pushToast("error", normalizeError(caughtError, "Не удалось пересобрать отчёт."));

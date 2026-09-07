@@ -5,17 +5,20 @@
 - `ClaudeAgentSDKJudge` — Claude через `claude-agent-sdk` (тот же подход, что
   `backend/app/services/vacancy_llm_service.py`).
 - `KimiJudge` — Kimi через OpenAI-совместимый Moonshot Chat Completions API.
+- `OpenRouterJudge` — LLM-шлюз прод-деплоя (OpenAI-совместимый chat/completions,
+  паттерн backend-овского `OpenRouterJSONClient`).
 
 Интерфейс единый, чтобы воркер не зависел от провайдера.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 import httpx
 from pydantic import BaseModel, Field
@@ -224,6 +227,99 @@ rationale — 1–2 предложения с главным аргументо�
         return QuestionJudgment.model_validate(json.loads(raw))
 
 
+class OpenRouterJudge:
+    """Оценка через OpenRouter (OpenAI-совместимый chat/completions).
+
+    Прод-деплой использует OpenRouter как единый LLM-шлюз (тот же ключ, что
+    live-контур и генерация вопросов в backend, см. backend/app/services/llm.py).
+    Паттерн сознательно повторяет backend-овский `OpenRouterJSONClient`: схема
+    просится текстом в промпте, ответ валидируется pydantic'ом, ретраи на
+    429/5xx — Moonshot-специфичные поля (`thinking`, `response_format.json_schema`)
+    сюда не передаём, OpenRouter их для gemini-2.5-flash не принимает.
+    """
+
+    _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+    _MAX_ATTEMPTS = 4
+    _RETRY_STATUS: ClassVar[set[int]] = {429, 500, 502, 503, 529}
+    _MAX_BACKOFF_SEC = 30.0
+
+    def __init__(self, model: str | None = None, api_key: str | None = None, base_url: str | None = None) -> None:
+        self.model = model or settings.openrouter_model
+        self.api_key = api_key or settings.openrouter_api_key
+        self.base_url = (base_url or settings.openrouter_base_url or self._DEFAULT_BASE_URL).rstrip("/")
+
+    @staticmethod
+    def _backoff_seconds(response: httpx.Response | None, attempt: int) -> float:
+        if response is not None:
+            try:
+                return min(float(response.headers["retry-after"]), OpenRouterJudge._MAX_BACKOFF_SEC)
+            except (KeyError, ValueError):
+                pass
+        return min(2.0**attempt, OpenRouterJudge._MAX_BACKOFF_SEC)
+
+    @staticmethod
+    def _parse_judgment(content: str) -> QuestionJudgment:
+        """Модель просили ответить JSON-объектом; на практике оборачивает в маркдаун —
+        пробуем целиком, потом первый {...}-блок."""
+        try:
+            return QuestionJudgment.model_validate_json(content)
+        except ValueError:
+            start = content.find("{")
+            end = content.rfind("}")
+            if start != -1 and end > start:
+                return QuestionJudgment.model_validate_json(content[start : end + 1])
+            raise RuntimeError(f"OpenRouter returned a non-JSON judgment: {content[:200]!r}")
+
+    async def judge(self, question: QuestionToScore) -> QuestionJudgment:
+        if not self.api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is required when EVALUATION_LLM_PROVIDER=openrouter.")
+
+        prompt = ClaudeAgentSDKJudge()._build_prompt(question)
+        body = {
+            "model": self.model,
+            "max_tokens": 4096,
+            # Оценка должна быть воспроизводимой (тот же аргумент, что temperature=0
+            # у KimiJudge): без явной температуры провайдер сэмплирует.
+            "temperature": 0,
+            "messages": [
+                {"role": "system", "content": ClaudeAgentSDKJudge._SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+        }
+
+        last_error: Exception | None = None
+        for attempt in range(self._MAX_ATTEMPTS):
+            if attempt:
+                await asyncio.sleep(self._backoff_seconds(getattr(last_error, "response", None), attempt))
+            try:
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    response = await client.post(
+                        f"{self.base_url}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {self.api_key}",
+                            "HTTP-Referer": "https://github.com/AITHInterviewer/interviewer",
+                            "X-Title": "ainterviewer",
+                        },
+                        json=body,
+                    )
+                    response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                if exc.response.status_code in self._RETRY_STATUS:
+                    continue
+                raise RuntimeError(
+                    f"OpenRouter returned {exc.response.status_code}: {exc.response.text}"
+                ) from exc
+            except httpx.HTTPError as exc:
+                last_error = exc
+                continue
+
+            content = response.json()["choices"][0]["message"]["content"]
+            return self._parse_judgment(content)
+
+        raise RuntimeError(f"OpenRouter unavailable after {self._MAX_ATTEMPTS} attempts: {last_error}")
+
+
 class KimiJudge:
     """Kimi evaluator via Moonshot's OpenAI-compatible Chat Completions API."""
 
@@ -283,10 +379,14 @@ def get_judge() -> LLMJudge:
         case "kimi":
             logger.info("Using KimiJudge (model=%s)", settings.kimi_model)
             return KimiJudge()
+        case "openrouter":
+            logger.info("Using OpenRouterJudge (model=%s)", settings.openrouter_model)
+            return OpenRouterJudge()
         case "dummygpt":
             logger.info("Using DummyGPTJudge")
             return DummyGPTJudge()
         case provider:
             raise ValueError(
-                f"Unsupported EVALUATION_LLM_PROVIDER={provider!r}. Use 'claude', 'kimi', or 'dummygpt'."
+                f"Unsupported EVALUATION_LLM_PROVIDER={provider!r}. "
+                "Use 'claude', 'kimi', 'openrouter', or 'dummygpt'."
             )
