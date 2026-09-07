@@ -311,6 +311,32 @@ jobs:
             up -d --build \
             postgres redis minio livekit-server livekit-egress backend frontend nginx
 
+      - name: Wait for backend health
+        run: |
+          ok=0
+          for i in $(seq 1 24); do
+            if docker compose --project-directory . \
+              -f docker-compose.dev.yml \
+              -f infra/docker-compose.yml \
+              -f docker-compose.vps.yml \
+              exec -T backend python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)" \
+              2>/dev/null; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "ERROR: backend did not become healthy in time"
+            docker compose --project-directory . \
+              -f docker-compose.dev.yml \
+              -f infra/docker-compose.yml \
+              -f docker-compose.vps.yml \
+              logs backend --tail 100
+            exit 1
+          fi
+          echo "backend healthy"
+
       - name: Obtain/renew TLS certificate (DNS-01 DuckDNS)
         run: |
           set -a
@@ -358,7 +384,9 @@ jobs:
         run: |
           # Только воркер: stt-accurate (profile stt) в деплой не входит — воркер STT
           # не вызывает, транскрипты берёт из backend.
-          docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml up -d --build --remove-orphans evaluation-agent
+          # Fresh worker logs make the readiness check below belong to this deploy, not a
+          # container that Compose happened to keep from a prior deploy.
+          docker compose --project-directory evaluation-agent -f evaluation-agent/docker-compose.yml up -d --build --force-recreate --remove-orphans evaluation-agent
 
       - name: Wait for evaluation-agent worker
         run: |
@@ -380,16 +408,13 @@ jobs:
               logs evaluation-agent --tail 100
             exit 1
           fi
-          # "Worker started" пишется только после успешного get_judge() (см. run_worker) —
-          # его наличие доказывает, что провайдер/конфиг валидны. Питон в свежем
-          # контейнере пишет первую строку не мгновенно (импорты) — дёргаем логи в
-          # цикле до минуты, однократная проверка сразу после `ps` ловит пустой
-          # вывод и роняет здоровый деплой (фейл 2026-09-07).
+          # The container is recreated above, so these are this deploy's logs. Do not use
+          # --since here: a retained container made that window omit its valid startup log.
           logs=""
           for i in $(seq 1 12); do
             logs=$(docker compose --project-directory evaluation-agent \
               -f evaluation-agent/docker-compose.yml \
-              logs evaluation-agent --since 5m 2>/dev/null || true)
+              logs evaluation-agent --tail 100 2>/dev/null || true)
             if printf '%s' "$logs" | grep -q 'Worker started'; then
               break
             fi
@@ -400,38 +425,23 @@ jobs:
             printf '%s\n' "$logs" | tail -100
             exit 1
           fi
-          if printf '%s' "$logs" | grep -q 'Failed to claim evaluation job'; then
-            echo "ERROR: evaluation-agent cannot claim jobs (service token / backend?):"
-            printf '%s\n' "$logs" | tail -100
-            exit 1
-          fi
-          echo "evaluation-agent running"
-
-      - name: Wait for backend health
-        run: |
-          ok=0
-          for i in $(seq 1 24); do
-            if docker compose --project-directory . \
-              -f docker-compose.dev.yml \
-              -f infra/docker-compose.yml \
-              -f docker-compose.vps.yml \
-              exec -T backend python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)" \
-              2>/dev/null; then
-              ok=1
+          # A 200 claim confirms the worker can resolve and authenticate to backend.
+          # A single earlier DNS failure is recoverable and must not fail a healthy deploy.
+          for i in $(seq 1 12); do
+            logs=$(docker compose --project-directory evaluation-agent \
+              -f evaluation-agent/docker-compose.yml \
+              logs evaluation-agent --tail 100 2>/dev/null || true)
+            if printf '%s' "$logs" | grep -q 'POST http://backend:8000/api/v1/evaluation-jobs/claim "HTTP/1.1 200 OK"'; then
               break
             fi
             sleep 5
           done
-          if [ "$ok" -ne 1 ]; then
-            echo "ERROR: backend did not become healthy in time"
-            docker compose --project-directory . \
-              -f docker-compose.dev.yml \
-              -f infra/docker-compose.yml \
-              -f docker-compose.vps.yml \
-              logs backend --tail 100
+          if ! printf '%s' "$logs" | grep -q 'POST http://backend:8000/api/v1/evaluation-jobs/claim "HTTP/1.1 200 OK"'; then
+            echo "ERROR: evaluation-agent did not successfully claim from backend:"
+            printf '%s\n' "$logs" | tail -100
             exit 1
           fi
-          echo "backend healthy"
+          echo "evaluation-agent running"
 
       - name: Wait for minio health
         run: |
