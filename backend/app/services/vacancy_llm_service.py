@@ -62,6 +62,9 @@ class GeneratedQuestion(BaseModel):
     intent: str | None = None
     reference_answer: str | None = None
     format: str = "voice"
+    # Только когда format="live_coding" — {"language": "..."} | null (язык не задан явно, см.
+    # vacancy_question_set.txt). Для всех остальных форматов LLM не заполняет это поле.
+    stimulus: dict | None = None
     difficulty: str = "baseline"
     estimated_duration_sec: int = Field(gt=0)
 

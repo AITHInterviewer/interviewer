@@ -48,6 +48,13 @@ class Question(BaseModel):
     # разговорить кандидата (см. agent._question_timer_loop) работают только для
     # "assessment"; разминочный и завершающий вопросы просто ждут ответа.
     role: str = "assessment"
+    # "voice" | "code_review_verbal" | "live_coding" — зеркалит backend
+    # app/models/question.py::Question.format. "live_coding" переводит граф в отдельную
+    # фазу решения задачи (state_machine.Phase.CODING) вместо обычного вопрос-ответ.
+    format: str = "voice"
+    # Только для format="live_coding" — {"language": "..."} | None (язык не задан явно,
+    # кандидат выбирает его сам в редакторе на фронте).
+    stimulus: dict | None = None
     # Отведённое на вопрос время. На половине без единой реплики кандидата агент даёт
     # подсказку, по истечении — сам переходит к следующему вопросу.
     estimated_duration_sec: int = 180
@@ -88,12 +95,15 @@ class InterviewInput(BaseModel):
 
 
 class Decision(str, Enum):
-    """Четырёхклассовая классификация из раздела 2.3.1 архитектурного документа."""
+    """Четырёхклассовая классификация из раздела 2.3.1 архитектурного документа, плюс
+    `CODING_DONE` — отдельное пятое значение, осмысленное ТОЛЬКО в `state_machine.Phase.CODING`
+    (см. `prompts.CODING_SYSTEM_PROMPT`): обычный реактивный цикл его никогда не возвращает."""
 
     CONTINUE = "continue"  # пауза — не конец мысли, ничего не говорим (кроме бэкчаннела)
     EXHAUSTIVE = "exhaustive"  # ответ исчерпывающий — переходим дальше
     AMBIGUOUS = "ambiguous"  # неясно, закончил ли — чек-ин
     GAP = "gap"  # чёткий пробел — адаптивный вопрос
+    CODING_DONE = "coding_done"  # только в Phase.CODING: кандидат сказал, что готов объяснять
 
 
 class GapType(str, Enum):
@@ -109,6 +119,11 @@ class GapType(str, Enum):
     CLARIFICATION = "clarification"
     LEADING_HINT = "leading_hint"
     DRILL_DOWN = "drill_down"
+    # Только в Phase.CODING (см. Decision.CODING_DONE выше) — кандидат сам сказал, что застрял,
+    # либо надолго замолчал и не меняет код; utterance — содержательная подсказка по задаче, не
+    # выдающая reference_answer целиком. Не пересекается с тремя выше — те только для фазы
+    # объяснения после решения.
+    CODING_HINT = "coding_hint"
 
 
 class LiveControlDecision(BaseModel):

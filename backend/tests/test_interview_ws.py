@@ -13,6 +13,7 @@ Redis → `ControlEvent` → WS-сообщение, закрытие на `compl
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import fakeredis.aioredis as fakeredis
@@ -117,3 +118,39 @@ def test_relays_redis_event_as_control_event_and_closes_on_completed(ws_client: 
         with pytest.raises(Exception) as exc_info:  # noqa: PT011 — соединение должно закрыться сразу после completed
             websocket.receive_json()
         assert getattr(exc_info.value, "code", None) == 1000
+
+
+def test_candidate_code_input_forwards_to_live_agent_commands_channel(ws_client: TestClient) -> None:
+    """live_coding (specs/004-candidate-interview-flow, US4, «известный gap»): код кандидата
+    должен доехать до live-agent, не только осесть в Postgres (record_candidate_input) —
+    через тот же командный канал, что и кнопка «Дальше» (см. agent.py::_command_loop)."""
+    session_factory = ws_client.session_factory  # type: ignore[attr-defined]
+    fake_redis = ws_client.fake_redis  # type: ignore[attr-defined]
+
+    async def seed() -> str:
+        async with session_factory() as session:
+            interview = await seed_demo_interview(session, access_token="ws-code", question_count=1)
+            return str(interview.id)
+
+    interview_id = ws_client.portal.call(seed)
+
+    async def subscribe_commands():
+        pubsub = fake_redis.pubsub()
+        await pubsub.subscribe(f"live-agent:commands:{interview_id}")
+        return pubsub
+
+    pubsub = ws_client.portal.call(subscribe_commands)
+
+    async def read_command():
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                return message
+        return None
+
+    with ws_client.websocket_connect("/api/ws/interview/ws-code") as websocket:
+        websocket.send_json(
+            {"type": "candidate_input", "question_id": "q1", "input_format": "code", "content": "def f(): pass"}
+        )
+        command_message = ws_client.portal.call(asyncio.wait_for, read_command(), 5)
+
+    assert json.loads(command_message["data"]) == {"type": "code_update", "content": "def f(): pass"}

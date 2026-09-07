@@ -13,8 +13,10 @@
 
 Для всех вопросов: format="voice". difficulty — "baseline" для basic/confident, "stretch" для expert. estimated_duration_sec — 120 для basic, 180 для confident, 240 для expert; у warmup и closing — 120.
 
+Исключение: ПОСЛЕДНИЙ assessment-вопрос (по последнему требованию из списка, перед closing) МОЖЕТ иметь format="live_coding" вместо "voice" — но только если хотя бы одно проверяемое требование вакансии является явным практическим навыком программирования (конкретный язык программирования, алгоритмы и структуры данных, написание кода). Если ни одно требование этому не соответствует (вакансия не про написание кода — например менеджерская, аналитическая, soft-skills-ориентированная роль) — оставь этот вопрос тоже format="voice", как остальные; live_coding не обязателен. Для format="live_coding": text — самодостаточная практическая задача, которую можно решить прямо в редакторе кода без запуска (не должно требоваться реального ввода-вывода или внешних сервисов); stimulus — {"language": "..."} если требования явно называют конкретный язык, иначе null (кандидат сам выберет язык в интерфейсе); estimated_duration_sec — от 480 до 900 (написание кода занимает намного больше времени, чем устный ответ) вместо обычной таблицы по уровню. Для format="voice" поле stimulus всегда null.
+
 Ответь СТРОГО одним JSON-объектом, без markdown-обёртки (```), без текста до или после JSON, ровно с такими полями:
 {"questions": [
-  {"text": "...", "role": "warmup"|"assessment"|"closing", "skill_tag": ["..."], "intent": "..."|null, "reference_answer": "..."|null, "format": "voice", "difficulty": "baseline"|"stretch", "estimated_duration_sec": 180}
+  {"text": "...", "role": "warmup"|"assessment"|"closing", "skill_tag": ["..."], "intent": "..."|null, "reference_answer": "..."|null, "format": "voice"|"live_coding", "stimulus": {"language": "..."}|null, "difficulty": "baseline"|"stretch", "estimated_duration_sec": 180}
 ]}
 Порядок: сначала warmup, затем assessment в порядке требований, затем closing.

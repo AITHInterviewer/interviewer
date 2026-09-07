@@ -10,6 +10,7 @@
 Состояния:
     ASKING          -> агент проговаривает вопрос/фразу, кандидат слушает
     LISTENING       -> ждём реплику кандидата (границу хода определяет STT/VAD снаружи)
+    CODING          -> format="live_coding": кандидат решает задачу в редакторе, не в диалоге
     DONE            -> вопросы закончились
 
 Между ASKING и LISTENING для одного вопроса цикл может провернуться много раз — это и есть
@@ -18,10 +19,16 @@
 
 Бюджеты (раздел 2.3.1): не более 1 чек-ина подряд на вопрос, не более 1 подсказки (leading_hint)
 на вопрос, суммарный адаптивный бюджет на всё интервью — см. `InterviewState.adaptive_budget`.
+
+Для format="live_coding" (`Phase.CODING`) действует ОТДЕЛЬНЫЙ, per-question набор жёстких
+лимитов — `CODING_HINT_LIMIT`/`CODING_FOLLOWUP_LIMIT` ниже — не связанный с бюджетами выше:
+подсказки во время решения задачи и доп. вопросы на фазе объяснения решения считаются отдельно
+от обычных voice-вопросов.
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
@@ -30,18 +37,28 @@ from .llm_client import LiveControlLLM
 from .prompts import (
     BACKCHANNEL_PHRASES,
     CHECKIN_PHRASES,
+    CODING_SYSTEM_PROMPT,
     EXHAUSTIVE_TRANSITION_PHRASES,
+    EXPLAIN_SOLUTION_PHRASES,
     GAP_TYPE_LABELS,
     NUDGE_PHRASES,
     SYSTEM_PROMPT,
+    build_coding_prompt,
     build_turn_prompt,
 )
 from .schema import Decision, GapType, InterviewInput, Question
+
+# Жёсткие per-question лимиты для format="live_coding" (см. докстринг модуля) — отдельные от
+# InterviewState.adaptive_budget_remaining/QuestionRunState.hint_used, которые остаются
+# только для обычных voice-вопросов.
+CODING_HINT_LIMIT = 3
+CODING_FOLLOWUP_LIMIT = 3
 
 
 class Phase(Enum):
     ASKING = auto()
     LISTENING = auto()
+    CODING = auto()
     DONE = auto()
 
 
@@ -55,6 +72,11 @@ class QuestionRunState:
     checkin_used: bool = False
     hint_used: bool = False
     nudge_used: bool = False  # подсказка-«разговорите» на половине лимита времени, не более одной
+    # -- только для format="live_coding" (Phase.CODING) --
+    code: str = ""  # последняя известная версия кода кандидата по этому вопросу
+    hints_used: int = 0  # лимит CODING_HINT_LIMIT, общий для голосовых и "по тишине" подсказок
+    followups_used: int = 0  # доп. вопросы на фазе объяснения, лимит CODING_FOLLOWUP_LIMIT
+    last_coding_activity: float = field(default_factory=time.monotonic)
 
 
 @dataclass
@@ -116,7 +138,16 @@ class LiveContourEngine:
             payload={"text": text, "turn_index": len(cur.dialogue)},
         )
 
-        turn_prompt = build_turn_prompt(self.state.input.vacancy, cur.question, cur.dialogue)
+        if self.state.phase == Phase.CODING:
+            # Кандидат решает задачу — это не обычный ход диалога, см. _handle_coding_utterance
+            # и CODING_SYSTEM_PROMPT (набор допустимых решений здесь другой).
+            cur.last_coding_activity = time.monotonic()
+            return await self._handle_coding_utterance(text)
+
+        # Для live_coding-вопроса это уже фаза объяснения (после _leave_coding) — код,
+        # написанный по ЭТОМУ ЖЕ вопросу, часть его контекста (см. prompts.py, докстринг).
+        code = cur.code if cur.question.format == "live_coding" else None
+        turn_prompt = build_turn_prompt(self.state.input.vacancy, cur.question, cur.dialogue, code=code)
         decision = await self.llm.decide(SYSTEM_PROMPT, turn_prompt)
 
         self.events.emit(
@@ -177,7 +208,119 @@ class LiveContourEngine:
             return None
         return await self._advance_to_next_question(reason=reason)
 
+    def update_code(self, content: str) -> None:
+        """Кандидат изменил код в редакторе (format="live_coding") — вызывается из agent.py по
+        получении `code_update` из Redis-команд. No-op вне активного вопроса; не эмитит событие
+        на каждое изменение (это было бы слишком часто) — снапшоты фиксирует backend отдельно
+        (`interview_event_service.record_candidate_input`), финальная версия попадает в протокол
+        live-agent при переходе к объяснению (см. `_leave_coding`)."""
+        if self.state.current is None:
+            return
+        self.state.current.code = content
+        self.state.current.last_coding_activity = time.monotonic()
+
+    async def maybe_request_coding_hint(self) -> str | None:
+        """Дёргается таймером из agent.py при обнаруженном затишье во время `Phase.CODING`
+        (код не менялся, реплик не было) — не более `CODING_HINT_LIMIT` раз суммарно с
+        голосовыми подсказками (общий счётчик, см. `_give_coding_hint`)."""
+        cur = self.state.current
+        if cur is None or self.state.phase != Phase.CODING or cur.hints_used >= CODING_HINT_LIMIT:
+            return None
+        turn_prompt = build_coding_prompt(
+            self.state.input.vacancy,
+            cur.question,
+            cur.code,
+            cur.dialogue,
+            silence_note="Кандидат уже некоторое время молчит и не меняет код.",
+        )
+        decision = await self.llm.decide(CODING_SYSTEM_PROMPT, turn_prompt)
+        self.events.emit(
+            EventType.LIVE_CONTROL_DECISION,
+            question_id=cur.question.id,
+            payload={
+                "decision": decision.decision.value,
+                "gap_type": decision.gap_type.value if decision.gap_type else None,
+                "reasoning": decision.reasoning,
+                "trigger": "silence",
+            },
+        )
+        if decision.decision == Decision.GAP and decision.gap_type == GapType.CODING_HINT:
+            return await self._give_coding_hint(decision.utterance, trigger="silence")
+        return None
+
+    async def force_finish_coding(self, reason: str) -> str | None:
+        """Принудительный переход из решения к объяснению по истечении отведённого на вопрос
+        времени — вызывается из agent.py, аналог `skip_current_question`, но не пропускает
+        вопрос целиком, а переводит в фазу объяснения (см. `_leave_coding`)."""
+        return await self._leave_coding(reason)
+
     # -- внутренняя логика графа --------------------------------------------
+
+    async def _handle_coding_utterance(self, text: str) -> str | None:
+        """Реплика кандидата ВО ВРЕМЯ решения задачи (Phase.CODING) — не обычный ход диалога,
+        см. CODING_SYSTEM_PROMPT: классифицирует ровно на continue/gap(coding_hint)/coding_done,
+        не на continue/exhaustive/ambiguous/gap основного цикла."""
+        cur = self.state.current
+        assert cur is not None
+        turn_prompt = build_coding_prompt(self.state.input.vacancy, cur.question, cur.code, cur.dialogue)
+        decision = await self.llm.decide(CODING_SYSTEM_PROMPT, turn_prompt)
+
+        self.events.emit(
+            EventType.LIVE_CONTROL_DECISION,
+            question_id=cur.question.id,
+            payload={
+                "decision": decision.decision.value,
+                "gap_type": decision.gap_type.value if decision.gap_type else None,
+                "reasoning": decision.reasoning,
+                "trigger": "utterance",
+            },
+        )
+
+        if decision.decision == Decision.CODING_DONE:
+            return await self._leave_coding("candidate_said_done")
+        if decision.decision == Decision.GAP and decision.gap_type == GapType.CODING_HINT:
+            return await self._give_coding_hint(decision.utterance, trigger="candidate_stuck")
+        return None  # continue (или что-то неожиданное) — молчим, кандидат продолжает решать
+
+    async def _give_coding_hint(self, utterance: str | None, trigger: str) -> str | None:
+        """Общая точка выдачи подсказки во время решения — и по голосовому запросу
+        (`_handle_coding_utterance`), и по обнаруженному затишью (`maybe_request_coding_hint`).
+        Один общий счётчик `hints_used`, лимит `CODING_HINT_LIMIT` на вопрос."""
+        cur = self.state.current
+        assert cur is not None
+        if cur.hints_used >= CODING_HINT_LIMIT:
+            # Лимит подсказок исчерпан — молчим и ждём истечения времени на вопрос, не
+            # долбим кандидата повторными просьбами/бездействием.
+            return None
+        cur.hints_used += 1
+        phrase = utterance or "Подумайте над этим ещё немного — если не пойдёт, скажите, и я подскажу иначе."
+        self.events.emit(
+            EventType.CODING_HINT_GIVEN,
+            question_id=cur.question.id,
+            payload={"text": phrase, "trigger": trigger, "hints_remaining": CODING_HINT_LIMIT - cur.hints_used},
+        )
+        self._say(cur.question.id, "coding_hint", phrase)
+        return phrase
+
+    async def _leave_coding(self, reason: str) -> str | None:
+        """Переход из Phase.CODING к фазе объяснения — по голосовому coding_done или по
+        истечении времени (`force_finish_coding`). Дальше вопрос ведёт обычный реактивный
+        цикл (on_candidate_final_turn), без отдельного тайм-бокса — только лимит
+        `followups_used` (см. `_handle_gap`)."""
+        cur = self.state.current
+        if cur is None or self.state.phase != Phase.CODING:
+            return None
+        self.events.emit(
+            EventType.CANDIDATE_CODE_SUBMITTED,
+            question_id=cur.question.id,
+            payload={"content": cur.code, "language": (cur.question.stimulus or {}).get("language"), "reason": reason},
+        )
+        self.state.phase = Phase.ASKING
+        import random
+
+        phrase = random.choice(EXPLAIN_SOLUTION_PHRASES)
+        self._say(cur.question.id, "explain_prompt", phrase)
+        return phrase
 
     async def _act_on_decision(self, decision) -> str | None:
         cur = self.state.current
@@ -212,6 +355,26 @@ class LiveContourEngine:
         cur = self.state.current
         assert cur is not None and decision.gap_type is not None
 
+        if cur.question.format == "live_coding":
+            # Фаза объяснения после решения (Phase.CODING сюда никогда не доходит — там
+            # ведёт _handle_coding_utterance) — отдельный per-question лимит доп. вопросов,
+            # не общий adaptive_budget_remaining/hint_used ниже (см. докстринг модуля).
+            if cur.followups_used >= CODING_FOLLOWUP_LIMIT:
+                return await self._advance_to_next_question(reason="coding_followup_budget_exhausted")
+            cur.followups_used += 1
+            utterance = decision.utterance or "Расскажете подробнее про это решение?"
+            self.events.emit(
+                EventType.ADAPTIVE_QUESTION_ASKED,
+                question_id=cur.question.id,
+                payload={
+                    "gap_type": decision.gap_type.value,
+                    "text": utterance,
+                    "followups_remaining": CODING_FOLLOWUP_LIMIT - cur.followups_used,
+                },
+            )
+            self._say(cur.question.id, GAP_TYPE_LABELS[decision.gap_type], utterance)
+            return utterance
+
         if decision.gap_type == GapType.LEADING_HINT and cur.hint_used:
             # раздел 2.3.1: не более одной подсказки на вопрос — вторая попытка не даётся,
             # считаем ответ данным (со слабым сигналом, это увидит batch-контур по логу).
@@ -242,6 +405,18 @@ class LiveContourEngine:
     async def _advance_to_next_question(self, reason: str) -> str:
         cur = self.state.current
         assert cur is not None
+        if self.state.phase == Phase.CODING:
+            # Кандидат пропустил вопрос («Дальше»/тайм-лимит), не дойдя до объяснения — код
+            # не должен потеряться в протоколе, даже без озвученного решения.
+            self.events.emit(
+                EventType.CANDIDATE_CODE_SUBMITTED,
+                question_id=cur.question.id,
+                payload={
+                    "content": cur.code,
+                    "language": (cur.question.stimulus or {}).get("language"),
+                    "reason": reason,
+                },
+            )
         self.events.emit(EventType.QUESTION_COMPLETED, question_id=cur.question.id, payload={"reason": reason})
 
         if self.state.is_last_question:
@@ -270,7 +445,9 @@ class LiveContourEngine:
         await self.llm.reset()
         question = self.state.current_question
         self.state.current = QuestionRunState(question=question)
-        self.state.phase = Phase.ASKING
+        # live_coding: сразу после вопроса — фаза решения задачи, не обычный диалог (см.
+        # докстринг модуля и Phase.CODING).
+        self.state.phase = Phase.CODING if question.format == "live_coding" else Phase.ASKING
         self.events.emit(
             EventType.QUESTION_STARTED,
             question_id=question.id,

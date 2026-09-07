@@ -168,21 +168,26 @@ Phase 2 (control-канал не участвует в этом сценарии
 
 ### Implementation for User Story 4
 
-- [ ] T033 [P] [US4] Добавить редактор кода (Monaco или CodeMirror) в зависимости `frontend/package.json`
-- [ ] T034 [US4] `frontend/components/interview/CodeEditorPanel.tsx` — активируется, когда `AnswerInput` (T026) получает `input_format=code`; видеотайлы (T019) сворачиваются в угол
-- [ ] T035 [US4] Периодический захват `code_snapshots` (таймер, содержимое редактора) — включаются в `finalize`-запрос (T021, `contracts/answer-upload.md`, поле `code_snapshots`)
-- [ ] T036 [US4] `frontend/components/interview/CodeEditorPanel.test.tsx` (vitest) — рендер редактора вместо тайлов, снапшоты попадают в `finalize`-payload
+- [X] T033 [P] [US4] Добавить редактор кода (CodeMirror 6, `@uiw/react-codemirror` — решение пользователя, не Monaco: легче, проще подключить подсветку без указанного языка) в зависимости `frontend/package.json`
+- [X] T034 [US4] `frontend/components/interview/CodeEditorPanel.tsx` — активируется в `InterviewRoom.tsx`, когда `ControlEvent.input_format=code`; видеотайлы сворачиваются в угол (уменьшенный вариант того же блока, не отдельный компонент)
+- [X] T035 [US4] Периодический захват кода — НЕ отдельный клиентский таймер: `onChange` редактора дебаунсится (1.5с) и уходит как `candidate_input` по control-каналу (уже существующий `sendCandidateInput`), backend пишет каждое такое сообщение в `Answer.code_snapshots` (`interview_event_service.record_candidate_input`) и пересылает live-agent через командный Redis-канал (`interview_ws.py`, `code_update`) — закрывает и «известный gap» ниже (агент видит код по мере набора, не только на finalize)
+- [X] T036 [US4] `frontend/components/interview/CodeEditorPanel.test.tsx` (vitest) — рендер редактора вместо тайлов, дебаунс-отправка кода, выбор языка при отсутствующем `stimulus.language`
 
 **Checkpoint**: все user story независимо функциональны; US4 — единственная,
 формально не блокирующая MVP (Priority P2)
 
-**Известный gap (не закрывается этим планом)**: `spec.md`, US4, Acceptance Scenario 2
-(двойная неактивность печати+голоса триггерит реактивный цикl) и Scenario 3 (устный
-вопрос вдогонку при скудном narration) — логика на стороне `live-agent`, не
-исследованная в `research.md` этой фичи (нет контракта на сигнал «печатает, но молчит» в
-`live-agent`-протокол). Требует отдельного `speckit-clarify`/дополнения `research.md`
-перед реализацией — не блокирует T033–T036 (сам редактор и захват снапшотов не зависят
-от этого триггера).
+**Известный gap — закрыт иначе, чем предполагал этот план**: `spec.md`, US4, Acceptance
+Scenario 2/3 (сигнал «печатает, но молчит», устный вопрос вдогонку) реализованы не через
+отдельный протокольный сигнал «печатает», а через `live-agent`: во время решения задачи
+(`state_machine.Phase.CODING`, отдельный `CODING_SYSTEM_PROMPT`) агент сам следит за
+бездействием (код не меняется, реплик нет) и инициирует голосовую подсказку у LLM; кандидат
+переводит вопрос в фазу объяснения голосом («я закончил» и т.п., тоже LLM-классификация, без
+кнопки на фронте). Жёсткие per-question лимиты — не более 3 подсказок во время решения и не
+более 3 доп. вопросов на фазе объяснения (`state_machine.CODING_HINT_LIMIT`/
+`CODING_FOLLOWUP_LIMIT`), отдельные от общих `adaptive_budget_remaining`/`hint_used`
+voice-вопросов. Генерация вопросов (`vacancy_question_set.txt`) может (не обязана —
+для нетехнических вакансий остаётся `voice`) сделать последний assessment-вопрос
+`format=live_coding`. Подробности — `live-agent/README.md`, раздел `format="live_coding"`.
 
 ---
 

@@ -210,6 +210,8 @@ async def get_live_input(
                 rubric_notes="",
                 difficulty=question.difficulty,
                 role=question.role,
+                format=question.format,
+                stimulus=question.stimulus,
                 estimated_duration_sec=question.estimated_duration_sec,
                 stt_terms=list(question.stt_terms or []),
             )

@@ -62,6 +62,14 @@ async def interview_control_channel(websocket: WebSocket, access_token: str) -> 
             async with SessionLocal() as session:
                 if message_type == "candidate_input":
                     await InterviewEventService(session).record_candidate_input(interview_id, message)
+                    # live_coding: помимо персистентности выше, тот же код должен доехать live-agent
+                    # вживую (specs/004-candidate-interview-flow/tasks.md, "Известный gap" US4) —
+                    # переиспользуем существующий командный канал "Дальше", не заводим новый.
+                    if message.get("input_format") == "code":
+                        await redis.publish(
+                            f"live-agent:commands:{interview_id}",
+                            json.dumps({"type": "code_update", "content": message.get("content", "")}),
+                        )
                 elif message_type == "security_signal":
                     await InterviewEventService(session).record_security_signal(interview_id, message)
             # Кнопка «Дальше» на карточке кандидата — просто просим live-agent завершить

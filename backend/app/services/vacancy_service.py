@@ -275,6 +275,7 @@ class VacancyService:
                 intent=item.intent,
                 reference_answer=item.reference_answer,
                 format=item.format,
+                stimulus=item.stimulus,
                 role=item.role,
                 difficulty=item.difficulty,
                 estimated_duration_sec=item.estimated_duration_sec,
@@ -293,7 +294,11 @@ class VacancyService:
 
     async def regenerate_question(self, vacancy_id: UUID, question_id: UUID) -> Question:
         """Перегенерирует один вопрос через LLM на замену — роль (assessment/warmup/closing),
-        id, порядок и vacancy_id не меняются, остальные поля перезаписываются ответом LLM."""
+        id, порядок и vacancy_id не меняются. `format`/`stimulus` тоже НЕ перезаписываются:
+        промпт `vacancy_question_single.txt` не знает про live_coding и всегда просит "voice" —
+        перегенерация live_coding-вопроса не должна тихо превращать его обратно в voice. Формат
+        вопроса — решение, принятое при генерации набора/вручную, а не то, что меняется
+        "заодно" при перефразировке текста. Остальные поля перезаписываются ответом LLM."""
         vacancy = await self.get_vacancy(vacancy_id)
         self._ensure_unlocked(vacancy)
 
@@ -306,7 +311,6 @@ class VacancyService:
         question.skill_tag = list(generated.skill_tag)
         question.intent = generated.intent
         question.reference_answer = generated.reference_answer
-        question.format = generated.format
         question.difficulty = generated.difficulty
         question.estimated_duration_sec = generated.estimated_duration_sec
 
@@ -493,6 +497,7 @@ class VacancyService:
                 intent=item.intent,
                 reference_answer=item.reference_answer,
                 format=item.format,
+                stimulus=item.stimulus,
                 role=item.role,
                 difficulty=item.difficulty,
                 estimated_duration_sec=item.estimated_duration_sec,

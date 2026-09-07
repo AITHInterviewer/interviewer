@@ -148,6 +148,33 @@ class InterviewerAgent(Agent):
             self._last_agent_utterance = phrase
             await session.say(phrase, add_to_chat_ctx=False)
 
+    async def receive_code_update(self, content: str) -> None:
+        """Код кандидата изменился (format="live_coding") — из `code_update` в командном
+        Redis-канале (см. `_command_loop`). Без TTS-ответа — просто синхронизация состояния
+        графа, `LiveContourEngine.update_code` сам решает, нужна ли реакция (см. таймер)."""
+        async with self._engine_lock:
+            self.engine.update_code(content)
+
+    async def request_coding_hint(self, session: AgentSession) -> None:
+        """Кандидат долго не меняет код и не говорит во время решения задачи — движок сам
+        проверит лимит подсказок (`CODING_HINT_LIMIT`) и промолчит, если он исчерпан."""
+        async with self._engine_lock:
+            phrase = await self.engine.maybe_request_coding_hint()
+        if phrase:
+            self._last_agent_utterance = phrase
+            await session.say(phrase, add_to_chat_ctx=False)
+
+    async def force_finish_coding(self, session: AgentSession, reason: str) -> None:
+        """Истекло отведённое на решение задачи время — переход к фазе объяснения (не
+        пропускаем вопрос целиком, см. `LiveContourEngine.force_finish_coding`)."""
+        # Не трогает question_index (переход внутри одного и того же вопроса) — в отличие от
+        # force_advance, _sync_stt_prompt() здесь не нужен.
+        async with self._engine_lock:
+            reply = await self.engine.force_finish_coding(reason)
+        if reply:
+            self._last_agent_utterance = reply
+            await session.say(reply, add_to_chat_ctx=False)
+
     async def llm_node(self, chat_ctx: ChatContext, tools: list, model_settings: ModelSettings):  # noqa: ARG002
         # ChatContext.messages — метод (список нужно ЗВАТЬ, `chat_ctx.messages()`), не
         # свойство — реальный найденный баг (2026-09-05): `len(chat_ctx.messages)` падал
@@ -328,15 +355,29 @@ def commands_channel_name(interview_id: str) -> str:
     return f"live-agent:commands:{interview_id}"
 
 
+# Порог "тишины" (ни новых символов кода, ни реплик) во время Phase.CODING, после которого
+# агент сам инициирует запрос на подсказку у LLM (см. _question_timer_loop ниже) — не таймаут
+# на весь вопрос (тот — estimated_duration_sec), а интервал между попытками подсказать.
+_CODING_HINT_SILENCE_SEC = 45.0
+
+
 async def _question_timer_loop(session: AgentSession, agent: InterviewerAgent) -> None:
     """Таймер отведённого на вопрос времени для обычных (assessment) вопросов. Пока кандидат
     не сказал ни слова: на половине лимита — одна подсказка (agent.maybe_nudge), по
     истечении — принудительный переход к следующему вопросу. Как только кандидат начал
-    отвечать, дальнейший ход вопроса ведёт обычный реактивный цикл (llm_node)."""
+    отвечать, дальнейший ход вопроса ведёт обычный реактивный цикл (llm_node).
+
+    Для format="live_coding" (Phase.CODING) — отдельная ветка: вместо nudge/force_advance
+    периодически (каждые _CODING_HINT_SILENCE_SEC без изменений в коде/реплик) просит у
+    движка подсказку (agent.request_coding_hint — сам проверит лимит CODING_HINT_LIMIT), а по
+    истечении общего времени на вопрос — не пропускает вопрос, а переводит к объяснению
+    (agent.force_finish_coding). Дальнейшая фаза объяснения этим таймером уже не ведётся."""
     engine = agent.engine
     tracked_index = -1
     started_at = 0.0
     nudged = advanced = False
+    last_activity_len = -1
+    last_hint_at = 0.0
     while engine.state.phase != Phase.DONE:
         await asyncio.sleep(2.0)
         st = engine.state
@@ -347,11 +388,31 @@ async def _question_timer_loop(session: AgentSession, agent: InterviewerAgent) -
             tracked_index = st.question_index
             started_at = time.monotonic()
             nudged = advanced = False
+            last_activity_len = -1
+            last_hint_at = started_at
             continue
-        if st.current.dialogue:
-            continue
+
         elapsed = time.monotonic() - started_at
         limit = engine.time_limit_sec()
+
+        if st.current.question.format == "live_coding":
+            if st.phase != Phase.CODING:
+                # Уже в фазе объяснения решения — таймер задачи здесь больше не ведёт.
+                continue
+            activity_len = len(st.current.code) + len(st.current.dialogue)
+            if activity_len != last_activity_len:
+                last_activity_len = activity_len
+                last_hint_at = time.monotonic()
+            elif time.monotonic() - last_hint_at >= _CODING_HINT_SILENCE_SEC:
+                last_hint_at = time.monotonic()
+                await agent.request_coding_hint(session)
+            if not advanced and elapsed >= limit:
+                advanced = True
+                await agent.force_finish_coding(session, reason="time_limit")
+            continue
+
+        if st.current.dialogue:
+            continue
         if not nudged and elapsed >= limit / 2:
             nudged = True
             await agent.maybe_nudge(session)
@@ -374,6 +435,11 @@ async def _command_loop(session: AgentSession, agent: InterviewerAgent, redis, i
             if cmd.get("type") == "skip":
                 logger.info("_command_loop: candidate requested next question")
                 await agent.force_advance(session, reason="candidate_skip")
+            elif cmd.get("type") == "code_update":
+                # format="live_coding" — backend пересылает сюда содержимое редактора
+                # кандидата на каждое candidate_input (см. interview_ws.py). Переход к
+                # объяснению решения — голосом (обычный llm_node), не отдельной командой.
+                await agent.receive_code_update(cmd.get("content", ""))
     finally:
         await pubsub.unsubscribe(commands_channel_name(interview_id))
         await pubsub.aclose()

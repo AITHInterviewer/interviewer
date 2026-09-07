@@ -30,6 +30,11 @@ class LiveInputQuestion(BaseModel):
     rubric_notes: str = ""
     difficulty: str
     role: str = "assessment"
+    # "voice" | "code_review_verbal" | "live_coding" — см. app/models/question.py::Question.format.
+    # live-agent переключает граф в фазу решения задачи для "live_coding".
+    format: str = "voice"
+    # Только для format="live_coding" — {"language": "..."} | None (язык не задан явно).
+    stimulus: dict | None = None
     estimated_duration_sec: int = 180
     stt_terms: list[str] = Field(default_factory=list)
 

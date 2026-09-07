@@ -41,6 +41,9 @@ class EventType(str, Enum):
     NUDGE_PLAYED = "nudge_played"
     QUESTION_COMPLETED = "question_completed"
     INTERVIEW_COMPLETED = "interview_completed"
+    # format="live_coding" (Phase.CODING) — см. state_machine._give_coding_hint/_leave_coding.
+    CODING_HINT_GIVEN = "coding_hint_given"
+    CANDIDATE_CODE_SUBMITTED = "candidate_code_submitted"
 
 
 class Event(BaseModel):

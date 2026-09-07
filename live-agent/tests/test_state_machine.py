@@ -14,10 +14,15 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from ainterviewer.events import EventLog, EventType  # noqa: E402
-from ainterviewer.llm_client import FakeLLM  # noqa: E402
-from ainterviewer.prompts import NUDGE_PHRASES  # noqa: E402
+from ainterviewer.llm_client import FakeLLM, LiveControlLLM  # noqa: E402
+from ainterviewer.prompts import EXPLAIN_SOLUTION_PHRASES, NUDGE_PHRASES  # noqa: E402
 from ainterviewer.schema import Candidate, InterviewInput, Question, Vacancy  # noqa: E402
-from ainterviewer.state_machine import LiveContourEngine, Phase  # noqa: E402
+from ainterviewer.state_machine import (  # noqa: E402
+    CODING_FOLLOWUP_LIMIT,
+    CODING_HINT_LIMIT,
+    LiveContourEngine,
+    Phase,
+)
 
 
 def make_interview(n_questions: int = 2) -> InterviewInput:
@@ -42,6 +47,49 @@ def engine(tmp_path):
     events = EventLog(tmp_path / "events.jsonl")
     interview = make_interview()
     return LiveContourEngine(interview, FakeLLM(), events)
+
+
+def make_coding_interview() -> InterviewInput:
+    """Первый вопрос — format="live_coding", второй — обычный voice, чтобы проверить и
+    саму фазу CODING, и переход дальше по интервью после неё."""
+    return InterviewInput(
+        interview_id="test-coding",
+        vacancy=Vacancy(title="Тестовая вакансия", grade="middle"),
+        candidate=Candidate(name="Тест Тестов"),
+        questions=[
+            Question(
+                id="q1",
+                text="Напишите функцию, которая переворачивает строку.",
+                intent="базовая работа со строками",
+                reference_answer="reversed()/срез [::-1]",
+                format="live_coding",
+                stimulus={"language": "python"},
+                estimated_duration_sec=600,
+            ),
+            Question(id="q2", text="Вопрос 2?", intent="проверка", reference_answer="эталон"),
+        ],
+    )
+
+
+@pytest.fixture
+def coding_engine(tmp_path):
+    events = EventLog(tmp_path / "events.jsonl")
+    interview = make_coding_interview()
+    return LiveContourEngine(interview, FakeLLM(), events)
+
+
+class RecordingLLM(LiveControlLLM):
+    """Оборачивает `FakeLLM`, только чтобы сохранить (system_prompt, turn_prompt) каждого
+    вызова — для тестов, которым нужно проверить, что именно ушло в LLM (например, что код
+    кандидата попал в промпт фазы объяснения)."""
+
+    def __init__(self):
+        self._fake = FakeLLM()
+        self.calls: list[tuple[str, str]] = []
+
+    async def decide(self, system_prompt, turn_prompt):
+        self.calls.append((system_prompt, turn_prompt))
+        return await self._fake.decide(system_prompt, turn_prompt)
 
 
 @pytest.mark.asyncio
@@ -139,3 +187,122 @@ async def test_event_log_has_matching_start_and_complete(tmp_path):
     assert types[0] == EventType.INTERVIEW_STARTED
     assert types[-1] == EventType.INTERVIEW_COMPLETED
     assert EventType.QUESTION_COMPLETED in types
+
+
+# -- format="live_coding" (Phase.CODING) ------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_start_enters_coding_phase_for_live_coding_question(coding_engine):
+    await coding_engine.start()
+    assert coding_engine.state.phase == Phase.CODING
+    assert coding_engine.state.current.question.id == "q1"
+
+
+@pytest.mark.asyncio
+async def test_coding_continue_stays_in_coding(coding_engine):
+    await coding_engine.start()
+    reply = await coding_engine.on_candidate_final_turn("хм, думаю над этим")
+    assert reply is None
+    assert coding_engine.state.phase == Phase.CODING
+    assert coding_engine.state.current.hints_used == 0
+
+
+@pytest.mark.asyncio
+async def test_coding_stuck_utterance_gives_hint(coding_engine):
+    await coding_engine.start()
+    reply = await coding_engine.on_candidate_final_turn("я застрял, не понимаю задачу")
+    assert reply is not None
+    assert coding_engine.state.phase == Phase.CODING  # подсказка не завершает решение
+    assert coding_engine.state.current.hints_used == 1
+    hint_events = [e for e in coding_engine.events.events if e.type == EventType.CODING_HINT_GIVEN]
+    assert len(hint_events) == 1
+    assert hint_events[0].payload["trigger"] == "candidate_stuck"
+
+
+@pytest.mark.asyncio
+async def test_coding_hint_limit_enforced_across_triggers(coding_engine):
+    """Голосовые подсказки и подсказки "по тишине" (maybe_request_coding_hint) делят один
+    и тот же лимит на вопрос — не два независимых по CODING_HINT_LIMIT каждый."""
+    await coding_engine.start()
+    for _ in range(CODING_HINT_LIMIT):
+        reply = await coding_engine.on_candidate_final_turn("я застрял, не понимаю")
+        assert reply is not None
+    assert coding_engine.state.current.hints_used == CODING_HINT_LIMIT
+
+    assert await coding_engine.on_candidate_final_turn("я застрял, не понимаю") is None
+    assert await coding_engine.maybe_request_coding_hint() is None
+    hint_events = [e for e in coding_engine.events.events if e.type == EventType.CODING_HINT_GIVEN]
+    assert len(hint_events) == CODING_HINT_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_coding_done_leaves_coding_phase(coding_engine):
+    await coding_engine.start()
+    coding_engine.update_code("def reverse(s): return s[::-1]")
+    reply = await coding_engine.on_candidate_final_turn("готово, я закончил")
+    assert coding_engine.state.phase != Phase.CODING
+    assert coding_engine.state.question_index == 0  # тот же вопрос — просто фаза объяснения
+    assert reply in EXPLAIN_SOLUTION_PHRASES
+    submitted = [e for e in coding_engine.events.events if e.type == EventType.CANDIDATE_CODE_SUBMITTED]
+    assert len(submitted) == 1
+    assert submitted[0].payload["content"] == "def reverse(s): return s[::-1]"
+    assert submitted[0].payload["language"] == "python"
+    assert submitted[0].payload["reason"] == "candidate_said_done"
+
+
+@pytest.mark.asyncio
+async def test_explanation_prompt_includes_candidate_code(tmp_path):
+    events = EventLog(tmp_path / "events.jsonl")
+    interview = make_coding_interview()
+    llm = RecordingLLM()
+    engine = LiveContourEngine(interview, llm, events)
+
+    await engine.start()
+    engine.update_code("def reverse(s):\n    return s[::-1]")
+    await engine.on_candidate_final_turn("готово, я закончил")  # уходим из Phase.CODING
+    await engine.on_candidate_final_turn("Развёрнутый ответ, вполне достаточный по содержанию.")
+
+    _, last_turn_prompt = llm.calls[-1]
+    assert "def reverse(s):" in last_turn_prompt
+
+
+@pytest.mark.asyncio
+async def test_coding_followup_budget_enforced(coding_engine):
+    """Фаза объяснения после live_coding — отдельный per-question лимит доп. вопросов
+    (CODING_FOLLOWUP_LIMIT), не общий adaptive_budget_remaining."""
+    await coding_engine.start()
+    await coding_engine.on_candidate_final_turn("готово, я закончил")
+    assert coding_engine.state.phase != Phase.CODING
+
+    for _ in range(CODING_FOLLOWUP_LIMIT):
+        reply = await coding_engine.on_candidate_final_turn("я не знаю")
+        assert coding_engine.state.question_index == 0
+        assert reply is not None
+    assert coding_engine.state.current.followups_used == CODING_FOLLOWUP_LIMIT
+
+    await coding_engine.on_candidate_final_turn("я не знаю")
+    assert coding_engine.state.question_index == 1  # лимит исчерпан — перешли к следующему вопросу
+
+
+@pytest.mark.asyncio
+async def test_skip_during_coding_emits_code_submitted(coding_engine):
+    await coding_engine.start()
+    coding_engine.update_code("partial solution")
+    await coding_engine.skip_current_question(reason="candidate_skip")
+    submitted = [e for e in coding_engine.events.events if e.type == EventType.CANDIDATE_CODE_SUBMITTED]
+    assert len(submitted) == 1
+    assert submitted[0].payload["content"] == "partial solution"
+    assert coding_engine.state.question_index == 1
+
+
+@pytest.mark.asyncio
+async def test_force_finish_coding_leaves_coding_not_skip(coding_engine):
+    await coding_engine.start()
+    coding_engine.update_code("some code")
+    reply = await coding_engine.force_finish_coding(reason="time_limit")
+    assert coding_engine.state.phase != Phase.CODING
+    assert coding_engine.state.question_index == 0  # не пропустили вопрос — перешли к объяснению
+    assert reply in EXPLAIN_SOLUTION_PHRASES
+    submitted = [e for e in coding_engine.events.events if e.type == EventType.CANDIDATE_CODE_SUBMITTED]
+    assert submitted[0].payload["reason"] == "time_limit"

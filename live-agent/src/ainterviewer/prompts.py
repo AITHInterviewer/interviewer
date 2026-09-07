@@ -9,6 +9,14 @@
 Из вакансии берутся только title/grade — это не "другой вопрос", а константа масштаба
 пары слов, нужная, чтобы отличить baseline-сложность от stretch (раздел 5.1: грань
 "middle+" для drill_down).
+
+Для format="live_coding" в контекст также попадает код, который кандидат написал по ЭТОМУ ЖЕ
+вопросу (`build_question_context(..., code=...)`) — это не нарушает правило выше: код —
+собственный артефакт текущего вопроса, а не чужой вопрос/история/резюме, тот же принцип, что
+уже применяется к title/grade вакансии. `CODING_SYSTEM_PROMPT`/`build_coding_prompt` — отдельная
+пара для фазы РЕШЕНИЯ задачи (`state_machine.Phase.CODING`, до перехода к объяснению): там LLM
+классифицирует не полноту ответа, а нужно ли сейчас что-то сказать кандидату, который ещё
+пишет код (см. `state_machine._handle_coding_utterance`/`maybe_request_coding_hint`).
 """
 
 from __future__ import annotations
@@ -42,12 +50,38 @@ SYSTEM_PROMPT = """\
 позже, не тобой и не сейчас.
 """
 
+# Отдельный system prompt для фазы РЕШЕНИЯ задачи (state_machine.Phase.CODING) — набор
+# допустимых решений здесь другой (нет exhaustive/ambiguous, есть coding_done), поэтому не
+# переиспользует SYSTEM_PROMPT выше. Используется и на реальную реплику кандидата
+# (_handle_coding_utterance), и на обнаруженное затишье (maybe_request_coding_hint) — во втором
+# случае turn_prompt явно поясняет, что реплики не было (см. build_coding_prompt).
+CODING_SYSTEM_PROMPT = """\
+Ты — часть live-контура ИИ-интервьюера. Кандидат сейчас решает практическую задачу в редакторе \
+кода (текст задачи и последняя версия кода — ниже). Вопрос ещё не завершён и не оценивается —\
+твоя единственная задача сейчас: понять, нужно ли что-то сказать кандидату прямо сейчас.
 
-def build_question_context(vacancy: Vacancy, question: Question) -> str:
-    """То, что попадает в промпт про сам вопрос — и ничего сверх этого."""
+Правила классификации (ровно одно из трёх):
+- continue — кандидат думает молча или рассуждает вслух, но не просит помощи и не сигналит, \
+  что закончил. Ничего не говори, utterance = null.
+- gap (gap_type=coding_hint) — кандидату нужна подсказка: либо он сам сказал, что застрял, не \
+  понимает задачу или не может её решить, либо (если ниже написано, что кандидат долго молчит и \
+  не меняет код) слишком долго не продвигается. Сформулируй ОДНУ короткую подсказку (1-2 \
+  предложения), которая подталкивает в верном направлении, но НЕ выдаёт готовое решение и не \
+  повторяет прямо эталонный ответ.
+- coding_done — кандидат явно сказал, что закончил решение и готов объяснять (например «я \
+  закончил», «готово», «можно дальше», «у меня всё»). НИКОГДА не возвращай coding_done просто \
+  из-за молчания или паузы — только если готовность прозвучала явно.
+"""
+
+
+def build_question_context(vacancy: Vacancy, question: Question, code: str | None = None) -> str:
+    """То, что попадает в промпт про сам вопрос — и ничего сверх этого. `code` — только для
+    format="live_coding" (см. докстринг модуля) — последняя известная версия кода кандидата по
+    ЭТОМУ ЖЕ вопросу."""
     gap_hint = ""
     if question.rubric_notes:
         gap_hint = f"\nМетодичка по этому вопросу (на что обращать внимание): {question.rubric_notes}"
+    code_block = f"\n\nКод, который написал кандидат по этому вопросу:\n```\n{code}\n```" if code else ""
 
     return (
         f"Вакансия: {vacancy.title} ({vacancy.grade})\n"
@@ -56,15 +90,39 @@ def build_question_context(vacancy: Vacancy, question: Question) -> str:
         f"Эталонный ответ/ключевые пункты: {question.reference_answer}"
         f"{gap_hint}\n"
         f"Сложность вопроса: {question.difficulty.value}"
+        f"{code_block}"
     )
 
 
-def build_turn_prompt(vacancy: Vacancy, question: Question, dialogue_so_far: list[str]) -> str:
+def build_turn_prompt(
+    vacancy: Vacancy, question: Question, dialogue_so_far: list[str], code: str | None = None
+) -> str:
     """dialogue_so_far — реплики кандидата ТОЛЬКО по этому вопросу, в порядке произнесения
-    (включая уже отвеченные адаптивные уточнения по нему же). Ничего из других вопросов."""
-    context = build_question_context(vacancy, question)
+    (включая уже отвеченные адаптивные уточнения по нему же). Ничего из других вопросов.
+    `code` — см. build_question_context (только для фазы объяснения после live_coding)."""
+    context = build_question_context(vacancy, question, code=code)
     transcript = "\n".join(f"- {line}" for line in dialogue_so_far) or "(кандидат ещё не начал отвечать)"
     return f"{context}\n\nЧто уже сказал кандидат по этому вопросу:\n{transcript}"
+
+
+def build_coding_prompt(
+    vacancy: Vacancy,
+    question: Question,
+    code: str,
+    dialogue_so_far: list[str],
+    silence_note: str | None = None,
+) -> str:
+    """Промпт для CODING_SYSTEM_PROMPT — реплика (или обнаруженное затишье) кандидата ВО ВРЕМЯ
+    решения задачи, до перехода к объяснению. `silence_note` — заполняется, только когда вызвано
+    не по реальной реплике, а по таймеру бездействия (`state_machine.maybe_request_coding_hint`);
+    в этом случае `dialogue_so_far` игнорируется в пользу этой пометки."""
+    context = build_question_context(vacancy, question, code=code)
+    if silence_note:
+        situation = silence_note
+    else:
+        transcript = "\n".join(f"- {line}" for line in dialogue_so_far) or "(кандидат пока молчит)"
+        situation = f"Что говорил кандидат во время решения задачи:\n{transcript}"
+    return f"{context}\n\n{situation}"
 
 
 CHECKIN_PHRASES = [
@@ -79,6 +137,13 @@ EXHAUSTIVE_TRANSITION_PHRASES = [
 ]
 
 BACKCHANNEL_PHRASES = ["Ага.", "Понял.", "Угу.", "Хорошо."]
+
+# Реплика при переходе из Phase.CODING к фазе объяснения (state_machine._leave_coding) — и по
+# голосовому coding_done, и по истечении времени на решение.
+EXPLAIN_SOLUTION_PHRASES = [
+    "Как будете готовы — расскажите, как рассуждали и к какому решению пришли.",
+    "Хорошо. Теперь расскажите, пожалуйста, как вы решали задачу и почему выбрали такой подход.",
+]
 
 # Реплика на половине отведённого на вопрос времени, когда кандидат ещё ничего не сказал —
 # мягкая попытка разговорить, не давление (раздел 2.3 архитектурного документа, «живая

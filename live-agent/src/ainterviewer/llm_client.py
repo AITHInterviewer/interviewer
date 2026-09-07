@@ -166,12 +166,13 @@ class _OpenAICompatibleLiveControlLLM(LiveControlLLM):
 Ответь СТРОГО одним JSON-объектом, без markdown-обёртки (```), без текста до или после \
 JSON, ровно с такими полями:
 {
-  "decision": "continue" | "exhaustive" | "ambiguous" | "gap",
-  "gap_type": "clarification" | "leading_hint" | "drill_down" | null,
-  "utterance": "текст реплики кандидату, или null при decision=continue/exhaustive",
+  "decision": "continue" | "exhaustive" | "ambiguous" | "gap" | "coding_done",
+  "gap_type": "clarification" | "leading_hint" | "drill_down" | "coding_hint" | null,
+  "utterance": "текст реплики кандидату, или null при decision=continue/exhaustive/coding_done",
   "reasoning": "короткое обоснование для протокола"
 }
-gap_type обязателен (не null), только если decision="gap"."""
+gap_type обязателен (не null), только если decision="gap". "coding_done"/gap_type="coding_hint" —
+только в фазе решения задачи (CODING_SYSTEM_PROMPT), обычный реактивный цикл их не использует."""
 
     def __init__(self, model: str, api_key: str):
         self.model = model
@@ -293,6 +294,11 @@ class FakeLLM(LiveControlLLM):
             if line.startswith("- "):
                 last_line = line[2:].strip().lower()
 
+        # CODING_SYSTEM_PROMPT (Phase.CODING, см. state_machine.py) содержит "coding_done" —
+        # набор допустимых решений там другой (rule 6 CLAUDE.md: держать FakeLLM в синхроне).
+        if "coding_done" in system_prompt:
+            return self._decide_coding(last_line)
+
         if not last_line or last_line.endswith("...") or last_line.endswith(","):
             return LiveControlDecision(decision=Decision.CONTINUE, reasoning="fake: похоже на незаконченную мысль")
 
@@ -312,3 +318,29 @@ class FakeLLM(LiveControlLLM):
             )
 
         return LiveControlDecision(decision=Decision.EXHAUSTIVE, reasoning="fake: ответ выглядит полным")
+
+    def _decide_coding(self, last_line: str) -> LiveControlDecision:
+        """Ветка Phase.CODING (см. decide() выше) — та же идея: простые ключевые слова, не
+        реальное понимание речи, чтобы сценарии оставались предсказуемыми."""
+        if not last_line:
+            # Нет реплики вовсе — это вызов по тишине (maybe_request_coding_hint) либо
+            # обрывок мысли; для предсказуемости FakeLLM всегда предлагает подсказку на тишину.
+            return LiveControlDecision(
+                decision=Decision.GAP,
+                gap_type=GapType.CODING_HINT,
+                utterance="Попробуйте начать с самого простого случая и посмотреть, что не так.",
+                reasoning="fake: кандидат молчит",
+            )
+
+        if any(word in last_line for word in ("готов", "закончил", "закончила", "можно дальше", "у меня всё")):
+            return LiveControlDecision(decision=Decision.CODING_DONE, reasoning="fake: кандидат сказал, что готов")
+
+        if any(word in last_line for word in ("не могу", "застрял", "застряла", "сложно", "не понимаю")):
+            return LiveControlDecision(
+                decision=Decision.GAP,
+                gap_type=GapType.CODING_HINT,
+                utterance="Попробуйте разбить задачу на более мелкие шаги — с чего бы вы начали?",
+                reasoning="fake: кандидат сказал, что затрудняется",
+            )
+
+        return LiveControlDecision(decision=Decision.CONTINUE, reasoning="fake: кандидат просто думает вслух")

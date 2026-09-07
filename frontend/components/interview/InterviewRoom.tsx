@@ -6,21 +6,23 @@ import { ChevronLeft, ChevronRight, Check, Camera, Mic, Volume2, MoreVertical } 
 
 import { Button } from "@/components/ui/button";
 import { apiFetch, resolveLiveKitWsUrl } from "@/lib/api";
-import { ControlChannel, type ChannelState, type SubtitleLine } from "@/lib/control-channel";
+import { ControlChannel, type ChannelState, type InputFormat, type SubtitleLine } from "@/lib/control-channel";
 import { LiveKitSession, type AgentPresence } from "@/lib/livekit-client";
 import { InterviewerOrb } from "@/components/interview/InterviewerOrb";
+import { CodeEditorPanel } from "./CodeEditorPanel";
 
 type LiveKitTokenResponse = { token: string; room_name: string; ws_url: string; expires_at: string };
 
 /**
- * US2/US3 (specs/004-candidate-interview-flow) — видеозвонок-подобный экран интервью.
+ * US2/US3/US4 (specs/004-candidate-interview-flow) — видеозвонок-подобный экран интервью,
+ * переключающийся в редактор кода для `format=live_coding` (`input_format="code"`, US4).
  * Единственные источники того, что показывать: `ControlChannel` (текст вопроса/фаза,
  * FR-008/FR-009/FR-011 — никакой локальной логики переходов здесь) и `LiveKitSession`
  * (только присутствие/озвучка агента, FR-012 — медиа отдельно от control-трафика).
  *
- * Answer-upload (`MediaRecorder` по вопросам) и live_coding-редактор — не реализованы в
- * этой итерации (см. tasks.md, T020/T021, T033-T036) — вакансия/вопросы для первого
- * сквозного прогона захардкожены на стороне live-agent, все вопросы формата `voice`.
+ * Answer-upload (`MediaRecorder` по вопросам) — не реализован в этой итерации (см. tasks.md,
+ * T020/T021) — вакансия/вопросы для первого сквозного прогона захардкожены на стороне
+ * live-agent.
  */
 export function InterviewRoom({
   sessionId,
@@ -73,6 +75,14 @@ export function InterviewRoom({
   // не заменяет основной.
   const [baseQuestionText, setBaseQuestionText] = useState<string | null>(initialQuestionText ?? null);
   const [lastBaseQuestionEvent, setLastBaseQuestionEvent] = useState<unknown>(null);
+  // US4 (live_coding) — тот же ControlEvent.type==="question" уже несёт input_format/
+  // code_language (control-channel.ts), просто раньше никуда не читались. questionId нужен
+  // для CandidateInput.question_id при отправке кода (см. CodeEditorPanel).
+  const [answerInput, setAnswerInput] = useState<{
+    questionId: string;
+    format: InputFormat;
+    language: string | null;
+  } | null>(null);
   // Таймер отведённого на вопрос времени (US: «таймер отведённого времени на вопрос»).
   // Дедлайн — абсолютный момент времени, выставляется при получении ControlEvent.type==="question"
   // из его time_limit_sec; сам обратный отсчёт тикает от `now`. Это только индикатор для
@@ -142,6 +152,15 @@ export function InterviewRoom({
     const startMs = Date.parse(channelState.event.ts);
     setQuestionTimer(limit && Number.isFinite(startMs) ? { startMs, limitSec: limit } : null);
     setNextSent(false);
+    setAnswerInput(
+      channelState.event.question_id
+        ? {
+            questionId: channelState.event.question_id,
+            format: channelState.event.input_format,
+            language: channelState.event.code_language ?? null,
+          }
+        : null,
+    );
   }
   // Доп./наводящий вопрос от LLM — не персистентный, не двигает baseQuestionText, просто
   // текущее значение канала, пока оно активно.
@@ -261,18 +280,32 @@ export function InterviewRoom({
     );
   }
 
+  const isCoding = answerInput?.format === "code";
+
   return (
     <div className="relative">
-      {/* Ячейка вопроса — тот же .setup-stage, что и на экране "Устройства" (тот же размер
-          и вид карточки). Камера кандидата и плашка интервьюера здесь не участвуют в этой
-          ширине вовсе — на десктопе они прижаты прямо к правому краю страницы. */}
-      <section className="setup-stage mt-8 flex flex-col items-center justify-center gap-4 text-center">
-        <p className="interview-question">
-          {baseQuestionText ?? "Подключаемся к интервью…"}
-        </p>
-        {followUpText ? <p className="question-followup">{followUpText}</p> : null}
-        <StatusLine channelState={channelState} />
-      </section>
+      {/* US4: format=live_coding — редактор кода вместо карточки вопроса, видео-плитки
+          сворачиваются в угол (см. ниже), запись/LiveKit-соединение не меняются. */}
+      {isCoding && answerInput && channelRef.current ? (
+        <CodeEditorPanel
+          questionId={answerInput.questionId}
+          questionText={baseQuestionText ?? ""}
+          language={answerInput.language}
+          channel={channelRef.current}
+          agentSubtitle={subtitlesOn ? subtitles.agent : null}
+          followUpText={followUpText}
+          agentPresence={agentPresence}
+        />
+      ) : (
+        // Ячейка вопроса — тот же .setup-stage, что и на экране "Устройства" (тот же размер
+        // и вид карточки). Камера кандидата и плашка интервьюера здесь не участвуют в этой
+        // ширине вовсе — на десктопе они прижаты прямо к правому краю страницы.
+        <section className="setup-stage mt-8 flex flex-col items-center justify-center gap-4 text-center">
+          <p className="interview-question">{baseQuestionText ?? "Подключаемся к интервью…"}</p>
+          {followUpText ? <p className="question-followup">{followUpText}</p> : null}
+          <StatusLine channelState={channelState} />
+        </section>
+      )}
 
       {/* Субтитры (зеркало произнесённого — выключаются кнопкой снизу слева) и под ними
           таймер отведённого на вопрос времени — единой колонкой над нижними кнопками. */}
@@ -350,7 +383,13 @@ export function InterviewRoom({
         </ol>
       )}
 
-      <div className="mt-6 space-y-3 sm:fixed sm:right-6 sm:top-1/2 sm:mt-0 sm:w-[220px] sm:-translate-y-1/2">
+      <div
+        className={
+          isCoding
+            ? "mt-6 space-y-2 sm:fixed sm:bottom-24 sm:right-6 sm:mt-0 sm:w-[130px]"
+            : "mt-6 space-y-3 sm:fixed sm:right-6 sm:top-1/2 sm:mt-0 sm:w-[220px] sm:-translate-y-1/2"
+        }
+      >
         {/* relative-обёртка снаружи overflow-hidden-плитки видео — иначе всплывающее
             меню DeviceSettings обрезается границами плитки (overflow-hidden), даже
             будучи абсолютно спозиционированным поверх неё. */}

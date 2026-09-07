@@ -97,6 +97,32 @@ stateDiagram-v2
 Подробности каждой ветки — раздел 2.3.1 архитектурного документа; в коде — те же имена
 (`Decision`, `GapType` в `schema.py`).
 
+### `format="live_coding"` — фаза решения задачи
+
+Диаграмма выше — обычный voice-вопрос. Для вопроса с `Question.format == "live_coding"`
+`_enter_question()` уходит не в `Listening`, а в отдельную `Phase.CODING`: кандидат решает
+задачу в редакторе кода на фронте, а не отвечает голосом сразу. У этой фазы свой system
+prompt (`prompts.CODING_SYSTEM_PROMPT`) и свой, более узкий набор решений LLM —
+`continue` (кандидат думает, ничего не говорим), `gap`/`gap_type=coding_hint` (кандидат сам
+сказал, что застрял, либо надолго замолчал и не меняет код — LLM формулирует содержательную
+подсказку) и `coding_done` (кандидат явно сказал, что готов объяснять решение — «я закончил»,
+«готово» и т.п.; переход голосом, без отдельной кнопки). Обнаруживает затишье и просит у LLM
+подсказку сам `agent.py` (`_question_timer_loop`), опрашивая `code`/`dialogue` на изменения.
+
+Код кандидата доезжает до live-agent через уже существующий командный Redis-канал
+(`live-agent:commands:{interview_id}`, тот же, что и кнопка «Дальше») — backend публикует
+`{"type": "code_update", "content": ...}` на каждый `candidate_input` с `input_format=code`
+(см. `interview_ws.py`); `LiveContourEngine.update_code()` просто держит последнюю версию.
+
+По голосовому `coding_done` или по истечении `estimated_duration_sec` (`force_finish_coding`)
+движок переходит из `Phase.CODING` к фазе объяснения на том же вопросе — дальше это обычный
+реактивный цикл (`on_candidate_final_turn`, основной `SYSTEM_PROMPT`), которому в контекст
+дополнительно попадает написанный код (это код ЭТОГО ЖЕ вопроса, не нарушает правило
+«контекст только текущий вопрос» — см. ниже). У обеих фаз этого вопроса — свои жёсткие
+per-question лимиты, отдельные от общих `adaptive_budget_remaining`/`hint_used` voice-вопросов:
+не более `CODING_HINT_LIMIT` (3) подсказок во время решения и не более `CODING_FOLLOWUP_LIMIT`
+(3) доп. вопросов на фазе объяснения (`state_machine.py`).
+
 ## Почему граф — код, а не LLM с тулами
 
 Открытый вопрос из постановки задачи: нужны ли агенту тулы (`next_question`, тулы для
@@ -114,7 +140,10 @@ function calling.
 полностью сбрасывается в `_enter_question()` при переходе дальше. `prompts.py` не кладёт
 в промпт ни другие вопросы вакансии, ни резюме кандидата, ни историю прошлых вопросов —
 всё это зарезервировано под batch-контур и под будущие `contradiction_check`/
-`resume_inspired` (сознательно не реализованы, см. `schema.GapType`).
+`resume_inspired` (сознательно не реализованы, см. `schema.GapType`). Исключение того же
+духа, не нарушающее правило: для `format="live_coding"` в промпт фазы объяснения попадает
+код, который кандидат написал по ЭТОМУ ЖЕ вопросу (`QuestionRunState.code`) — это его
+собственный артефакт, а не чужой вопрос/история/резюме.
 
 ## Инструменты
 
@@ -178,7 +207,11 @@ python -m ainterviewer.agent console      # локальный голосово�
 `live-agent:events` для durable backend-потребителя. Типы:
 `interview_started`, `question_started`, `backchannel_played`, `candidate_utterance`,
 `live_control_decision`, `agent_utterance`, `adaptive_question_asked`, `checkin_used`,
-`question_completed`, `interview_completed`. Формат намеренно сырой (черновой ASR, не
+`nudge_played`, `question_completed`, `interview_completed`, а для `format="live_coding"`
+дополнительно `coding_hint_given` (подсказка во время решения задачи, с полями `trigger` —
+`candidate_stuck`/`silence` — и `hints_remaining`) и `candidate_code_submitted` (последняя
+версия кода на момент выхода из `Phase.CODING` — по голосовому `coding_done`, по истечении
+времени или по пропуску вопроса, поле `reason`). Формат намеренно сырой (черновой ASR, не
 точная оценка) — вход для batch-контура, которого пока нет.
 
 ## Быстрая проверка TTS
