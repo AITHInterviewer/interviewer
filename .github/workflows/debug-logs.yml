@@ -22,6 +22,18 @@ on:
         description: "Прогнать разбор описания вакансии и сборку вопросов боевой моделью ('true' чтобы включить)"
         required: false
         default: "false"
+      delete_vacancy_id:
+        description: "UUID вакансии для точечного удаления (пусто — ничего не удалять)"
+        required: false
+        default: ""
+      delete_vacancy_title:
+        description: "Ожидаемое название вакансии без грейда — защита от неверного UUID"
+        required: false
+        default: ""
+      delete_vacancy_grade:
+        description: "Ожидаемый grade — дополнительная защита от неверного UUID"
+        required: false
+        default: ""
 
 jobs:
   logs:
@@ -88,6 +100,66 @@ jobs:
             "select interview_id, status, attempts, last_error from evaluation_job order by created_at desc limit 10;"
           echo "--- backend: последние строки alembic при старте ---"
           docker compose "${main[@]}" logs --no-color backend 2>&1 | grep -iE "alembic|revision|running upgrade|target database|FAILED|ERROR" | tail -30
+
+      - name: Delete one verified vacancy without interviews
+        if: ${{ github.event.inputs.delete_vacancy_id != '' }}
+        env:
+          TARGET_VACANCY_ID: ${{ github.event.inputs.delete_vacancy_id }}
+          EXPECTED_VACANCY_TITLE: ${{ github.event.inputs.delete_vacancy_title }}
+          EXPECTED_VACANCY_GRADE: ${{ github.event.inputs.delete_vacancy_grade }}
+        run: |
+          set -euo pipefail
+          main=(--project-directory . -f docker-compose.dev.yml -f infra/docker-compose.yml -f docker-compose.vps.yml)
+
+          docker compose "${main[@]}" exec -T postgres \
+            psql -U ainterviewer -d ainterviewer -X \
+              -v ON_ERROR_STOP=1 \
+              -v target_id="$TARGET_VACANCY_ID" \
+              -v expected_title="$EXPECTED_VACANCY_TITLE" \
+              -v expected_grade="$EXPECTED_VACANCY_GRADE" <<'SQL'
+          BEGIN;
+
+          SELECT EXISTS (
+            SELECT 1
+            FROM vacancy
+            WHERE id = :'target_id'::uuid
+              AND title = :'expected_title'
+              AND grade = :'expected_grade'
+          ) AS vacancy_matches \gset
+          \if :vacancy_matches
+          \else
+            \echo 'Vacancy id/title/grade did not match; nothing was deleted.'
+            \quit 3
+          \endif
+
+          SELECT NOT EXISTS (
+            SELECT 1 FROM interview WHERE vacancy_id = :'target_id'::uuid
+          ) AS has_no_interviews \gset
+          \if :has_no_interviews
+          \else
+            \echo 'Vacancy has interviews; refusing to delete it.'
+            \quit 4
+          \endif
+
+          DELETE FROM question WHERE vacancy_id = :'target_id'::uuid;
+          DELETE FROM rubric_version WHERE vacancy_id = :'target_id'::uuid;
+          DELETE FROM vacancy
+          WHERE id = :'target_id'::uuid
+            AND title = :'expected_title'
+            AND grade = :'expected_grade';
+
+          COMMIT;
+
+          SELECT NOT EXISTS (
+            SELECT 1 FROM vacancy WHERE id = :'target_id'::uuid
+          ) AS vacancy_deleted \gset
+          \if :vacancy_deleted
+            \echo 'Verified vacancy deleted.'
+          \else
+            \echo 'Vacancy still exists after deletion attempt.'
+            \quit 5
+          \endif
+          SQL
 
       # Голос и распознавание переехали в OpenRouter (docs/infra/vps-openrouter-migration.md),
       # и «агент молчит» отличается от «агент не слышит» только тем, какая из двух облачных
